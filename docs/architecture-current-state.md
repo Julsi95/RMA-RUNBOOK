@@ -45,7 +45,7 @@ The mock/browser data is not a production migration source. Backend setup should
 | `/work-schedule` Work schedule | `src/features/inbound/WorkSchedulePage.jsx` | Same `starter-app-inbound-schedule-v1`, plus `starter-app-work-schedule-periods-v1` for flexible date spans and `starter-app-work-schedule-history-v1` for preview/edit/restore-to-cards/delete history. Work hours can be 9–6, 10–7, or custom. | References same employee roster. History is local/page-specific and has no actor identity or centralized audit. |
 | `/vl-credits` VL Credits | `src/features/vl/VlCreditsPage.jsx` | `starter-app-vl-credits-v1`; month-keyed employee credit values, updated date, role/photo/name snapshots. Add/edit/delete; value can be numeric or status such as probationary. No finalized computation formula. | Employee identity should reference central employee record; preserve month-specific value snapshots as required. |
 | `/app-links` App / Links | `src/features/links/AppLinksPage.jsx` | `starter-app-app-links-v1`; grouped link cards with URL, application, description. Add/edit/delete; favicon can be fetched from target URL. | Persist links and group/order metadata. External favicon fetch is presentation behavior, not core record data. |
-| `/admin/qa-parameters` QA Parameters | `src/features/qa/QaParametersPage.jsx` | `starter-app-qa-parameters-v1`; sample criteria with TCR/TCP values. Add/edit/delete/reorder/search; calculates displayed performance. | Currently independent from Monthly KPI and call reviews. The meaning/relationship of TCR/TCP needs product confirmation before schema decisions. |
+| `/admin/qa-parameters` QA Parameters | `src/features/qa/QaParametersPage.jsx` | `starter-app-qa-parameters-v1`; sample criteria with TCR/TCP values. Add/edit/delete/reorder/search; calculates displayed performance. | Keep it independent from Monthly KPI and call reviews, as confirmed after audit. |
 | `/agent-profiles` Agent profiles | `src/features/agents/AgentProfilesPage.jsx` | `starter-app-agent-profiles-v1`, `starter-app-agent-profile-fields-v1`; profiles keyed by employee ID, birthdays, hire dates, personality, summary, custom fields. Upcoming and recent-ended birthday views. | Profile extends employee record; profile photo is currently on roster. Birthday/hire date and custom fields should be persistent and reference employee. |
 | `/kpi-qa` Monthly KPI / QA | `src/features/kpi/KpiQaPage.jsx`, `kpi-data.js`, `import-utils.js` | `starter-app-monthly-kpi-v1`; six months of synthetic sample data on fresh storage. Month selection, per-person results, manual entry, CSV/XLSX import/template, charts/comparison/rankings. Records contain monthly raw/equivalent/weighted/percent values and employee display snapshots. | Monthly rows reference employee IDs. Store the result snapshot and scoring-rule version so old month reviews remain consistent. |
 | `/admin/kpi-scoring` KPI scoring settings | `src/features/kpi/KpiScoringSettingsPage.jsx`, `kpi-data.js` | `starter-app-kpi-scoring-settings-v1`; weights, manual or raw-value formula, direction, anchors, evaluation bands. Edit/save. Used by KPI scoring helpers. | Versioned immutable rules; month/result points to the rule version used. Settings edits must not mutate past results. |
@@ -141,7 +141,7 @@ This is an entity map, not an approved schema. Current frontend object shapes sh
 | `work_schedule_periods` + `work_schedule_assignments` | Work-hour schedule for a date span, independent entity even though current local pages share a storage object. Schedule template/snapshot supports preview/edit. |
 | `vl_credit_entries` | Month and employee credit/status values; formula remains open pending actual source computation. |
 | `app_links` (and optional groups) | Editable link/application cards and ordering. |
-| `qa_criteria` | Current QA criteria and TCR/TCP attributes. Relationship to review results remains unresolved. |
+| `qa_criteria` | Current QA criteria and TCR/TCP attributes, stored independently from Monthly KPI and call reviews. |
 | `employee_profiles` + `profile_field_definitions` | Birthday/hire date/personality/summary and configurable profile fields. Could merge basic fields into `employees`; flexible custom fields may use JSONB or definitions + values depending query needs. |
 | `kpi_scoring_versions` | Immutable weights/method/anchors/evaluation bands with version metadata. |
 | `kpi_months` + `kpi_results` | Monthly cohort/metadata and per-employee metrics/results; result stores computed snapshot and FK to scoring version. Preserve imported/manual source metadata as appropriate. |
@@ -188,23 +188,39 @@ Useful official references:
 
 Create small realistic sample rows through migrations/seed scripts after schema approval. Sample employees should be ordinary employee records and should drive the same relationships used by schedules, profiles, projects, KPI and seat plans. Seed only enough records to make each page useful; mark them clearly as demo data if they may appear in production. Do not import the current browser's locally edited mock records.
 
-## 11. Risks, inconsistencies, and open design points
+## 11. Decisions confirmed after the audit
+
+### QA Parameters
+
+Keep QA Parameters as its own criteria/configuration feature for now. It currently contains editable criteria and TCR/TCP values but does not feed individual call reviews or Monthly KPI. Do not create a relationship to those modules unless a later requirement explicitly connects them.
+
+### Agent profile visibility
+
+Add an editor-only **Hide info / Profile visibility** control in the Agent Profiles page. The editor chooses which fields are visible to public visitors for each employee profile. The control should cover the current profile fields (birthday, hire date, personality, summary, photo, and custom fields); name and role can remain public identity fields unless the editor chooses otherwise. Editors remain able to see and edit all fields.
+
+Store visibility with the profile/field configuration so it persists. Hidden values must be omitted from anonymous/public reads at the database or trusted data-access boundary. Do not send private values to the browser and merely hide them with CSS or frontend conditions. Authenticated editors can read all fields under the editor policy. This is a presentation/privacy setting, not a replacement for database authorization.
+
+The editor control should be understandable and reversible: a per-profile dropdown/popover with explicit visible/hidden choices and a clear save state. Custom profile fields should have the same visibility option. A global “apply to all profiles” option can be considered later; initial behavior should be per profile to avoid unexpectedly hiding information across the team. Recommended initial defaults: name, role, and profile photo visible; birthday, hire date, personality, summary, and custom fields hidden until the editor chooses to show them.
+
+### Schedule history and central History
+
+Keep the Work Schedule page's detailed schedule history because it supports date-specific preview, editing, restore-to-cards, and deletion. Each important schedule create/edit/delete/restore should also create a central History event. The event should link to the schedule period/revision and identify the affected date range. Restoring through the schedule page restores that saved revision; the central History timeline may link to that page/revision. Do not create two independent copies of the schedule payload.
+
+## 12. Risks and remaining design points
 
 1. **Roster deletion:** many pages reference employee IDs and some copy display snapshots. Define soft delete, dependent-data retention, and restoration transaction before implementation.
 2. **KPI versioning:** current rules can affect old periods; pin versions and store calculated snapshots.
-3. **QA Parameters semantics:** separate feature today; define if it is a criteria library, QA scorecard template, or source for call-level/monthly QA before creating relationship tables.
-4. **Call/work schedules:** two distinct user workflows share one local key. Split into conceptual backend entities while preserving familiar UI.
-5. **Schedule history vs central History:** work schedule has preview/edit/restore/delete history. Decide whether that feature remains a module-specific schedule snapshot list backed by shared revision records, while important mutations also create central History events.
-6. **Dashboard layout storage:** flexible drag-resize properties may be stored in a revision JSON document, but search, concurrent edit and responsive layout requirements may favor normalized child rows. Decide based on current object schema and access patterns.
-7. **Draft ownership:** current app has one browser draft. With one initial editor, one shared draft is simplest; later multi-editor support may need per-editor drafts or optimistic locking.
-8. **Image visibility:** user-facing dashboard images may need public read; profile images may be public as the site is public. Confirm before choosing public/private buckets.
-9. **Birthday/private employee data:** public spectating implies birthdays, hire dates and personality details might be exposed. Decide which profile fields are public before RLS policies; database security should default to least exposure.
-10. **File retention:** Storage cleanup must coordinate with recoverable records and deleted employees.
-11. **Import behavior:** CSV/XLSX parsing occurs in-browser today. Decide file size limits, validation, error report and whether original imports are retained.
-12. **Bundle size:** build has a >500 kB chunk warning. Measure before backend work; consider lazy loading XLSX on import rather than changing behavior during this audit.
-13. **No central reactive cache:** multiple open pages/tabs may show stale roster state until remount/reload. A data client/cache should define invalidation after backend mutations.
+3. **Call/work schedules:** two distinct user workflows share one local key. Split into conceptual backend entities while preserving familiar UI.
+4. **Dashboard layout storage:** flexible drag-resize properties may be stored in a revision JSON document, but search, concurrent edit and responsive layout requirements may favor normalized child rows. Decide based on current object schema and access patterns.
+5. **Draft ownership:** current app has one browser draft. With one initial editor, one shared draft is simplest; later multi-editor support may need per-editor drafts or optimistic locking.
+6. **Image visibility:** user-facing dashboard images may need public read; confirm before choosing public/private buckets.
+7. **Profile visibility implementation:** per-employee field visibility is agreed. Use the recommended initial defaults above; verify public reads exclude hidden values.
+8. **File retention:** Storage cleanup must coordinate with recoverable records and deleted employees.
+9. **Import behavior:** CSV/XLSX parsing occurs in-browser today. Decide file size limits, validation, error report and whether original imports are retained.
+10. **Bundle size:** build has a >500 kB chunk warning. Measure before backend work; consider lazy loading XLSX on import rather than changing behavior during this audit.
+11. **No central reactive cache:** multiple open pages/tabs may show stale roster state until remount/reload. A data client/cache should define invalidation after backend mutations.
 
-## 12. Explicitly not implemented
+## 13. Explicitly not implemented
 
 - Supabase JS client or API/data layer
 - Database schema, migrations, RLS/grants, RPCs, Edge Functions
@@ -217,7 +233,7 @@ Create small realistic sample rows through migrations/seed scripts after schema 
 
 These are future work after the user approves the architecture.
 
-## 13. Suggested implementation order after approval
+## 14. Suggested implementation order after approval
 
 1. Confirm schema semantics/open questions and public profile field policy.
 2. Create Supabase project/configuration and initial migrations/seeds, keeping secrets out of client.
@@ -228,6 +244,6 @@ These are future work after the user approves the architecture.
 7. Implement immutable KPI rule versions and month result snapshots.
 8. Verify public read, authenticated CRUD, recovery, file access, and Vercel direct-route behavior before release.
 
-## 14. Audit sources
+## 15. Audit sources
 
 The audit reviewed the route table, app shell/theme, page components, feature data helpers, local storage access, sample defaults, and package scripts/dependencies under `src/`, `package.json`, `.env.example`, and `vercel.json`. Exact current source behavior should be rechecked as implementation proceeds; this document is an architectural handoff, not a replacement for source code.

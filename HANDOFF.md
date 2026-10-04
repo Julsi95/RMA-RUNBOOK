@@ -97,6 +97,9 @@ Additional known limitations:
 9. Create useful seed/sample database rows. Do not migrate current browser mock data as production data.
 10. Monthly KPI results stay historically consistent when scoring settings change. Use immutable/versioned rule sets and link each saved month/result to its rule version and stored computed values. Any deliberate rescore should create a new revision while retaining the prior one.
 11. The current frontend is the behavior baseline for audit. Do not redesign/refactor during the audit; architectural improvements are recommendations until approved.
+12. Keep QA Parameters as an independent criteria/configuration feature; do not connect it to Monthly KPI or call reviews without a later requirement.
+13. Add an editor-only per-profile visibility control in Agent Profiles. Editors choose which profile fields public visitors can see. Hidden values must be excluded from public database reads, not merely hidden in the UI; editors can still see/edit all values. Recommended defaults: name, role, and profile photo visible; birthday, hire date, personality, summary, and custom fields hidden until enabled by an editor.
+14. Keep detailed schedule snapshots/history in Work Schedule for preview/edit/restore/delete. Important schedule changes also create central History events linked to the relevant schedule revision; do not duplicate the full schedule payload in two history systems.
 
 ## Proposed architecture for discussion (not implemented)
 
@@ -105,6 +108,7 @@ See [`docs/architecture-current-state.md`](docs/architecture-current-state.md) f
 ## Before backend implementation
 
 - Confirm the architecture in `docs/architecture-current-state.md` with the user.
-- Confirm any remaining product semantics (especially QA Parameters meaning and exact employee restore scope) before schema/migrations.
+- Implement the confirmed QA Parameters, profile visibility, and schedule History decisions in the proposed architecture.
+- Confirm remaining details (especially initial visibility defaults and exact employee restore scope) before schema/migrations.
 - Keep this frontend baseline commit/tag intact for rollback.
 - Implement backend incrementally only after approval; maintain the current routes and public-view/editor model.
