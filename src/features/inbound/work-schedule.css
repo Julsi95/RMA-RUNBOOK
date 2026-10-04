@@ -1,0 +1,159 @@
+.work-schedule-page { gap: 22px; }
+.work-page-heading { display: flex; align-items: end; justify-content: space-between; gap: 18px; }
+.work-page-heading > div:first-child { display: grid; gap: 7px; }
+.work-page-heading h1 { margin: 0; }
+.work-page-heading p:not(.eyebrow) { margin: 0; color: var(--muted-foreground); font-size: 13px; }
+.work-heading-actions { display: flex; align-items: center; gap: 13px; }
+.work-live-status { display: inline-flex; align-items: center; gap: 7px; color: var(--muted-foreground); font-size: 11px; white-space: nowrap; }
+.work-live-status i, .work-saved-dot, .work-unsaved-dot { width: 7px; height: 7px; border-radius: 50%; background: #25a56a; }
+.work-unsaved-dot { background: #d49a26; }
+.work-control-panel { display: grid; grid-template-columns: minmax(175px, .8fr) minmax(190px, .9fr) minmax(260px, 1.15fr) minmax(210px, 1fr); align-items: end; gap: 15px; padding: 19px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+.work-date-control, .work-zone-control { display: grid; min-width: 0; gap: 7px; color: var(--muted-foreground); font-size: 11px; }
+.work-date-control > span { display: flex; align-items: center; gap: 7px; }
+.work-date-control input, .work-employee-dialog input, .work-employee-dialog select, .work-time-fields input { width: 100%; min-width: 0; min-height: 42px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; outline: none; background: var(--background); color: var(--foreground); font: inherit; font-size: 13px; }
+.work-date-control input:focus, .work-employee-dialog input:focus, .work-employee-dialog select:focus, .work-time-fields input:focus { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 22%, transparent); }
+.work-zone-control .ui-select-trigger { width: 100%; min-height: 42px; background: var(--background); color: var(--foreground); font-size: 12px; }
+.work-date-summary { display: grid; min-height: 64px; align-content: center; gap: 5px; padding: 9px 13px; border: 1px solid var(--border); border-radius: 9px; background: var(--background); }
+.work-date-summary span { font-size: 12px; font-weight: 600; }
+.work-date-summary strong { color: var(--muted-foreground); font-size: 11px; font-weight: 500; }
+.work-period-picker { display: grid; grid-template-columns: minmax(225px, 1fr) minmax(145px, 180px) auto minmax(145px, 180px) auto; align-items: end; gap: 12px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.work-period-copy { display: flex; min-width: 0; align-items: center; gap: 10px; padding-bottom: 3px; }
+.work-period-copy .work-section-icon { width: 37px; height: 37px; }
+.work-period-copy > div { display: grid; gap: 4px; }
+.work-period-copy strong { font-size: 12px; font-weight: 620; }
+.work-period-copy span:not(.work-section-icon) { color: var(--muted-foreground); font-size: 10px; line-height: 1.45; }
+.work-period-picker > label { display: grid; min-width: 0; gap: 6px; color: var(--muted-foreground); font-size: 11px; }
+.work-period-picker input { width: 100%; min-width: 0; min-height: 40px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; outline: none; background: var(--background); color: var(--foreground); font: inherit; font-size: 12px; }
+.work-period-picker input:focus { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 22%, transparent); }
+.work-period-to { align-self: center; padding-top: 16px; color: var(--muted-foreground); font-size: 11px; }
+.work-period-length { align-self: center; padding: 8px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--background); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.work-period-length.invalid { border-color: #b84747; color: #e07373; }
+.work-schedule-panel { min-width: 0; padding: 22px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+.work-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-bottom: 18px; border-bottom: 1px solid var(--border); }
+.work-section-title { display: flex; min-width: 0; align-items: center; gap: 12px; }
+.work-section-icon { display: grid; width: 42px; height: 42px; flex: 0 0 auto; place-items: center; border: 1px solid var(--border); border-radius: 11px; background: var(--background); }
+.work-section-kicker { margin: 0 0 4px; color: var(--muted-foreground); font-size: 10px; font-weight: 650; letter-spacing: .1em; }
+.work-section-title h2 { margin: 0; font-size: 19px; font-weight: 620; letter-spacing: -.025em; }
+.work-section-title p:not(.work-section-kicker) { margin: 5px 0 0; color: var(--muted-foreground); font-size: 12px; }
+.work-section-state { display: inline-flex; max-width: 38%; align-items: center; gap: 7px; color: var(--muted-foreground); font-size: 11px; text-align: right; }
+.work-history-view-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--background); }
+.work-history-view-banner > div { display: flex; align-items: center; gap: 8px; color: var(--muted-foreground); font-size: 11px; }
+.work-history-view-banner button { min-height: 34px; white-space: nowrap; }
+.work-history-banner-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; }
+.work-history-edit-banner { border-color: color-mix(in srgb, #d49a26 45%, var(--border)); }
+.work-tools-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 0; }
+.work-preset-group { display: inline-flex; min-height: 42px; align-items: center; gap: 3px; padding: 4px; border: 1px solid var(--border); border-radius: 9px; background: var(--background); }
+.work-preset-group button { min-height: 32px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: var(--muted-foreground); font-size: 12px; font-weight: 550; white-space: nowrap; }
+.work-preset-group button.active { background: var(--foreground); color: var(--background); }
+.work-preset-group button.work-custom-button { border-left: 1px solid var(--border); border-radius: 0 6px 6px 0; }
+.work-save-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.work-save-actions button { min-height: 38px; white-space: nowrap; }
+.work-roster-tools { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 13px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--background); }
+.work-roster-tools > div:first-child { display: block; color: var(--muted-foreground); font-size: 12px; }
+.work-roster-overview { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 18px; }
+.work-roster-count { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.work-roster-preview-date { display: grid; min-width: 0; grid-template-columns: 16px minmax(0, 1fr); align-items: center; column-gap: 7px; row-gap: 2px; }
+.work-roster-preview-date svg { grid-row: 1 / span 2; color: var(--muted-foreground); }
+.work-roster-preview-date span { color: var(--muted-foreground); font-size: 10px; }
+.work-roster-preview-date strong { font-size: 11px; font-weight: 560; line-height: 1.35; }
+.work-add-existing { display: flex; min-width: min(100%, 370px); align-items: center; gap: 8px; }
+.work-add-existing .ui-select-trigger { width: 100%; min-width: 0; min-height: 38px; background: var(--surface); color: var(--foreground); font-size: 12px; }
+.work-add-existing button { min-height: 38px; white-space: nowrap; }
+.work-employee-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 315px), 1fr)); gap: 12px; }
+.work-employee-card { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 11px; background: var(--background); transition: border-color 150ms ease, transform 150ms ease; }
+.work-employee-card:hover { border-color: color-mix(in srgb, var(--foreground) 24%, var(--border)); transform: translateY(-1px); }
+.work-employee-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.work-employee-identity { display: flex; min-width: 0; align-items: center; gap: 10px; }
+.work-employee-identity > span:last-child { display: grid; min-width: 0; gap: 4px; }
+.work-employee-identity strong { overflow: hidden; font-size: 14px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
+.work-employee-identity small { color: var(--muted-foreground); font-size: 11px; }
+.work-avatar { display: grid; width: 39px; height: 39px; flex: 0 0 auto; overflow: hidden; place-items: center; border: 1px solid var(--border); border-radius: 50%; background: var(--muted); font-size: 11px; font-weight: 650; }
+.work-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.work-time-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+.work-time-fields label { display: grid; min-width: 0; gap: 6px; }
+.work-time-fields label > span { color: var(--muted-foreground); font-size: 11px; }
+.work-time-fields input { min-height: 41px; }
+.work-time-conversion { display: grid; gap: 5px; margin-top: 14px; padding-top: 11px; border-top: 1px solid var(--border); }
+.work-time-conversion span { color: var(--muted-foreground); font-size: 10px; }
+.work-time-conversion strong { overflow: hidden; font-size: 12px; font-weight: 560; text-overflow: ellipsis; white-space: nowrap; }
+.work-empty-state { display: grid; min-height: 180px; grid-column: 1 / -1; justify-items: center; align-content: center; gap: 8px; border: 1px dashed var(--border); border-radius: 10px; color: var(--muted-foreground); }
+.work-empty-state strong { color: var(--foreground); font-size: 14px; }
+.work-empty-state span { font-size: 12px; }
+.work-history-panel { min-width: 0; padding: 20px; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); }
+.work-history-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.work-history-heading h2 { margin: 0; font-size: 17px; font-weight: 620; }
+.work-history-heading p:not(.work-section-kicker) { margin: 5px 0 0; color: var(--muted-foreground); font-size: 11px; }
+.work-history-heading > span { padding: 6px 9px; border: 1px solid var(--border); border-radius: 99px; color: var(--muted-foreground); font-size: 10px; white-space: nowrap; }
+.work-history-list { display: grid; max-height: 420px; gap: 8px; overflow: auto; padding-right: 3px; }
+.work-history-item { display: grid; grid-template-columns: 35px minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--background); }
+.work-history-icon { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--muted-foreground); }
+.work-history-info { display: grid; min-width: 0; gap: 4px; }
+.work-history-info strong { overflow: hidden; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.work-history-info span { overflow: hidden; color: var(--muted-foreground); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.work-history-actions { display: flex; align-items: center; gap: 7px; }
+.work-history-actions button { min-height: 34px; }
+.work-history-actions .work-history-delete { width: 34px; min-width: 34px; color: var(--muted-foreground); }
+.work-history-actions .work-history-delete:hover { color: #d14343; }
+.work-history-empty { display: grid; min-height: 125px; justify-items: center; align-content: center; gap: 7px; border: 1px dashed var(--border); border-radius: 9px; color: var(--muted-foreground); }
+.work-history-empty strong { color: var(--foreground); font-size: 13px; }
+.work-history-empty span { font-size: 11px; }
+.work-preview-backdrop { position: fixed; z-index: 90; inset: 0; display: grid; place-items: center; padding: 18px; background: rgb(0 0 0 / 68%); backdrop-filter: blur(4px); }
+.work-preview-dialog { display: grid; width: min(100%, 620px); max-height: min(86vh, 760px); grid-template-rows: auto minmax(0, 1fr) auto; gap: 15px; padding: 21px; overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); box-shadow: 0 24px 80px rgb(0 0 0 / 35%); }
+.work-preview-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.work-preview-heading h2 { margin: 0; font-size: 18px; font-weight: 620; }
+.work-preview-heading p:not(.work-section-kicker) { margin: 6px 0 0; color: var(--muted-foreground); font-size: 11px; }
+.work-preview-list { display: grid; align-content: start; gap: 8px; overflow: auto; padding-right: 3px; }
+.work-preview-person { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--background); }
+.work-preview-person > div { display: grid; min-width: 0; gap: 3px; }
+.work-preview-person > div strong { overflow: hidden; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.work-preview-person > div small { color: var(--muted-foreground); font-size: 10px; }
+.work-preview-hours { font-size: 12px; font-weight: 560; white-space: nowrap; }
+.work-preview-empty { display: grid; min-height: 90px; place-items: center; border: 1px dashed var(--border); border-radius: 9px; color: var(--muted-foreground); font-size: 12px; }
+.work-preview-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border); }
+.work-preview-footer > span { color: var(--muted-foreground); font-size: 11px; }
+.work-time-fields input:disabled { cursor: default; opacity: .78; }
+.work-preset-group button:disabled { cursor: default; opacity: .55; }
+
+@media (max-width: 1100px) {
+  .work-control-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .work-date-summary { min-height: 62px; }
+  .work-period-picker { grid-template-columns: minmax(220px, 1fr) minmax(140px, 180px) auto minmax(140px, 180px); }
+  .work-period-length { grid-column: 2 / -1; justify-self: end; }
+}
+@media (max-width: 700px) {
+  .work-page-heading { align-items: flex-start; flex-direction: column; }
+  .work-heading-actions { width: 100%; justify-content: space-between; }
+  .work-control-panel { grid-template-columns: 1fr; padding: 14px; }
+  .work-period-picker { grid-template-columns: 1fr 1fr; padding: 14px; }
+  .work-period-copy { grid-column: 1 / -1; }
+  .work-period-to { display: none; }
+  .work-period-length { grid-column: 1 / -1; justify-self: start; }
+  .work-section-heading { align-items: flex-start; flex-direction: column; }
+  .work-history-view-banner { align-items: flex-start; flex-direction: column; }
+  .work-history-banner-actions { width: 100%; justify-content: flex-start; }
+  .work-section-state { max-width: 100%; text-align: left; }
+  .work-schedule-panel { padding: 15px; }
+  .work-tools-row { align-items: stretch; }
+  .work-preset-group, .work-save-actions { width: 100%; }
+  .work-preset-group button { flex: 1; padding: 0 7px; font-size: 11px; }
+  .work-save-actions { display: grid; grid-template-columns: 1fr; }
+  .work-save-actions button { justify-content: center; }
+  .work-roster-tools { align-items: stretch; flex-direction: column; }
+  .work-roster-overview { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .work-add-existing { min-width: 100%; }
+  .work-add-existing button { flex: 0 0 auto; }
+}
+@media (max-width: 420px) {
+  .work-add-existing { display: grid; grid-template-columns: 1fr; }
+  .work-employee-grid { grid-template-columns: minmax(0, 1fr); }
+  .work-history-panel { padding: 14px; }
+  .work-history-item { grid-template-columns: 32px minmax(0, 1fr); }
+  .work-history-icon { width: 31px; height: 31px; }
+  .work-history-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; justify-content: flex-end; }
+  .work-history-actions button { justify-content: center; }
+  .work-preview-dialog { padding: 15px; }
+  .work-preview-person { grid-template-columns: 35px minmax(0, 1fr); }
+  .work-preview-hours { grid-column: 2; }
+  .work-preview-footer { align-items: flex-start; flex-direction: column; }
+  .work-preview-footer button { align-self: flex-end; }
+}
