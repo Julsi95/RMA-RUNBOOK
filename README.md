@@ -34,9 +34,11 @@ The Seat Plan page starts with a separate four-seat Team Lead / Boss row above e
 
 The Monthly KPI / QA page includes six months of clearly marked demo scores so the trend chart, comparisons, badges, and leaderboard are visible when first opened. Replace the demo results with manual entry or import a CSV/Excel file. A CSV template is available in the import dialog. For a formatted workbook with multiple monthly sections, each section should include a month heading; the importer recognizes the KPI / QA grouped-header layout and imports detected months separately. Results remain in this browser until connected to a shared database.
 
-## Supabase later
+## Architecture and backend planning
 
-The `.env.example` has placeholders for the public project URL and anon/publishable key. Copy it to `.env.local` when you are ready, then add the Supabase client and features you need. Do not put a Supabase service-role key in frontend code.
+The current frontend audit and proposed backend architecture are documented in [`docs/architecture-current-state.md`](docs/architecture-current-state.md), with a continuation summary in [`HANDOFF.md`](HANDOFF.md). Supabase is not connected. Do not add backend code, migrations, Auth, or Storage until the proposed architecture is reviewed and approved.
+
+`.env.example` contains empty placeholders only. Never put a Supabase service-role/secret key in frontend code.
 
 ## Deploy
 
