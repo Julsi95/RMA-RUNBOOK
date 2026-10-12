@@ -6,7 +6,7 @@ import { useOrganizationRoster } from "@/app/organization-provider";
 import { useAuth } from "@/app/auth-provider";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { deleteVlCreditEntry, loadVlCreditRecords, saveVlCreditEntry } from "@/lib/backend-repositories";
-import { subscribeToTables } from "@/lib/backend/shared";
+import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 import "@/features/vl/vl-credits.css";
 
 const STORAGE_KEY = "starter-app-vl-credit-records-v2";
@@ -82,7 +82,7 @@ export default function VlCreditsPage() {
   const updatedOn = entries.map((entry) => entry.updatedAt?.slice(0, 10)).filter(Boolean).sort().at(-1) ?? "";
 
   async function refreshRemote() {
-    const saved = await loadVlCreditRecords();
+    const saved = await retryDataLoad(loadVlCreditRecords);
     setRecords(saved);
     setSyncError("");
   }
@@ -90,7 +90,7 @@ export default function VlCreditsPage() {
   useEffect(() => {
     if (!isSupabaseConfigured) return undefined;
     let active = true;
-    void loadVlCreditRecords().then((saved) => {
+    void retryDataLoad(loadVlCreditRecords).then((saved) => {
       if (!active) return;
       setRecords(saved); setRemoteReady(true); setSyncError("");
     }).catch((error) => { if (active) { setSyncError(error.message || "Could not load VL credits."); setRemoteReady(true); } });

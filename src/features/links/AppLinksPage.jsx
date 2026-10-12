@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { AppWindow, ArrowUpRight, ExternalLink, Link2, Pencil, Plus, Search, Shapes, Trash2, X } from "lucide-react";
+import { AppWindow, ArrowUpRight, ExternalLink, Link2, LoaderCircle, Pencil, Plus, RefreshCw, Search, Shapes, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/app/auth-provider";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { loadAppLinks, saveAppLinks } from "@/lib/backend-repositories";
+import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 import "@/features/links/app-links.css";
 
 const STORAGE_KEY = "starter-app-app-links-v1";
@@ -43,15 +44,27 @@ export default function AppLinksPage() {
   const [search, setSearch] = useState("");
   const [editor, setEditor] = useState(null);
   const [remoteReady, setRemoteReady] = useState(!configured);
+  const [refreshing, setRefreshing] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const [loadError, setLoadError] = useState("");
   const [saveError, setSaveError] = useState("");
   const canManage = canEdit && remoteReady;
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     let active = true;
-    void loadAppLinks().then((items) => { if (active) { setResources(items); setLoadError(""); setRemoteReady(true); } }).catch((error) => { if (active) setLoadError(error.message || "Could not load app links."); });
-    return () => { active = false; };
-  }, []);
+    const refresh = async () => {
+      setRefreshing(true);
+      try {
+        const items = await retryDataLoad(loadAppLinks);
+        if (active) { setResources(items); setLoadError(""); setRemoteReady(true); }
+      } catch (error) {
+        if (active) setLoadError(error.message || "Could not load app links. Check your connection and retry.");
+      } finally { if (active) setRefreshing(false); }
+    };
+    void refresh();
+    const unsubscribe = subscribeToTables(["app_links"], refresh, "app-links");
+    return () => { active = false; unsubscribe(); };
+  }, [retryCount]);
   const groups = useMemo(() => [...new Set([...DEFAULT_GROUPS, ...resources.map((item) => item.group).filter(Boolean)])], [resources]);
   const counts = useMemo(() => resources.reduce((result, item) => {
     result[item.group] = (result[item.group] ?? 0) + 1;
@@ -109,7 +122,8 @@ export default function AppLinksPage() {
       <div><p className="eyebrow">TEAM TOOLKIT</p><h1>App / Links</h1><p className="page-description">Your team’s web bases, applications, and request forms in one launchpad.</p></div>
       {canManage && <Button onClick={() => openEditor()}><Plus size={17} /> Add resource</Button>}
     </header>
-    {(loadError || saveError) && <p className="auth-error" role="alert">{saveError || loadError}</p>}
+    {refreshing && <p className="page-description data-refresh-status" role="status"><LoaderCircle size={14} className="data-refresh-spinner" />{remoteReady ? "Updating shared links…" : "Loading shared links…"}</p>}
+    {(loadError || saveError) && <div className="data-refresh-error" role="alert"><p className="auth-error">{saveError || loadError}</p>{loadError && <Button type="button" variant="outline" size="sm" onClick={() => setRetryCount((count) => count + 1)}><RefreshCw size={14} /> Retry loading</Button>}</div>}
 
     <section className="app-links-hero" aria-label="Resource library overview">
       <div className="app-links-hero-copy"><span className="app-links-hero-mark"><Shapes size={20} /></span><div><p className="app-links-hero-kicker">QUICK ACCESS LIBRARY</p><h2>Everything your shift needs.</h2><p>Choose a collection, find the right tool, and launch it in a new tab.</p></div></div>

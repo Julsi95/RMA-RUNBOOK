@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDownWideNarrow, Check, ClipboardCheck, Pencil, Plus, Search, SlidersHorizontal, Target, Trash2, X } from "lucide-react";
+import { ArrowDownWideNarrow, Check, ClipboardCheck, LoaderCircle, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, Target, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
 import { useAuth } from "@/app/auth-provider";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { loadQaCriteria, saveQaCriteria } from "@/lib/backend-repositories";
+import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 import "@/features/qa/qa-parameters.css";
 
 const STORAGE_KEY = "starter-app-qa-parameters-v1";
@@ -60,15 +61,27 @@ export default function QaParametersPage() {
   const [sort, setSort] = useState("custom");
   const [editor, setEditor] = useState(null);
   const [remoteReady, setRemoteReady] = useState(!configured);
+  const [refreshing, setRefreshing] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const [loadError, setLoadError] = useState("");
   const [saveError, setSaveError] = useState("");
   const canManage = canEdit && remoteReady;
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     let active = true;
-    void loadQaCriteria().then((items) => { if (active) { setCriteria(items); setRemoteReady(true); } }).catch((error) => { if (active) setLoadError(error.message || "Could not load QA criteria."); });
-    return () => { active = false; };
-  }, []);
+    const refresh = async () => {
+      setRefreshing(true);
+      try {
+        const items = await retryDataLoad(loadQaCriteria);
+        if (active) { setCriteria(items); setLoadError(""); setRemoteReady(true); }
+      } catch (error) {
+        if (active) setLoadError(error.message || "Could not load QA criteria. Check your connection and retry.");
+      } finally { if (active) setRefreshing(false); }
+    };
+    void refresh();
+    const unsubscribe = subscribeToTables(["qa_criteria"], refresh, "qa-criteria");
+    return () => { active = false; unsubscribe(); };
+  }, [retryCount]);
   const categories = useMemo(() => [...new Set(criteria.map((item) => item.category).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [criteria]);
   const totals = useMemo(() => criteria.reduce((sum, item) => ({ tcr: sum.tcr + Number(item.tcr), tcp: sum.tcp + Number(item.tcp) }), { tcr: 0, tcp: 0 }), [criteria]);
   const overall = totals.tcr > 0 ? Math.round((totals.tcp / totals.tcr) * 10000) / 100 : null;
@@ -125,7 +138,8 @@ export default function QaParametersPage() {
       <div><p className="eyebrow">QUALITY · ADMIN TOOLS</p><h1>QA parameters</h1><p className="page-description">Manage call quality criteria and track sample results for each one.</p></div>
       {canManage && <Button onClick={() => openEditor()}><Plus size={17} /> Add criterion</Button>}
     </header>
-    {(loadError || saveError) && <p className="auth-error" role="alert">{saveError || loadError}</p>}
+    {refreshing && <p className="page-description data-refresh-status" role="status"><LoaderCircle size={14} className="data-refresh-spinner" />{remoteReady ? "Updating shared QA criteria…" : "Loading shared QA criteria…"}</p>}
+    {(loadError || saveError) && <div className="data-refresh-error" role="alert"><p className="auth-error">{saveError || loadError}</p>{loadError && <Button type="button" variant="outline" size="sm" onClick={() => setRetryCount((count) => count + 1)}><RefreshCw size={14} /> Retry loading</Button>}</div>}
 
     <section className="qa-params-overview">
       <div className="qa-params-score-panel">

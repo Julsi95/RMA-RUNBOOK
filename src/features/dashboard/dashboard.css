@@ -318,3 +318,7 @@
   .dashboard-carousel-settings { grid-template-columns: 1fr; }
   .dashboard-layout-settings, .dashboard-overlay-settings { grid-template-columns: 1fr; }
 }
+.dashboard-live-sync { display: inline-flex; align-items: center; gap: 8px; width: fit-content; margin: -15px 0 0; color: var(--muted-foreground); font-size: 12px; }
+.dashboard-live-spinner { animation: dashboard-live-spin 1s linear infinite; }
+.dashboard-live-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+@keyframes dashboard-live-spin { to { transform: rotate(360deg); } }

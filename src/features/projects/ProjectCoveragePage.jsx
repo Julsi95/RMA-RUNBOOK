@@ -9,7 +9,7 @@ import { useOrganizationRoster } from "@/app/organization-provider";
 import { useAuth } from "@/app/auth-provider";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { loadProjectCoverage, saveProjectCoverage } from "@/lib/backend-repositories";
-import { subscribeToTables } from "@/lib/backend/shared";
+import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 import {
   createProjectId, getSavedProjects, PROJECT_COVERAGE_STORAGE_KEY, PROJECT_STATUSES,
 } from "@/features/projects/project-data";
@@ -128,7 +128,7 @@ export default function ProjectCoveragePage() {
   useEffect(() => {
     if (!isSupabaseConfigured) return undefined;
     let active = true;
-    void loadProjectCoverage().then((saved) => {
+    void retryDataLoad(loadProjectCoverage).then((saved) => {
       if (!active) return;
       remoteSnapshotRef.current = structuredClone(saved);
       setProjects(saved);
@@ -144,7 +144,7 @@ export default function ProjectCoveragePage() {
     let timer;
     const unsubscribe = subscribeToTables(["projects", "project_trainers", "project_assignments"], () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => { void loadProjectCoverage().then((saved) => {
+      timer = window.setTimeout(() => { void retryDataLoad(loadProjectCoverage).then((saved) => {
         if (!active) return;
         remoteSnapshotRef.current = structuredClone(saved); setProjects(saved); setSyncError("");
       }).catch((error) => { if (active) setSyncError(error.message || "Could not sync project coverage."); }); }, 180);

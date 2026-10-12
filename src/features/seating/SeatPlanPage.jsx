@@ -6,7 +6,7 @@ import { useOrganizationRoster } from "@/app/organization-provider";
 import { useAuth } from "@/app/auth-provider";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { loadSeatPlans, saveSeatPlan } from "@/lib/backend-repositories";
-import { subscribeToTables } from "@/lib/backend/shared";
+import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 
 const PLAN_STORAGE_KEY = "starter-app-seat-plans-v1";
 const TEAM_STORAGE_KEY = "starter-app-organization-members-v2";
@@ -99,7 +99,7 @@ export default function SeatPlanPage() {
       return undefined;
     }
     let active = true;
-    void loadSeatPlans().then((saved) => {
+    void retryDataLoad(loadSeatPlans).then((saved) => {
       if (!active) return;
       remoteSnapshotRef.current = structuredClone(saved);
       setPlans(saved);
@@ -115,7 +115,7 @@ export default function SeatPlanPage() {
     let timer;
     const unsubscribe = subscribeToTables(["seat_plans", "seat_positions", "seat_assignments"], () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => { void loadSeatPlans().then((saved) => {
+      timer = window.setTimeout(() => { void retryDataLoad(loadSeatPlans).then((saved) => {
         if (!active) return;
         remoteSnapshotRef.current = structuredClone(saved); setPlans(saved); setSyncError("");
       }).catch((error) => { if (active) setSyncError(error.message || "Could not sync seat plan changes."); }); }, 180);

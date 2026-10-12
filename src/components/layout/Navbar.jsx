@@ -1,13 +1,16 @@
-import { LogIn, LogOut, Menu, Moon, Sun } from "lucide-react";
+import { LoaderCircle, LogIn, LogOut, Menu, Moon, Sun, WifiOff } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
 import { useTheme } from "@/app/theme-provider";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/app/auth-provider";
+import { subscribeToSyncState } from "@/lib/backend/shared";
 
 export default function Navbar({ onMenuClick }) {
   const { configured, user, signOut } = useAuth();
   const { theme, setTheme } = useTheme();
   const { pathname } = useLocation();
+  const [syncState, setSyncState] = useState(() => ({ online: navigator.onLine, refreshing: false, channelCount: 0, connectedChannels: 0, reconnecting: false }));
   const pageLabels = {
     "/": "Dashboard",
     "/history": "History",
@@ -28,6 +31,24 @@ export default function Navbar({ onMenuClick }) {
   const currentPage = pageLabels[pathname] ?? "Dashboard";
   const isDark = theme === "dark" || (theme === "system" && document.documentElement.dataset.theme === "dark");
 
+  useEffect(() => {
+    const unsubscribe = subscribeToSyncState(setSyncState);
+    const onConnectionChange = () => setSyncState((current) => ({ ...current, online: navigator.onLine }));
+    window.addEventListener("online", onConnectionChange);
+    window.addEventListener("offline", onConnectionChange);
+    return () => {
+      unsubscribe();
+      window.removeEventListener("online", onConnectionChange);
+      window.removeEventListener("offline", onConnectionChange);
+    };
+  }, []);
+
+  const connectionLabel = !syncState.online
+    ? "Offline · waiting to reconnect"
+    : syncState.reconnecting || (syncState.channelCount > 0 && syncState.connectedChannels < syncState.channelCount)
+      ? "Reconnecting to live data…"
+      : syncState.refreshing ? "Updating shared data…" : "";
+
   function toggleTheme() {
     setTheme(isDark ? "light" : "dark");
   }
@@ -41,6 +62,7 @@ export default function Navbar({ onMenuClick }) {
         <span className="breadcrumb">Workspace <span className="breadcrumb-separator">/</span> {currentPage}</span>
       </div>
       <div className="flex items-center gap-2">
+        {connectionLabel && <span className={`topbar-sync-state${!syncState.online ? " is-offline" : ""}`} role="status" aria-live="polite">{!syncState.online ? <WifiOff size={14} /> : <LoaderCircle className="topbar-sync-spinner" size={14} />}<span>{connectionLabel}</span></span>}
         <Button variant="ghost" size="icon" aria-label={`Switch to ${isDark ? "light" : "dark"} mode`} onClick={toggleTheme}>
           {isDark ? <Sun size={18} /> : <Moon size={18} />}
         </Button>

@@ -14,7 +14,7 @@ import {
 } from "@/features/kpi/kpi-data";
 import { readKpiFile } from "@/features/kpi/import-utils";
 import { createKpiMonth, loadCurrentKpiScoring, loadKpiMonthData, saveKpiMonthResults } from "@/lib/backend-repositories";
-import { subscribeToTables } from "@/lib/backend/shared";
+import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 import "@/features/kpi/kpi-qa.css";
 
 const TREND_RANGES = [6, 12];
@@ -295,7 +295,7 @@ export default function KpiQaPage() {
   useEffect(() => {
     if (!isSupabaseConfigured) return undefined;
     let active = true;
-    void Promise.all([loadKpiMonthData(), loadCurrentKpiScoring()]).then(([saved, currentScoring]) => {
+    void retryDataLoad(() => Promise.all([loadKpiMonthData(), loadCurrentKpiScoring()])).then(([saved, currentScoring]) => {
       if (!active) return;
       if (currentScoring?.settings) localStorage.setItem("starter-app-kpi-scoring-settings-v1", JSON.stringify(currentScoring.settings));
       remoteSnapshotRef.current = structuredClone(saved);
@@ -313,7 +313,7 @@ export default function KpiQaPage() {
     let timer;
     const unsubscribe = subscribeToTables(["kpi_months", "kpi_results", "current_kpi_scoring", "kpi_scoring_versions"], () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => { void Promise.all([loadKpiMonthData(), loadCurrentKpiScoring()]).then(([saved, scoring]) => {
+      timer = window.setTimeout(() => { void retryDataLoad(() => Promise.all([loadKpiMonthData(), loadCurrentKpiScoring()])).then(([saved, scoring]) => {
         if (!active) return;
         if (scoring?.settings) localStorage.setItem("starter-app-kpi-scoring-settings-v1", JSON.stringify(scoring.settings));
         remoteSnapshotRef.current = structuredClone(saved); setMonthlyData(saved);

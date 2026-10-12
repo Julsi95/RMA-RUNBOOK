@@ -6,7 +6,7 @@ import { useOrganizationRoster } from "@/app/organization-provider";
 import { useAuth } from "@/app/auth-provider";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { loadCallSchedules, saveCallScheduleMonth } from "@/lib/backend-repositories";
-import { subscribeToTables } from "@/lib/backend/shared";
+import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 import "@/features/inbound/inbound-schedule.css";
 
 const STORAGE_KEY = "starter-app-inbound-schedule-v1";
@@ -176,7 +176,7 @@ export default function InboundSchedulePage() {
   useEffect(() => {
     if (!isSupabaseConfigured) return undefined;
     let active = true;
-    void loadCallSchedules().then((saved) => {
+    void retryDataLoad(loadCallSchedules).then((saved) => {
       if (!active) return;
       remoteSnapshotRef.current = structuredClone(saved);
       setSavedSchedules(saved);
@@ -192,7 +192,7 @@ export default function InboundSchedulePage() {
     let timer;
     const unsubscribe = subscribeToTables(["call_schedule_months", "call_assignments"], () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => { void loadCallSchedules().then((saved) => {
+      timer = window.setTimeout(() => { void retryDataLoad(loadCallSchedules).then((saved) => {
         if (!active) return;
         remoteSnapshotRef.current = structuredClone(saved); setSavedSchedules(saved); setSyncError("");
       }).catch((error) => { if (active) setSyncError(error.message || "Could not sync inbound call schedules."); }); }, 180);

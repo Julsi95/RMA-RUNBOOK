@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Copy, Eye, GripVertical, ImagePlus, Monitor, Pencil, Plus, RotateCcw, Smartphone, Tablet, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Copy, Eye, GripVertical, ImagePlus, LoaderCircle, Monitor, Pencil, Plus, RotateCcw, Smartphone, Tablet, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
 import DashboardContainer from "@/features/dashboard/DashboardContainer";
 import { CONTAINER_TYPES, CONTAINER_TYPE_LABELS, clearDashboardDraft, createDefaultDashboard, makeContainer, persistDashboardDraft, publishDashboard, readDashboardDraft, readPublishedDashboard } from "@/features/dashboard/dashboard-data";
 import { useAuth } from "@/app/auth-provider";
 import { isSupabaseConfigured } from "@/lib/supabase";
+import { retryDataLoad } from "@/lib/backend/shared";
 import { discardDashboardDraft, loadDashboardDraft, loadPublishedDashboard, publishDashboardDocument, saveDashboardDraft } from "@/lib/backend-repositories";
 import "@/features/dashboard/dashboard.css";
 
@@ -66,6 +67,7 @@ export default function DashboardSettingsPage() {
   const [remoteReady, setRemoteReady] = useState(!configured);
   const [hasChanges, setHasChanges] = useState(() => configured ? false : Boolean(readDashboardDraft()));
   const [message, setMessage] = useState(() => configured ? "Loading saved dashboard" : readDashboardDraft() ? "Draft restored" : "Live dashboard");
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [previewMode, setPreviewMode] = useState(false);
   const [viewport, setViewport] = useState("desktop");
   const [newType, setNewType] = useState("feature");
@@ -80,7 +82,7 @@ export default function DashboardSettingsPage() {
   useEffect(() => {
     if (!configured || !user) return undefined;
     let active = true;
-    void Promise.all([loadPublishedDashboard(), loadDashboardDraft(user.id)]).then(([saved, remoteDraft]) => {
+    void retryDataLoad(() => Promise.all([loadPublishedDashboard(), loadDashboardDraft(user.id)])).then(([saved, remoteDraft]) => {
       if (!active) return;
       const publishedState = saved ?? createDefaultDashboard();
       const nextDraft = remoteDraft ?? publishedState;
@@ -89,7 +91,7 @@ export default function DashboardSettingsPage() {
       setRemoteReady(true);
     }).catch((error) => { if (active) setMessage(error.message || "Could not load the saved dashboard."); });
     return () => { active = false; };
-  }, [configured, user?.id]);
+  }, [configured, user?.id, loadAttempt]);
 
   useEffect(() => {
     if (!configured || !user || !remoteReady || !hasChanges) return undefined;
@@ -319,7 +321,7 @@ export default function DashboardSettingsPage() {
   return <section className="page-content dashboard-builder-page">
     <header className="page-heading dashboard-builder-heading">
       <div><p className="eyebrow">WORKSPACE · BUILDER</p><h1>Dashboard settings</h1><p className="page-description">Arrange announcements, features, messages, and shortcuts for your team home.</p></div>
-      <div className="dashboard-builder-heading-actions"><span className={"dashboard-draft-status" + (hasChanges ? " has-draft" : "")}><i />{message}</span><Button type="button" variant="outline" onClick={discardChanges} disabled={!hasChanges || (configured && !remoteReady)}><RotateCcw size={15} /> Discard changes</Button><Button type="button" onClick={publishChanges} disabled={!hasChanges || Boolean(editor) || (configured && !remoteReady)}><Check size={15} /> Save changes</Button></div>
+      <div className="dashboard-builder-heading-actions"><span className={"dashboard-draft-status" + (hasChanges ? " has-draft" : "")}><i />{message}</span>{configured && !remoteReady && <Button type="button" variant="outline" onClick={() => setLoadAttempt((attempt) => attempt + 1)}><LoaderCircle size={15} className="dashboard-live-spinner" /> Retry loading</Button>}<Button type="button" variant="outline" onClick={discardChanges} disabled={!hasChanges || (configured && !remoteReady)}><RotateCcw size={15} /> Discard changes</Button><Button type="button" onClick={publishChanges} disabled={!hasChanges || Boolean(editor) || (configured && !remoteReady)}><Check size={15} /> Save changes</Button></div>
     </header>
 
     <section className="dashboard-builder-intro">

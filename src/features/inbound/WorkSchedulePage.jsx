@@ -6,7 +6,7 @@ import { useOrganizationRoster } from "@/app/organization-provider";
 import { useAuth } from "@/app/auth-provider";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { loadWorkScheduleDocument, saveWorkScheduleDocument } from "@/lib/backend-repositories";
-import { subscribeToTables } from "@/lib/backend/shared";
+import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 import "@/features/inbound/work-schedule.css";
 
 const STORAGE_KEY = "starter-app-inbound-schedule-v1";
@@ -269,7 +269,7 @@ export default function WorkSchedulePage() {
   useEffect(() => {
     if (!isSupabaseConfigured) return undefined;
     let active = true;
-    void loadWorkScheduleDocument().then((document) => {
+    void retryDataLoad(loadWorkScheduleDocument).then((document) => {
       if (!active) return;
       const normalized = toRemoteDocument(document.months, document.periods, document.history);
       remoteSnapshotRef.current = structuredClone(normalized);
@@ -288,7 +288,7 @@ export default function WorkSchedulePage() {
     let timer;
     const unsubscribe = subscribeToTables(["work_schedule_months", "work_schedule_month_assignments", "work_schedule_periods", "work_schedule_period_assignments", "work_schedule_revisions"], () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => { void loadWorkScheduleDocument().then((document) => {
+      timer = window.setTimeout(() => { void retryDataLoad(loadWorkScheduleDocument).then((document) => {
         if (!active) return;
         const normalized = toRemoteDocument(document.months, document.periods, document.history);
         remoteSnapshotRef.current = structuredClone(normalized);

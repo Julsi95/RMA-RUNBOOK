@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownWideNarrow, ArrowUpWideNarrow, Check, RotateCcw, Save, Scale, SlidersHorizontal, Target } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
@@ -7,6 +7,7 @@ import {
 } from "@/features/kpi/kpi-data";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { loadCurrentKpiScoring, saveCurrentKpiScoring } from "@/lib/backend-repositories";
+import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 import "@/features/kpi/kpi-qa.css";
 
 const BAND_HINTS = {
@@ -28,20 +29,39 @@ export default function KpiScoringSettingsPage() {
   const [remoteReady, setRemoteReady] = useState(!isSupabaseConfigured);
   const [remoteLoading, setRemoteLoading] = useState(isSupabaseConfigured);
   const [saving, setSaving] = useState(false);
+  const draftRef = useRef(draft);
+  const savedSnapshotRef = useRef(JSON.stringify(draft));
+  const savingRef = useRef(false);
+  useEffect(() => { draftRef.current = draft; }, [draft]);
+  useEffect(() => { savingRef.current = saving; }, [saving]);
   useEffect(() => {
     if (!isSupabaseConfigured) return undefined;
     let active = true;
-    void loadCurrentKpiScoring().then((current) => {
-      if (!active) return;
-      if (current?.settings) {
-        localStorage.setItem(KPI_SCORING_SETTINGS_KEY, JSON.stringify(current.settings));
-        setDraft(structuredClone(current.settings));
-        setMessage(`Current saved rule version · ${current.versionNumber ?? "active"}`);
-      }
-      setRemoteReady(true);
-      setRemoteLoading(false);
-    }).catch((error) => { if (active) { setMessage(error.message || "Could not load saved scoring settings."); setRemoteLoading(false); } });
-    return () => { active = false; };
+    const refresh = async () => {
+      setRemoteLoading(true);
+      try {
+        const current = await retryDataLoad(loadCurrentKpiScoring);
+        if (!active) return;
+        if (current?.settings) {
+          const remoteSnapshot = JSON.stringify(current.settings);
+          if (!savingRef.current && JSON.stringify(draftRef.current) === savedSnapshotRef.current) {
+            localStorage.setItem(KPI_SCORING_SETTINGS_KEY, remoteSnapshot);
+            savedSnapshotRef.current = remoteSnapshot;
+            setDraft(structuredClone(current.settings));
+            setMessage(`Current saved rule version · ${current.versionNumber ?? "active"}`);
+          } else if (remoteSnapshot !== savedSnapshotRef.current) {
+            savedSnapshotRef.current = remoteSnapshot;
+            setMessage("New scoring settings were saved elsewhere. Your unsaved edits are still here; reload to review the latest version.");
+          }
+        }
+        setRemoteReady(true);
+      } catch (error) {
+        if (active) setMessage(error.message || "Could not load saved scoring settings. Check your connection and retry.");
+      } finally { if (active) setRemoteLoading(false); }
+    };
+    void refresh();
+    const unsubscribe = subscribeToTables(["current_kpi_scoring", "kpi_scoring_versions"], refresh, "kpi-scoring-settings");
+    return () => { active = false; unsubscribe(); };
   }, []);
   const totalWeight = useMemo(() => KPI_METRICS.reduce((sum, metric) => sum + numberValue(draft.metrics[metric.id].weightPercent), 0), [draft]);
   const maxScore = totalWeight / 100 * 5;
@@ -104,6 +124,7 @@ export default function KpiScoringSettingsPage() {
     try {
       const versionId = isSupabaseConfigured ? await saveCurrentKpiScoring(savedSettings) : null;
       localStorage.setItem(KPI_SCORING_SETTINGS_KEY, JSON.stringify(savedSettings));
+      savedSnapshotRef.current = JSON.stringify(savedSettings);
       setDraft(savedSettings);
       setMessage(isSupabaseConfigured ? `Saved as a new scoring version${versionId ? ` · ${String(versionId).slice(0, 8)}` : ""}. Past months keep their saved rules.` : "Scoring settings saved in this browser.");
     } catch (error) {

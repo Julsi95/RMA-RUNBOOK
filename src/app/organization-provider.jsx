@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { useAuth } from "@/app/auth-provider";
 import { ORGANIZATION_STORAGE_KEY, getOrganizationMembers } from "@/features/organization/organization-data";
 import { loadRemoteRoster, saveRemoteEmployeeProfile, saveRemoteMembers, saveRemoteProfileFieldDefinitions } from "@/lib/backend/organization";
-import { subscribeToTables } from "@/lib/backend/shared";
+import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 
 const OrganizationContext = createContext(null);
 
@@ -27,7 +27,7 @@ export function OrganizationProvider({ children }) {
 
     setLoading(true);
     try {
-      const roster = await loadRemoteRoster(canEdit);
+      const roster = await retryDataLoad(() => loadRemoteRoster(canEdit));
       setMembers(roster.members);
       setProfiles(roster.profiles);
       setCustomFieldDefinitions(roster.definitions);
