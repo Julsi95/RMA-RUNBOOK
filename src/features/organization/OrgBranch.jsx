@@ -5,7 +5,7 @@ function getInitials(name) {
   return name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "?";
 }
 
-export default function OrgBranch({ member, onEdit, onRemove }) {
+export default function OrgBranch({ member, onEdit, onRemove, canEdit = true }) {
   return (
     <div className="org-branch">
       <article className="org-person-card">
@@ -17,15 +17,15 @@ export default function OrgBranch({ member, onEdit, onRemove }) {
           <span className="org-person-role">{member.role}</span>
           {member.role === "Customer Rep" && member.mentorName && <small className="org-person-mentor">Mentor: <strong>{member.mentorName}</strong></small>}
         </div>
-        <div className="org-card-actions">
+        {canEdit && <div className="org-card-actions">
           <Button variant="ghost" size="icon" aria-label={`Edit ${member.name}`} title="Edit person" onClick={() => onEdit(member)}><Pencil size={15} /></Button>
           <Button variant="ghost" size="icon" aria-label={`Remove ${member.name}`} title="Remove person" onClick={() => onRemove(member)}><Trash2 size={15} /></Button>
-        </div>
+        </div>}
       </article>
       {member.children.length > 0 && (
         <div className={`org-children ${member.children.length > 1 ? "org-children-many" : ""}`}>
           {member.children.map((child) => (
-            <OrgBranch key={child.id} member={child} onEdit={onEdit} onRemove={onRemove} />
+            <OrgBranch key={child.id} member={child} onEdit={onEdit} onRemove={onRemove} canEdit={canEdit} />
           ))}
         </div>
       )}

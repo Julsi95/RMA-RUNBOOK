@@ -9,6 +9,13 @@ function getInitials(name) {
 
 function resizePhoto(file) {
   return new Promise((resolve, reject) => {
+    if (file.type === "image/gif") {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error("That GIF could not be read. Try another image."));
+      reader.readAsDataURL(file);
+      return;
+    }
     const image = new Image();
     const source = URL.createObjectURL(file);
     image.onload = () => {
@@ -38,6 +45,8 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
   const [mentorId, setMentorId] = useState(member?.mentorId ?? "");
   const [photo, setPhoto] = useState(member?.photo ?? "");
   const [photoError, setPhotoError] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [saving, setSaving] = useState(false);
   const excludedManagerIds = member ? getDescendantIds(members, member.id) : new Set();
   const roleLevels = { "Team Lead": 0, "Campaign Specialist": 1, "Senior Agent": 2, "Customer Rep": 3 };
   const managerOptions = members.filter((person) => person.id !== member?.id
@@ -56,6 +65,8 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
     const file = event.target.files?.[0];
     if (!file) return;
     setPhotoError("");
+    if (!/^image\/(jpeg|png|webp|gif)$/.test(file.type)) { setPhotoError("Use a JPEG, PNG, WebP, or GIF image."); event.target.value = ""; return; }
+    if (file.size > 5 * 1024 * 1024) { setPhotoError("Profile images must be 5 MB or smaller."); event.target.value = ""; return; }
     try {
       setPhoto(await resizePhoto(file));
     } catch (error) {
@@ -72,18 +83,23 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
     }
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
     const cleanedName = name.trim();
     if (!cleanedName) return;
-    onSave({
-      ...(member?.id ? { id: member.id } : {}),
-      name: cleanedName,
-      role,
-      managerId: managerId || null,
-      mentorId: role === "Customer Rep" ? (mentorId || null) : null,
-      photo,
-    });
+    setSaving(true); setSaveError("");
+    try {
+      await onSave({
+        ...(member?.id ? { id: member.id } : {}),
+        name: cleanedName,
+        role,
+        managerId: managerId || null,
+        mentorId: role === "Customer Rep" ? (mentorId || null) : null,
+        photo,
+        photoPath: member?.photoPath ?? "",
+      });
+    } catch (error) { setSaveError(error.message || "Could not save this employee."); }
+    finally { setSaving(false); }
   }
 
   return (
@@ -141,9 +157,10 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
               </select>
             </label>
           )}
+          {saveError && <p className="form-error" role="alert">{saveError}</p>}
           <div className="dialog-actions">
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button type="submit">{member ? "Save changes" : "Add employee"}</Button>
+            <Button type="submit" disabled={saving}>{saving ? "Saving…" : member ? "Save changes" : "Add employee"}</Button>
           </div>
         </form>
       </section>

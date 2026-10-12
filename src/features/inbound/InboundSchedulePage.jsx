@@ -1,8 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeftRight, CalendarDays, Clock3, Plus, Trash2, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
-import { getOrganizationMembers } from "@/features/organization/organization-data";
+import { useOrganizationRoster } from "@/app/organization-provider";
+import { useAuth } from "@/app/auth-provider";
+import { isSupabaseConfigured } from "@/lib/supabase";
+import { loadCallSchedules, saveCallScheduleMonth } from "@/lib/backend-repositories";
+import { subscribeToTables } from "@/lib/backend/shared";
 import "@/features/inbound/inbound-schedule.css";
 
 const STORAGE_KEY = "starter-app-inbound-schedule-v1";
@@ -143,10 +147,15 @@ function Avatar({ name, photo }) {
 }
 
 export default function InboundSchedulePage() {
-  const members = useMemo(() => getOrganizationMembers(), []);
+  const { members } = useOrganizationRoster();
+  const { canEdit } = useAuth();
   const memberById = useMemo(() => new Map(members.map((member) => [member.id, member])), [members]);
   const [month, setMonth] = useState(currentMonth);
-  const [savedSchedules, setSavedSchedules] = useState(readSavedSchedules);
+  const [savedSchedules, setSavedSchedules] = useState(() => isSupabaseConfigured ? {} : readSavedSchedules());
+  const [remoteReady, setRemoteReady] = useState(false);
+  const [syncError, setSyncError] = useState("");
+  const remoteSnapshotRef = useRef(null);
+  const canManage = canEdit && (!isSupabaseConfigured || Boolean(remoteSnapshotRef.current));
   const [northAmericaZone, setNorthAmericaZone] = useState("America/New_York");
   const [timeView, setTimeView] = useState("ph");
   const [previewDate, setPreviewDate] = useState(() => `${currentMonth()}-${String(new Date().getDate()).padStart(2, "0")}`);
@@ -160,13 +169,45 @@ export default function InboundSchedulePage() {
   const usedCallMemberIds = new Set(callAssignments.map((item) => item.memberId));
   const availableCallMembers = members.filter((member) => !usedCallMemberIds.has(member.id));
 
+  function callOnly(schedule) {
+    return { callWindow: schedule.callWindow ?? { start: "21:00", end: "06:00" }, callAssignments: schedule.callAssignments ?? [] };
+  }
+
   useEffect(() => {
-    if (!savedSchedules[month]) {
+    if (!isSupabaseConfigured) return undefined;
+    let active = true;
+    void loadCallSchedules().then((saved) => {
+      if (!active) return;
+      remoteSnapshotRef.current = structuredClone(saved);
+      setSavedSchedules(saved);
+      setRemoteReady(true);
+      setSyncError("");
+    }).catch((error) => { if (active) { setSyncError(error.message || "Could not load inbound call schedules."); setRemoteReady(true); } });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return undefined;
+    let active = true;
+    let timer;
+    const unsubscribe = subscribeToTables(["call_schedule_months", "call_assignments"], () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => { void loadCallSchedules().then((saved) => {
+        if (!active) return;
+        remoteSnapshotRef.current = structuredClone(saved); setSavedSchedules(saved); setSyncError("");
+      }).catch((error) => { if (active) setSyncError(error.message || "Could not sync inbound call schedules."); }); }, 180);
+    }, "inbound-call");
+    return () => { active = false; window.clearTimeout(timer); unsubscribe(); };
+  }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured && !savedSchedules[month]) {
       setSavedSchedules((current) => ({ ...current, [month]: createMonthSchedule(members) }));
     }
   }, [month, members, savedSchedules]);
 
   useEffect(() => {
+    if (isSupabaseConfigured) return undefined;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(savedSchedules));
     } catch {
@@ -175,12 +216,27 @@ export default function InboundSchedulePage() {
   }, [savedSchedules]);
 
   useEffect(() => {
+    if (!isSupabaseConfigured || !remoteReady || !canEdit || !remoteSnapshotRef.current) return undefined;
+    const changed = Object.entries(savedSchedules).filter(([key, schedule]) => JSON.stringify(callOnly(schedule)) !== JSON.stringify(remoteSnapshotRef.current[key]));
+    if (!changed.length) return undefined;
+    const timeout = window.setTimeout(async () => {
+      try {
+        await Promise.all(changed.map(([key, schedule]) => saveCallScheduleMonth(key, callOnly(schedule))));
+        remoteSnapshotRef.current = { ...remoteSnapshotRef.current, ...Object.fromEntries(changed.map(([key, schedule]) => [key, callOnly(schedule)])) };
+        setSyncError("");
+      } catch (error) { setSyncError(error.message || "Could not save inbound call schedules."); }
+    }, 450);
+    return () => window.clearTimeout(timeout);
+  }, [savedSchedules, remoteReady, canEdit]);
+
+  useEffect(() => {
     if (!availableCallMembers.some((member) => member.id === newCallMemberId)) {
       setNewCallMemberId(availableCallMembers[0]?.id ?? "");
     }
   }, [availableCallMembers, newCallMemberId]);
 
   function updateSchedule(updater) {
+    if (!canEdit || (isSupabaseConfigured && !remoteSnapshotRef.current)) return;
     setSavedSchedules((current) => {
       const base = current[month] ?? createMonthSchedule(members);
       return { ...current, [month]: typeof updater === "function" ? updater(base) : { ...base, ...updater } };
@@ -188,6 +244,7 @@ export default function InboundSchedulePage() {
   }
 
   function updateCallAssignment(id, patch) {
+    if (!canEdit) return;
     updateSchedule((current) => ({
       ...current,
       callAssignments: current.callAssignments.map((item) => item.id === id ? { ...item, ...patch } : item),
@@ -195,6 +252,7 @@ export default function InboundSchedulePage() {
   }
 
   function changeCallAssignee(assignmentId, nextMemberId) {
+    if (!canEdit) return;
     const selectedAssignment = callAssignments.find((item) => item.id === assignmentId);
     if (!selectedAssignment || selectedAssignment.memberId === nextMemberId) return;
     const assignmentToSwap = callAssignments.find((item) => item.id !== assignmentId && item.memberId === nextMemberId);
@@ -209,6 +267,7 @@ export default function InboundSchedulePage() {
   }
 
   function removeCallAssignment(id) {
+    if (!canEdit) return;
     const hasOneLeft = callAssignments.length === 1;
     updateSchedule((current) => ({
       ...current,
@@ -222,6 +281,7 @@ export default function InboundSchedulePage() {
   }
 
   function addCallAssignment() {
+    if (!canEdit) return;
     if (!newCallMemberId) return;
     updateSchedule((current) => ({
       ...current,
@@ -249,6 +309,7 @@ export default function InboundSchedulePage() {
       <div className="page-heading inbound-heading">
         <div><p className="eyebrow">OPERATIONS</p><h1>Inbound call time</h1></div>
       </div>
+      <div className="inbound-sync-state">{syncError ? <span className="auth-error" role="alert">{syncError}</span> : <span>{isSupabaseConfigured ? remoteReady ? canManage ? "Shared schedule" : "Published schedule" : "Loading saved schedules…" : "Manila time schedule"}</span>}</div>
 
       <div className="inbound-toolbar">
         <label className="inbound-control inbound-month-control"><CalendarDays size={16} /><span>Month</span><input type="month" value={month} onChange={(event) => changeMonth(event.target.value)} aria-label="Schedule month" /></label>
@@ -268,20 +329,20 @@ export default function InboundSchedulePage() {
 
         <div className="inbound-call-window-row">
           <span>Call window</span>
-          <label><small>From</small><input type="time" value={callWindow.start} onChange={(event) => updateSchedule({ callWindow: { ...callWindow, start: event.target.value } })} aria-label="Inbound call window starts, Manila time" /></label>
+          <label><small>From</small><input type="time" value={callWindow.start} onChange={(event) => updateSchedule({ callWindow: { ...callWindow, start: event.target.value } })} aria-label="Inbound call window starts, Manila time" disabled={!canManage} /></label>
           <span className="inbound-range-dash">to</span>
-          <label><small>To</small><input type="time" value={callWindow.end} onChange={(event) => updateSchedule({ callWindow: { ...callWindow, end: event.target.value } })} aria-label="Inbound call window ends, Manila time" /></label>
+          <label><small>To</small><input type="time" value={callWindow.end} onChange={(event) => updateSchedule({ callWindow: { ...callWindow, end: event.target.value } })} aria-label="Inbound call window ends, Manila time" disabled={!canManage} /></label>
           <span className="inbound-timezone-note">Manila time · {timeLabel(callWindow.start)}–{timeLabel(callWindow.end)}</span>
         </div>
 
         <div className="inbound-add-row">
           <Select value={newCallMemberId} onValueChange={setNewCallMemberId}>
-            <SelectTrigger aria-label="Choose teammate for inbound call time" disabled={!availableCallMembers.length}><SelectValue placeholder="Choose teammate" /></SelectTrigger>
+            <SelectTrigger aria-label="Choose teammate for inbound call time" disabled={!canManage || !availableCallMembers.length}><SelectValue placeholder="Choose teammate" /></SelectTrigger>
             <SelectContent>{availableCallMembers.map((member) => <SelectItem key={member.id} value={member.id}>{member.name}</SelectItem>)}</SelectContent>
           </Select>
-          <label><span>Start</span><input type="time" value={newCallStart} onChange={(event) => setNewCallStart(event.target.value)} aria-label="New inbound call start time, Manila time" /></label>
-          <label><span>End</span><input type="time" value={newCallEnd} onChange={(event) => setNewCallEnd(event.target.value)} aria-label="New inbound call end time, Manila time" /></label>
-          <Button type="button" onClick={addCallAssignment} disabled={!newCallMemberId || !newCallStart || !newCallEnd}><Plus size={15} /> Add call time</Button>
+          <label><span>Start</span><input type="time" value={newCallStart} onChange={(event) => setNewCallStart(event.target.value)} aria-label="New inbound call start time, Manila time" disabled={!canManage} /></label>
+          <label><span>End</span><input type="time" value={newCallEnd} onChange={(event) => setNewCallEnd(event.target.value)} aria-label="New inbound call end time, Manila time" disabled={!canManage} /></label>
+          {canManage && <Button type="button" onClick={addCallAssignment} disabled={!newCallMemberId || !newCallStart || !newCallEnd}><Plus size={15} /> Add call time</Button>}
         </div>
 
         {callAssignments.length ? (
@@ -300,14 +361,14 @@ export default function InboundSchedulePage() {
               const equivalent = convertedRange(assignment.start, assignment.end, previewDate, northAmericaZone);
               return (
                 <article className="inbound-call-row" key={assignment.id}>
-                  <div className="inbound-person-identity"><Avatar name={member.name} photo={member.photo} /><span className="inbound-call-person-edit"><Select value={member.id} onValueChange={(memberId) => changeCallAssignee(assignment.id, memberId)}><SelectTrigger className="inbound-call-member-trigger" aria-label={`Assigned teammate for ${member.name} call time`}><SelectValue /></SelectTrigger><SelectContent>{members.map((candidate) => <SelectItem key={candidate.id} value={candidate.id}>{candidate.name}</SelectItem>)}</SelectContent></Select><small>{member.role}</small></span></div>
+                  <div className="inbound-person-identity"><Avatar name={member.name} photo={member.photo} /><span className="inbound-call-person-edit">{canManage ? <Select value={member.id} onValueChange={(memberId) => changeCallAssignee(assignment.id, memberId)}><SelectTrigger className="inbound-call-member-trigger" aria-label={`Assigned teammate for ${member.name} call time`}><SelectValue /></SelectTrigger><SelectContent>{members.map((candidate) => <SelectItem key={candidate.id} value={candidate.id}>{candidate.name}</SelectItem>)}</SelectContent></Select> : <strong>{member.name}</strong>}<small>{member.role}</small></span></div>
                   <div className="inbound-row-timing">
-                    <label><span>Start · Manila</span><input type="time" value={assignment.start} onChange={(event) => updateCallAssignment(assignment.id, { start: event.target.value })} aria-label={`${member.name} inbound call start time, Manila time`} /></label>
-                    <label><span>End · Manila</span><input type="time" value={assignment.end} onChange={(event) => updateCallAssignment(assignment.id, { end: event.target.value })} aria-label={`${member.name} inbound call end time, Manila time`} /></label>
+                    <label><span>Start · Manila</span><input type="time" value={assignment.start} onChange={(event) => updateCallAssignment(assignment.id, { start: event.target.value })} aria-label={`${member.name} inbound call start time, Manila time`} disabled={!canManage} /></label>
+                    <label><span>End · Manila</span><input type="time" value={assignment.end} onChange={(event) => updateCallAssignment(assignment.id, { end: event.target.value })} aria-label={`${member.name} inbound call end time, Manila time`} disabled={!canManage} /></label>
                     <div className={`inbound-converted-time ${timeView === "us" ? "is-primary" : ""}`}><small>{timezoneLabel} · {durationLabel(assignment.start, assignment.end)}</small><strong>{equivalent}</strong></div>
                   </div>
                   <div className="inbound-lane"><span className="inbound-lane-base" /><span className="inbound-lane-fill" style={{ left: `${left}%`, width: `${width}%` }} /><span className="inbound-lane-label" style={{ left: `${left}%`, width: `${width}%` }}>{rangeLabel(assignment.start, assignment.end)}</span></div>
-                  <Button type="button" variant="ghost" size="icon" className="inbound-remove-button" aria-label={`Remove ${member.name} inbound call time`} onClick={() => removeCallAssignment(assignment.id)}><Trash2 size={15} /></Button>
+                  {canManage && <Button type="button" variant="ghost" size="icon" className="inbound-remove-button" aria-label={`Remove ${member.name} inbound call time`} onClick={() => removeCallAssignment(assignment.id)}><Trash2 size={15} /></Button>}
                 </article>
               );
             })}

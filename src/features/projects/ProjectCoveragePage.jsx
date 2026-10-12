@@ -1,11 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive, BadgeCheck, BriefcaseBusiness, Check, ChevronDown, CircleHelp, ClipboardList,
   Edit3, GraduationCap, LayoutGrid, List, Plus, Search, ShieldCheck, Trash2, UsersRound, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
-import { getOrganizationMembers } from "@/features/organization/organization-data";
+import { useOrganizationRoster } from "@/app/organization-provider";
+import { useAuth } from "@/app/auth-provider";
+import { isSupabaseConfigured } from "@/lib/supabase";
+import { loadProjectCoverage, saveProjectCoverage } from "@/lib/backend-repositories";
+import { subscribeToTables } from "@/lib/backend/shared";
 import {
   createProjectId, getSavedProjects, PROJECT_COVERAGE_STORAGE_KEY, PROJECT_STATUSES,
 } from "@/features/projects/project-data";
@@ -33,6 +37,7 @@ function projectCounts(project) {
 
 function ProjectDialog({ project, members, onClose, onSave, onRemove }) {
   const [draft, setDraft] = useState(() => project ?? { name: "", description: "", isActive: true, pocId: "", trainerIds: [], assignments: {} });
+  const [pocSearch, setPocSearch] = useState("");
   const [error, setError] = useState("");
   const isEditing = Boolean(project?.id);
   const hasHistory = Boolean(project && (Object.keys(project.assignments ?? {}).length || project.pocId || project.trainerIds?.length));
@@ -69,7 +74,7 @@ function ProjectDialog({ project, members, onClose, onSave, onRemove }) {
         <form onSubmit={submit} className="coverage-dialog-form">
           <label className="coverage-field"><span>Project name</span><input autoFocus value={draft.name} onChange={(event) => update("name", event.target.value)} placeholder="e.g. RMA Callback" maxLength={90} /></label>
           <label className="coverage-field"><span>Description <small>Optional</small></span><textarea value={draft.description} onChange={(event) => update("description", event.target.value)} placeholder="What does this project cover?" rows={2} maxLength={240} /></label>
-          <div className="coverage-field"><span>POC · Primary contact</span><Select value={draft.pocId || "none"} onValueChange={(value) => update("pocId", value === "none" ? "" : value)}><SelectTrigger aria-label="Project primary contact"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">No POC selected</SelectItem>{members.map((member) => <SelectItem value={member.id} key={member.id}>{member.name} · {member.role}</SelectItem>)}</SelectContent></Select><small className="coverage-field-help">The main person responsible for this project. A POC can also be a trainer.</small></div>
+          <div className="coverage-field"><span>POC · Primary contact</span><input type="search" value={pocSearch} onChange={(event) => setPocSearch(event.target.value)} placeholder="Search employee name" aria-label="Search primary contact by name" /><Select value={draft.pocId || "none"} onValueChange={(value) => update("pocId", value === "none" ? "" : value)}><SelectTrigger aria-label="Project primary contact"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">No POC selected</SelectItem>{members.filter((member) => member.id === draft.pocId || `${member.name} ${member.role}`.toLowerCase().includes(pocSearch.trim().toLowerCase())).map((member) => <SelectItem value={member.id} key={member.id}>{member.name} · {member.role}</SelectItem>)}</SelectContent></Select><small className="coverage-field-help">The main person responsible for this project. A POC can also be a trainer.</small></div>
           <fieldset className="coverage-trainer-field"><legend><span>Trainers</span><small>People who can train or coach teammates on this project</small></legend>{members.length ? <div className="coverage-trainer-list">{members.map((member) => <label className="coverage-trainer-option" key={member.id}><input type="checkbox" checked={draft.trainerIds.includes(member.id)} onChange={() => toggleTrainer(member.id)} /><MemberAvatar member={member} small /><span className="coverage-trainer-copy"><strong>{member.name}</strong><small>{member.role}</small></span>{draft.pocId === member.id && <em>POC</em>}</label>)}</div> : <p className="coverage-muted">Add team members in Organizational chart before choosing trainers.</p>}</fieldset>
           <label className="coverage-active-toggle"><span className="coverage-toggle-copy"><strong>Project is active</strong><small>Inactive projects are kept for reference and can’t receive new status updates.</small></span><input type="checkbox" checked={draft.isActive} onChange={(event) => update("isActive", event.target.checked)} /><i /></label>
           <p className="coverage-help-callout"><CircleHelp size={15} /> POC and trainer roles do not automatically mark someone as trained. Set each person’s training status in the coverage matrix.</p>
@@ -105,8 +110,13 @@ function StatusCell({ status, onClick, disabled }) {
 }
 
 export default function ProjectCoveragePage() {
-  const [projects, setProjects] = useState(getSavedProjects);
-  const [members] = useState(getOrganizationMembers);
+  const { canEdit } = useAuth();
+  const [projects, setProjects] = useState(() => isSupabaseConfigured ? [] : getSavedProjects());
+  const [remoteReady, setRemoteReady] = useState(false);
+  const [syncError, setSyncError] = useState("");
+  const remoteSnapshotRef = useRef(null);
+  const { members } = useOrganizationRoster();
+  const canManage = canEdit && (!isSupabaseConfigured || Boolean(remoteSnapshotRef.current));
   const [view, setView] = useState("matrix");
   const [search, setSearch] = useState("");
   const [memberSearch, setMemberSearch] = useState("");
@@ -116,8 +126,48 @@ export default function ProjectCoveragePage() {
   const [assignmentDialog, setAssignmentDialog] = useState(null);
 
   useEffect(() => {
-    localStorage.setItem(PROJECT_COVERAGE_STORAGE_KEY, JSON.stringify(projects));
-  }, [projects]);
+    if (!isSupabaseConfigured) return undefined;
+    let active = true;
+    void loadProjectCoverage().then((saved) => {
+      if (!active) return;
+      remoteSnapshotRef.current = structuredClone(saved);
+      setProjects(saved);
+      setRemoteReady(true);
+      setSyncError("");
+    }).catch((error) => { if (active) { setSyncError(error.message || "Could not load project coverage."); setRemoteReady(true); } });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return undefined;
+    let active = true;
+    let timer;
+    const unsubscribe = subscribeToTables(["projects", "project_trainers", "project_assignments"], () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => { void loadProjectCoverage().then((saved) => {
+        if (!active) return;
+        remoteSnapshotRef.current = structuredClone(saved); setProjects(saved); setSyncError("");
+      }).catch((error) => { if (active) setSyncError(error.message || "Could not sync project coverage."); }); }, 180);
+    }, "project-coverage");
+    return () => { active = false; window.clearTimeout(timer); unsubscribe(); };
+  }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      localStorage.setItem(PROJECT_COVERAGE_STORAGE_KEY, JSON.stringify(projects));
+      return undefined;
+    }
+    if (!remoteReady || !canEdit || !remoteSnapshotRef.current || JSON.stringify(projects) === JSON.stringify(remoteSnapshotRef.current)) return undefined;
+    const next = structuredClone(projects);
+    const timeout = window.setTimeout(async () => {
+      try {
+        await saveProjectCoverage(next);
+        remoteSnapshotRef.current = next;
+        setSyncError("");
+      } catch (error) { setSyncError(error.message || "Could not save project coverage."); }
+    }, 500);
+    return () => window.clearTimeout(timeout);
+  }, [projects, remoteReady, canEdit]);
 
   const visibleProjects = useMemo(() => projects.filter((project) => {
     const matchesArchive = showArchived || project.isActive;
@@ -137,24 +187,28 @@ export default function ProjectCoveragePage() {
   const uncoveredProjects = activeProjects.filter((project) => !project.pocId).length;
 
   function saveProject(draft) {
+    if (!canEdit || (isSupabaseConfigured && !remoteSnapshotRef.current)) return;
     if (draft.id) setProjects((current) => current.map((project) => project.id === draft.id ? draft : project));
     else setProjects((current) => [...current, { ...draft, id: createProjectId() }]);
     setProjectDialog(null);
   }
 
   function removeProject(project, archive) {
+    if (!canEdit || (isSupabaseConfigured && !remoteSnapshotRef.current)) return;
     if (archive) setProjects((current) => current.map((item) => item.id === project.id ? { ...item, isActive: false } : item));
     else setProjects((current) => current.filter((item) => item.id !== project.id));
     setProjectDialog(null);
   }
 
   function saveAssignment(status) {
+    if (!canEdit || (isSupabaseConfigured && !remoteSnapshotRef.current)) return;
     const { project, member } = assignmentDialog;
     setProjects((current) => current.map((item) => item.id === project.id ? { ...item, assignments: { ...item.assignments, [member.id]: status } } : item));
     setAssignmentDialog(null);
   }
 
   function removeAssignment() {
+    if (!canEdit || (isSupabaseConfigured && !remoteSnapshotRef.current)) return;
     const { project, member } = assignmentDialog;
     setProjects((current) => current.map((item) => {
       if (item.id !== project.id) return item;
@@ -166,7 +220,7 @@ export default function ProjectCoveragePage() {
   }
 
   function openAssignment(project, member) {
-    if (!project.isActive) return;
+    if (!canEdit || !project.isActive) return;
     setAssignmentDialog({ project, member, status: project.assignments?.[member.id] ?? "" });
   }
 
@@ -178,8 +232,9 @@ export default function ProjectCoveragePage() {
     <section className="page-content project-coverage-page">
       <div className="page-heading project-coverage-heading">
         <div><p className="eyebrow">ADMIN · OPERATIONS</p><h1>Project coverage</h1><p className="page-description">Manage project contacts, trainers, and each team member’s training coverage.</p></div>
-        <Button onClick={() => setProjectDialog({ project: null })}><Plus size={16} /> Add project</Button>
+        {canManage && <Button onClick={() => setProjectDialog({ project: null })}><Plus size={16} /> Add project</Button>}
       </div>
+      {syncError && <p className="auth-error" role="alert">{syncError}</p>}
 
       <div className="coverage-summary-grid">
         <article><span className="coverage-summary-icon"><BriefcaseBusiness size={17} /></span><div><small>ACTIVE PROJECTS</small><strong>{activeProjects.length}</strong><span>{projects.length - activeProjects.length} archived</span></div></article>
@@ -190,7 +245,7 @@ export default function ProjectCoveragePage() {
 
       <section className="coverage-workspace">
         <div className="coverage-toolbar">
-          <div className="coverage-toolbar-copy"><div><p className="coverage-kicker">PROJECT ROSTER</p><h2>Team training matrix</h2></div><span className="coverage-live-indicator"><i /> Saved in this browser</span></div>
+          <div className="coverage-toolbar-copy"><div><p className="coverage-kicker">PROJECT ROSTER</p><h2>Team training matrix</h2></div><span className="coverage-live-indicator"><i />{isSupabaseConfigured ? remoteReady ? canEdit ? "Shared workspace" : "Published data" : "Loading projects…" : "Saved in this browser"}</span></div>
           <div className="coverage-toolbar-controls">
             <label className="coverage-search"><Search size={14} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find project" aria-label="Find project" /></label>
             <label className="coverage-search"><Search size={14} /><input value={memberSearch} onChange={(event) => setMemberSearch(event.target.value)} placeholder="Find person" aria-label="Find person" /></label>
@@ -210,13 +265,13 @@ export default function ProjectCoveragePage() {
                 const trainers = project.trainerIds.map(getMember).filter(Boolean);
                 const count = projectCounts(project);
                 return <div className={`coverage-project-header ${project.isActive ? "" : "is-archived"}`} key={project.id}>
-                  <div className="coverage-project-head-main"><span className="coverage-project-number">{String(index + 1).padStart(2, "0")}</span><div><strong title={project.name}>{project.name}</strong><small>{project.isActive ? "ACTIVE PROJECT" : "ARCHIVED"}</small></div><button type="button" onClick={() => setProjectDialog({ project })} title={`Edit ${project.name}`} aria-label={`Edit ${project.name}`}><Edit3 size={13} /></button></div>
+                  <div className="coverage-project-head-main"><span className="coverage-project-number">{String(index + 1).padStart(2, "0")}</span><div><strong title={project.name}>{project.name}</strong><small>{project.isActive ? "ACTIVE PROJECT" : "ARCHIVED"}</small></div>{canManage && <button type="button" onClick={() => setProjectDialog({ project })} title={`Edit ${project.name}`} aria-label={`Edit ${project.name}`}><Edit3 size={13} /></button>}</div>
                   <div className="coverage-project-contacts"><span><b>POC</b>{poc?.name ?? <em>Not set</em>}</span><span><b>TRAINER{trainers.length === 1 ? "" : "S"}</b>{trainers.length ? trainers.map((person) => person.name).join(", ") : <em>Not set</em>}</span></div>
                   <div className="coverage-project-count"><span><BadgeCheck size={11} /> {count.trained} trained</span><span><GraduationCap size={11} /> {count.toTrain} to train</span></div>
                 </div>;
               })}</div>
-              {visibleMembers.map((member) => <div className="coverage-matrix-row" key={member.id}><div className="coverage-person-cell"><MemberAvatar member={member} /><span><strong>{member.name}</strong><small>{member.role}</small></span><span className="coverage-person-project-count">{visibleProjects.filter((project) => Boolean(project.assignments?.[member.id])).length}</span></div>{visibleProjects.map((project) => <div className={`coverage-matrix-cell ${project.isActive ? "" : "is-archived"}`} key={`${member.id}-${project.id}`}><StatusCell status={project.assignments?.[member.id]} disabled={!project.isActive} onClick={() => openAssignment(project, member)} /></div>)}</div>)}
-            </div> : <div className="coverage-empty-state"><BriefcaseBusiness size={24} /><h3>No projects match</h3><p>Add a project or change your search to see team coverage.</p><Button onClick={() => setProjectDialog({ project: null })}><Plus size={15} /> Add project</Button></div>}
+              {visibleMembers.map((member) => <div className="coverage-matrix-row" key={member.id}><div className="coverage-person-cell"><MemberAvatar member={member} /><span><strong>{member.name}</strong><small>{member.role}</small></span><span className="coverage-person-project-count">{visibleProjects.filter((project) => Boolean(project.assignments?.[member.id])).length}</span></div>{visibleProjects.map((project) => <div className={`coverage-matrix-cell ${project.isActive ? "" : "is-archived"}`} key={`${member.id}-${project.id}`}><StatusCell status={project.assignments?.[member.id]} disabled={!canManage || !project.isActive} onClick={() => openAssignment(project, member)} /></div>)}</div>)}
+            </div> : <div className="coverage-empty-state"><BriefcaseBusiness size={24} /><h3>No projects match</h3><p>Add a project or change your search to see team coverage.</p>{canManage && <Button onClick={() => setProjectDialog({ project: null })}><Plus size={15} /> Add project</Button>}</div>}
           </div>
         ) : (
           <div className="coverage-project-cards">{visibleProjects.length ? visibleProjects.map((project, index) => {
@@ -224,20 +279,20 @@ export default function ProjectCoveragePage() {
             const poc = getMember(project.pocId);
             const trainers = project.trainerIds.map(getMember).filter(Boolean);
             return <article className={`coverage-project-card ${project.isActive ? "" : "is-archived"}`} key={project.id}>
-              <header><span className="coverage-project-number">{String(index + 1).padStart(2, "0")}</span><span className="coverage-project-card-state">{project.isActive ? "Active" : "Archived"}</span><button type="button" onClick={() => setProjectDialog({ project })} aria-label={`Edit ${project.name}`}><Edit3 size={14} /></button></header>
+              <header><span className="coverage-project-number">{String(index + 1).padStart(2, "0")}</span><span className="coverage-project-card-state">{project.isActive ? "Active" : "Archived"}</span>{canManage && <button type="button" onClick={() => setProjectDialog({ project })} aria-label={`Edit ${project.name}`}><Edit3 size={14} /></button>}</header>
               <h3>{project.name}</h3><p>{project.description || "No project description added."}</p>
               <div className="coverage-card-contacts"><div><span>POC</span><strong>{poc?.name ?? "Not assigned"}</strong></div><div><span>TRAINER{trainers.length === 1 ? "" : "S"}</span><strong>{trainers.length ? trainers.map((person) => person.name).join(", ") : "Not assigned"}</strong></div></div>
               <div className="coverage-card-stats"><span><BadgeCheck size={13} /> {counts.trained} trained</span><span><ShieldCheck size={13} /> {counts.refresher} refreshers</span><span><GraduationCap size={13} /> {counts.toTrain} to train</span></div>
-              <footer><span>{counts.assigned} of {members.length} people assigned</span><button type="button" onClick={() => setProjectDialog({ project })}>Manage project <ChevronDown size={13} /></button></footer>
+              <footer><span>{counts.assigned} of {members.length} people assigned</span>{canManage && <button type="button" onClick={() => setProjectDialog({ project })}>Manage project <ChevronDown size={13} /></button>}</footer>
             </article>;
-          }) : <div className="coverage-empty-state"><BriefcaseBusiness size={24} /><h3>Your project list is ready</h3><p>Add a project, then choose its POC, trainers, and team training statuses.</p><Button onClick={() => setProjectDialog({ project: null })}><Plus size={15} /> Add first project</Button></div>}</div>
+          }) : <div className="coverage-empty-state"><BriefcaseBusiness size={24} /><h3>Your project list is ready</h3><p>{canManage ? "Add a project, then choose its POC, trainers, and team training statuses." : "No projects are published yet."}</p>{canManage && <Button onClick={() => setProjectDialog({ project: null })}><Plus size={15} /> Add first project</Button>}</div>}</div>
         )}
 
         <div className="coverage-workspace-footer"><span><ShieldCheck size={14} /> POC and Trainer labels are project-specific. A person’s training status is tracked separately.</span><span>{uncoveredProjects ? `${uncoveredProjects} active project${uncoveredProjects === 1 ? " has" : "s have"} no POC yet` : "Every active project has a POC"}</span></div>
       </section>
 
-      {projectDialog && <ProjectDialog key={projectDialog.project?.id ?? "new-project"} project={projectDialog.project} members={members} onClose={() => setProjectDialog(null)} onSave={saveProject} onRemove={removeProject} />}
-      {assignmentDialog && <AssignmentDialog key={`${assignmentDialog.project.id}-${assignmentDialog.member.id}`} member={assignmentDialog.member} project={assignmentDialog.project} status={assignmentDialog.status} onClose={() => setAssignmentDialog(null)} onSave={saveAssignment} onRemove={removeAssignment} />}
+      {projectDialog && canManage && <ProjectDialog key={projectDialog.project?.id ?? "new-project"} project={projectDialog.project} members={members} onClose={() => setProjectDialog(null)} onSave={saveProject} onRemove={removeProject} />}
+      {assignmentDialog && canManage && <AssignmentDialog key={`${assignmentDialog.project.id}-${assignmentDialog.member.id}`} member={assignmentDialog.member} project={assignmentDialog.project} status={assignmentDialog.status} onClose={() => setAssignmentDialog(null)} onSave={saveAssignment} onRemove={removeAssignment} />}
     </section>
   );
 }

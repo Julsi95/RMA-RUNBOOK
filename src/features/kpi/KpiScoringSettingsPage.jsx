@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowDownWideNarrow, ArrowUpWideNarrow, Check, RotateCcw, Save, Scale, SlidersHorizontal, Target } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
 import {
   DEFAULT_KPI_SCORING_SETTINGS, getKpiScoringSettings, KPI_METRICS, KPI_SCORING_SETTINGS_KEY,
 } from "@/features/kpi/kpi-data";
+import { isSupabaseConfigured } from "@/lib/supabase";
+import { loadCurrentKpiScoring, saveCurrentKpiScoring } from "@/lib/backend-repositories";
 import "@/features/kpi/kpi-qa.css";
 
 const BAND_HINTS = {
@@ -23,6 +25,24 @@ function numberValue(value) {
 export default function KpiScoringSettingsPage() {
   const [draft, setDraft] = useState(() => structuredClone(getKpiScoringSettings()));
   const [message, setMessage] = useState("");
+  const [remoteReady, setRemoteReady] = useState(!isSupabaseConfigured);
+  const [remoteLoading, setRemoteLoading] = useState(isSupabaseConfigured);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (!isSupabaseConfigured) return undefined;
+    let active = true;
+    void loadCurrentKpiScoring().then((current) => {
+      if (!active) return;
+      if (current?.settings) {
+        localStorage.setItem(KPI_SCORING_SETTINGS_KEY, JSON.stringify(current.settings));
+        setDraft(structuredClone(current.settings));
+        setMessage(`Current saved rule version · ${current.versionNumber ?? "active"}`);
+      }
+      setRemoteReady(true);
+      setRemoteLoading(false);
+    }).catch((error) => { if (active) { setMessage(error.message || "Could not load saved scoring settings."); setRemoteLoading(false); } });
+    return () => { active = false; };
+  }, []);
   const totalWeight = useMemo(() => KPI_METRICS.reduce((sum, metric) => sum + numberValue(draft.metrics[metric.id].weightPercent), 0), [draft]);
   const maxScore = totalWeight / 100 * 5;
   const weightDifference = totalWeight - 100;
@@ -38,8 +58,12 @@ export default function KpiScoringSettingsPage() {
     setDraft((current) => ({ ...current, evaluationBands: current.evaluationBands.map((band, bandIndex) => bandIndex === index ? { ...band, [field]: value } : band) }));
   }
 
-  function saveSettings(event) {
+  async function saveSettings(event) {
     event.preventDefault();
+    if (isSupabaseConfigured && !remoteReady) {
+      setMessage("Saved scoring settings could not be loaded. Reload the page before saving to avoid replacing them.");
+      return;
+    }
     const missingFormula = KPI_METRICS.find((metric) => {
       const rule = draft.metrics[metric.id];
       if (rule.mode !== "formula") return false;
@@ -76,9 +100,15 @@ export default function KpiScoringSettingsPage() {
       })),
       evaluationBands: draft.evaluationBands.map((band) => ({ label: String(band.label).trim(), min: Number(band.min) })),
     };
-    localStorage.setItem(KPI_SCORING_SETTINGS_KEY, JSON.stringify(savedSettings));
-    setDraft(savedSettings);
-    setMessage("Scoring settings saved in this browser.");
+    setSaving(true);
+    try {
+      const versionId = isSupabaseConfigured ? await saveCurrentKpiScoring(savedSettings) : null;
+      localStorage.setItem(KPI_SCORING_SETTINGS_KEY, JSON.stringify(savedSettings));
+      setDraft(savedSettings);
+      setMessage(isSupabaseConfigured ? `Saved as a new scoring version${versionId ? ` · ${String(versionId).slice(0, 8)}` : ""}. Past months keep their saved rules.` : "Scoring settings saved in this browser.");
+    } catch (error) {
+      setMessage(error.message || "Could not save scoring settings.");
+    } finally { setSaving(false); }
   }
 
   function resetDraft() {
@@ -102,7 +132,7 @@ export default function KpiScoringSettingsPage() {
     <section className="page-content kpi-settings-page">
       <div className="page-heading kpi-settings-heading">
         <div><p className="eyebrow">ADMIN · PERFORMANCE</p><h1>KPI scoring settings</h1><p className="page-description">Set how monthly results are scored, weighted, and evaluated.</p></div>
-        <Button form="kpi-scoring-settings-form" type="submit"><Save size={15} /> Save settings</Button>
+        <Button form="kpi-scoring-settings-form" type="submit" disabled={remoteLoading || saving}><Save size={15} /> Save settings</Button>
       </div>
 
       <div className="kpi-settings-summary">
@@ -112,6 +142,7 @@ export default function KpiScoringSettingsPage() {
       </div>
 
       <form id="kpi-scoring-settings-form" onSubmit={saveSettings} className="kpi-settings-form">
+        {remoteLoading && <p className="kpi-settings-band-note">Loading the current saved scoring version…</p>}
         <section className="kpi-settings-section">
           <div className="kpi-settings-section-head"><div><p className="kpi-overline">01 · METRIC RULES</p><h2>Weights and score conversion</h2><p>Weights control each metric’s share of the total. Choose manual equivalent scores or configure an automatic raw-value formula.</p></div><Button type="button" variant="outline" onClick={resetDraft}><RotateCcw size={14} /> Reset draft</Button></div>
           <div className="kpi-settings-metric-layout">
@@ -131,7 +162,7 @@ export default function KpiScoringSettingsPage() {
           <p className="kpi-settings-band-note">The app checks the highest minimum score first. Make each band’s minimum distinct so evaluation labels are predictable.</p>
         </section>
 
-        <div className="kpi-settings-footer"><div><span className="kpi-settings-save-icon"><Check size={15} /></span><span>{message || "Changes apply to KPI results in this browser after saving."}</span></div><Button type="submit"><Save size={15} /> Save settings</Button></div>
+        <div className="kpi-settings-footer"><div><span className="kpi-settings-save-icon"><Check size={15} /></span><span>{message || (isSupabaseConfigured ? "Saving creates a new version. Existing months keep their pinned scoring rules." : "Changes apply to KPI results in this browser after saving.")}</span></div><Button type="submit" disabled={remoteLoading || saving || (isSupabaseConfigured && !remoteReady)}><Save size={15} /> {saving ? "Saving…" : "Save settings"}</Button></div>
       </form>
     </section>
   );

@@ -60,6 +60,10 @@
 .vl-value-kind { margin-bottom: 2px; padding: 5px 7px; border: 1px solid var(--border); border-radius: 6px; color: var(--muted-foreground); font-size: 9px; font-weight: 650; letter-spacing: .08em; }
 .vl-value-kind.is-status { border-color: color-mix(in srgb, var(--card-accent) 30%, var(--border)); color: var(--card-accent); }
 .vl-card-footer { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 9px; padding-top: 10px; border-top: 1px solid var(--border); color: var(--muted-foreground); font-size: 10px; }
+.vl-validity { display: flex; align-items: center; gap: 6px; margin-top: 12px; color: var(--muted-foreground); font-size: 11px; }
+.vl-date-range-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.vl-form-field select { width: 100%; min-height: 42px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; outline: 0; background: var(--background); color: var(--foreground); font: inherit; font-size: 13px; }
+@media (max-width: 520px) { .vl-date-range-fields { grid-template-columns: 1fr; } }
 .vl-card-spark { display: flex; height: 17px; align-items: flex-end; gap: 3px; opacity: .58; }
 .vl-card-spark i { width: 3px; height: 7px; border-radius: 4px; background: var(--card-accent); }
 .vl-card-spark i:nth-child(2), .vl-card-spark i:nth-child(4) { height: 12px; }

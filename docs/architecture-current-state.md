@@ -1,7 +1,7 @@
 # RUNBOOK: Current State Audit and Backend Proposal
 
 **Audit date:** 2026-10-04
-**Status:** Planning document only. Current frontend behavior is the audit baseline. No backend implementation is authorized by this document.
+**Status:** Audit and architecture approved; backend implementation is in progress on branch `supabase-backend`. The audit sections below describe the pre-backend frontend baseline; the implementation status at the end of this document records current changes.
 
 ## 1. Purpose and scope
 
@@ -10,7 +10,7 @@ RUNBOOK is a SharePoint-inspired operations workspace for a customer-support tea
 This document distinguishes:
 
 - **Current implementation:** what the app does today, using sample defaults and browser `localStorage`.
-- **Proposed backend architecture:** recommendations for discussion only. No database, storage, auth, route, UI, or API changes are included in this audit.
+- **Approved backend architecture:** Supabase/PostgreSQL, Supabase Auth/Storage, public viewing with authenticated editing, central 30-day History/recovery, and saved Dashboard revisions. Details are recorded below.
 
 The mock/browser data is not a production migration source. Backend setup should create seed/sample records that behave like ordinary records.
 
@@ -220,30 +220,54 @@ Keep the Work Schedule page's detailed schedule history because it supports date
 10. **Bundle size:** build has a >500 kB chunk warning. Measure before backend work; consider lazy loading XLSX on import rather than changing behavior during this audit.
 11. **No central reactive cache:** multiple open pages/tabs may show stale roster state until remount/reload. A data client/cache should define invalidation after backend mutations.
 
-## 13. Explicitly not implemented
+## 13. Implementation status (2026-10-04)
 
-- Supabase JS client or API/data layer
-- Database schema, migrations, RLS/grants, RPCs, Edge Functions
-- Authentication screens, session provider, protected controls/routes
-- Supabase Storage buckets/policies or file upload migration
-- Central History page or recovery jobs
-- Dashboard database persistence/versioning
-- KPI scoring version implementation
-- Mock data migration
+The backend foundation is now being implemented. This is separate from the pre-backend baseline tag `pre-backend-baseline` and branch `main`; implementation work is on `supabase-backend`.
 
-These are future work after the user approves the architecture.
+### Implemented in code so far
 
-## 14. Suggested implementation order after approval
+- Added `@supabase/supabase-js`, environment-aware browser client, auth/session provider, login/forgot/reset flows, password update in Settings, editor route guard, and editor-aware sidebar/navigation.
+- Added the first SQL migration and sample seed for account/employee separation, employee profiles and field visibility, module entities, KPI scoring versions/month snapshots, Dashboard drafts/revisions, Storage buckets/policies, RLS, audit triggers, employee soft-delete/restore, and checked RPCs.
+- Added an Organization provider for shared employee/profile reads and writes, including a public-safe directory RPC that applies per-profile field and photo visibility, and Storage-backed employee photos.
+- Added database repositories and integrations for Dashboard publication/drafts, App / Links, QA Parameters, employee profiles, Seat Plan, VL Credits, Project coverage, Inbound Call Time, Work Schedule, KPI scoring settings, month-pinned KPI results, and central History. Multi-record page saves use checked RPCs with logical recoverable History snapshots; App / Links and QA Parameters use one atomic collection save each.
+- Added a KPI history correction migration: restores reverse additions as well as edits using append-only tombstone revisions, and public reads expose only the latest non-deleted result for each employee/month.
+- Added private-bucket storage for uploaded profile photos. Public profile reads include a private-bucket path only when photo visibility is enabled; Storage RLS gates short-lived signed URL creation on that same flag.
+- Executed all eleven migrations and `seed.sql` in an isolated PGlite/Postgres-WASM harness with stubbed Supabase Auth and Storage schemas. The run verified seed rows, anonymous employee/profile sanitization, hidden/public profile-photo Storage policies, dashboard publication visibility, authenticated-viewer write denial, editor checked RPCs, and restoration of KPI edits plus imported additions. It exposed a missing VL photo snapshot column, which is now present in the base schema and guarded idempotently in migration 003.
+- Added Supabase setup instructions in `supabase/README.md`. No Supabase/Vercel account was accessed and no external project configuration was changed.
+- `npm run build` passes after the current integration set. Vite reports the large-chunk warning. The isolated SQL harness uses stubbed Supabase schemas, so hosted Postgres 17, PostgREST, Auth/session, actual Storage signed URLs, and Vercel behavior remain deployment-dependent. No local Supabase CLI, `psql`, or Docker is installed and no hosted project has been configured.
 
-1. Confirm schema semantics/open questions and public profile field policy.
-2. Create Supabase project/configuration and initial migrations/seeds, keeping secrets out of client.
-3. Implement Auth session and server-enforced RLS; test anonymous read/editor write access.
-4. Establish data access/service layer, then migrate employee roster first because other modules depend on it.
-5. Add shared History/recovery + asset-retention utilities before destructive CRUD migration.
-6. Migrate simpler data modules and dashboard, preserving draft/publish behavior.
-7. Implement immutable KPI rule versions and month result snapshots.
-8. Verify public read, authenticated CRUD, recovery, file access, and Vercel direct-route behavior before release.
+### Remaining work
 
-## 15. Audit sources
+- Central History provides a database-backed timeline and restore actions for supported snapshots (Dashboard publication, employee/profile records, App / Links, QA criteria, KPI revisions, Seat Plan, VL, Project Coverage, Inbound, and Work Schedule documents). Work Schedule also keeps its focused schedule history for date-specific preview/edit/restore and logs those changes centrally. Unsupported snapshot types are identified for restoration from their owning page.
+- Apply all eleven migrations and seed against the manually configured Supabase project, then verify anonymous/editor access, KPI restore (including imported additions), private profile photo signed URLs and visibility revocation, Auth email delivery, and Vercel routes. The isolated SQL harness has already checked the SQL migration sequence and representative database-level policies/RPCs, but cannot replace this hosted check.
+- After the owner configures Supabase, verify anonymous/editor access, recovery flows, Storage policies, Auth email delivery, and Vercel routes using separate sessions.
+
+## 14. Deployment-dependent work
+
+- Create/configure the user's Supabase project and Vercel environment, then apply the SQL migrations in order and run `seed.sql` once.
+- Create the owner Auth account and explicitly promote its `app_accounts` row; configure redirect URLs, SMTP, disabled public signups, and the trusted retention job.
+- Run database/RLS/Auth/Storage verification against the configured project. The frontend build cannot prove hosted authorization or SQL execution.
+
+## 15. Remaining implementation order
+
+1. Complete the final SQL/RLS review and production build before the user applies migrations.
+2. After manual project setup, apply migrations/seed and verify public/editor access, recovery, files, Auth emails, and Vercel routes.
+
+## 16. Audit sources
 
 The audit reviewed the route table, app shell/theme, page components, feature data helpers, local storage access, sample defaults, and package scripts/dependencies under `src/`, `package.json`, `.env.example`, and `vercel.json`. Exact current source behavior should be rechecked as implementation proceeds; this document is an architectural handoff, not a replacement for source code.
+
+## 17. Current implementation update (2026-10-13)
+
+This section supersedes earlier statements above that still describe backend setup as proposed or pending.
+
+- **Viewing/access model:** Dashboard and ordinary workspace pages are public and read-only. A signed-in account can manage its own account profile. Admin accounts can edit workspace data, use Dashboard Settings/KPI scoring settings, manage login accounts, and access History. The Dashboard Settings and KPI scoring settings navigation items are hidden unless signed in as Admin. Direct routes and all writes are also protected by Supabase RLS/RPC checks.
+- **Auth and accounts:** `app_accounts.role` is `admin` or `user`; legacy `can_edit` is synchronized for compatibility. Employee records remain separate from Auth accounts. Admins invite accounts through the `manage-account` Edge Function; passwords are set through the emailed Supabase invitation and are never handled by the app as plaintext.
+- **Profile:** Signed-in users can update display name, summary, login email, password, and a static or animated GIF photo. If linked to an employee, supported profile fields sync to that employee record. Public employee reads continue through a field-visibility-filtered RPC.
+- **History:** Change history and recoverable snapshots are Admin-only. Employee delete audit now reads `purge_after` through JSON only for employee deletes, avoiding errors when a different table is deleted. History restore remains limited to supported record types and the retention cleanup path.
+- **Realtime:** Shared roster and key page data subscribe to Supabase Realtime where configured, so open pages refresh after remote changes.
+- **Schedules/VL:** Work schedule saves reject weekend endpoints and duplicate employee assignments within a saved period; range updates/deletes target affected rows. VL credits use effective date ranges, validate nonnegative numeric values or `Proby`, reject overlapping records for the same employee, and support recoverable delete/restore.
+- **Migrations:** Two new migrations (202610130001 and 202610130002) add role/access changes, account profiles, audit fix, realtime publication membership, schedule validation, and VL effective-date operations. They are local/pending until applied with the Supabase CLI. Public read grants are intentionally limited to approved workspace data; account, History, and draft data stay private.
+- **Verification:** `npm run build` passes. A local PGlite harness applied all migrations and `seed.sql` and exercised public reads, account-role permissions, profile update, checked writes, audit behavior, schedule validation, VL overlap/value checks, and History restore. The Vite bundle-size warning remains. Hosted Supabase Auth email delivery, Edge Function execution, actual Storage URL behavior, and Vercel deployment still require project-side verification.
+
+See [`auth-and-deployment.md`](auth-and-deployment.md) for required manual Supabase/Vercel actions before production use.

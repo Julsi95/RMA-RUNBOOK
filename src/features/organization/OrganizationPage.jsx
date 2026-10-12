@@ -1,17 +1,17 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Network, Plus, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import OrgBranch from "@/features/organization/OrgBranch";
 import OrgMemberDialog from "@/features/organization/OrgMemberDialog";
-import { buildOrganizationTree, createMemberId, getOrganizationMembers, ORGANIZATION_STORAGE_KEY, organizationRoles } from "@/features/organization/organization-data";
+import { buildOrganizationTree, createMemberId, organizationRoles } from "@/features/organization/organization-data";
+import { useOrganizationRoster } from "@/app/organization-provider";
+import { useAuth } from "@/app/auth-provider";
 
 export default function OrganizationPage() {
-  const [members, setMembers] = useState(getOrganizationMembers);
+  const { members, loading, error, saveMembers } = useOrganizationRoster();
+  const { canEdit } = useAuth();
   const [dialog, setDialog] = useState({ open: false, member: null });
-
-  useEffect(() => {
-    localStorage.setItem(ORGANIZATION_STORAGE_KEY, JSON.stringify(members));
-  }, [members]);
+  const [saveError, setSaveError] = useState("");
 
   const tree = buildOrganizationTree(members);
   const roleCounts = organizationRoles.map((role) => ({ role, count: members.filter((member) => member.role === role).length }));
@@ -20,32 +20,32 @@ export default function OrganizationPage() {
     setDialog({ open: true, member: null });
   }
 
-  function saveMember(memberData) {
+  async function saveMember(memberData) {
     const id = memberData.id ?? createMemberId();
     const previous = members.find((person) => person.id === id);
     const savedMember = { ...memberData, id };
-    setMembers((current) => {
-      const updated = current.some((person) => person.id === id)
-        ? current.map((person) => person.id === id ? savedMember : person)
-        : [...current, savedMember];
-      if (previous?.role === "Campaign Specialist" && savedMember.role !== "Campaign Specialist") {
-        return updated.map((person) => person.mentorId === id ? { ...person, mentorId: null } : person);
-      }
-      return updated;
-    });
+    let next = members.some((person) => person.id === id)
+      ? members.map((person) => person.id === id ? savedMember : person)
+      : [...members, savedMember];
+    if (previous?.role === "Campaign Specialist" && savedMember.role !== "Campaign Specialist") {
+      next = next.map((person) => person.mentorId === id ? { ...person, mentorId: null } : person);
+    }
+    await saveMembers(next);
     setDialog({ open: false, member: null });
   }
 
-  function removeMember(member) {
-    const confirmed = window.confirm(`Remove ${member.name} from the organization chart? Their direct reports will move to ${member.managerId ? "their manager" : "the top level"}.`);
+  async function removeMember(member) {
+    const confirmed = window.confirm(`Remove ${member.name}? The employee and linked records can be recovered for 30 days. Direct reports will move to ${member.managerId ? "their manager" : "the top level"}.`);
     if (!confirmed) return;
-    setMembers((current) => current
+    const next = members
       .filter((person) => person.id !== member.id)
       .map((person) => ({
         ...person,
         managerId: person.managerId === member.id ? member.managerId ?? null : person.managerId,
         mentorId: person.mentorId === member.id ? null : person.mentorId,
-      })));
+      }));
+    try { await saveMembers(next, { deletedId: member.id }); setSaveError(""); }
+    catch (cause) { setSaveError(cause.message || "Could not remove this employee."); }
   }
 
   return (
@@ -56,8 +56,10 @@ export default function OrganizationPage() {
           <h1>Organizational chart</h1>
           <p className="page-description">See how your team fits together. Edit people, roles, and reporting lines.</p>
         </div>
-        <Button onClick={openAddDialog}><Plus size={17} /> Add employee</Button>
+        {canEdit && <Button onClick={openAddDialog}><Plus size={17} /> Add employee</Button>}
       </div>
+      {loading && <p className="page-description" role="status">Loading team directory…</p>}
+      {(error || saveError) && <p className="auth-error" role="alert">{saveError || error}</p>}
 
       <div className="org-summary-row">
         <div className="org-total-card">
@@ -79,11 +81,11 @@ export default function OrganizationPage() {
         {tree.length > 0 ? (
           <div className="org-chart-viewport">
             <div className="org-tree">
-              {tree.map((root) => <OrgBranch key={root.id} member={root} onEdit={(member) => setDialog({ open: true, member })} onRemove={removeMember} />)}
+              {tree.map((root) => <OrgBranch key={root.id} member={root} onEdit={(member) => setDialog({ open: true, member })} onRemove={removeMember} canEdit={canEdit} />)}
             </div>
           </div>
         ) : (
-          <div className="org-empty-state"><UsersRound size={24} /><h3>Your team is ready to grow</h3><p>Add a person to start building the reporting chart.</p><Button variant="outline" onClick={openAddDialog}><Plus size={16} /> Add first person</Button></div>
+          <div className="org-empty-state"><UsersRound size={24} /><h3>Your team is ready to grow</h3><p>{canEdit ? "Add a person to start building the reporting chart." : "The team directory is empty."}</p>{canEdit && <Button variant="outline" onClick={openAddDialog}><Plus size={16} /> Add first person</Button>}</div>
         )}
       </div>
 

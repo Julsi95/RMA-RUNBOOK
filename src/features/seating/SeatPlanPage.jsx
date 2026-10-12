@@ -2,6 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Armchair, BriefcaseBusiness, CalendarDays, Grip, Plus, Printer, Search, Trash2, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { starterMembers } from "@/features/organization/organization-data";
+import { useOrganizationRoster } from "@/app/organization-provider";
+import { useAuth } from "@/app/auth-provider";
+import { isSupabaseConfigured } from "@/lib/supabase";
+import { loadSeatPlans, saveSeatPlan } from "@/lib/backend-repositories";
+import { subscribeToTables } from "@/lib/backend/shared";
 
 const PLAN_STORAGE_KEY = "starter-app-seat-plans-v1";
 const TEAM_STORAGE_KEY = "starter-app-organization-members-v2";
@@ -67,9 +72,14 @@ function getSeatPosition(seatId) {
 }
 
 export default function SeatPlanPage() {
+  const { members: teamMembers } = useOrganizationRoster();
+  const { canEdit } = useAuth();
   const [selectedDate, setSelectedDate] = useState(getLocalDate);
-  const [plans, setPlans] = useState(getSavedPlans);
-  const [teamMembers] = useState(getTeamMembers);
+  const [plans, setPlans] = useState(() => isSupabaseConfigured ? {} : getSavedPlans());
+  const [remoteReady, setRemoteReady] = useState(false);
+  const [syncError, setSyncError] = useState("");
+  const remoteSnapshotRef = useRef(null);
+  const canManage = canEdit && (!isSupabaseConfigured || Boolean(remoteSnapshotRef.current));
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedMemberId, setSelectedMemberId] = useState(null);
   const [selectedSeatId, setSelectedSeatId] = useState(null);
@@ -84,8 +94,50 @@ export default function SeatPlanPage() {
   const allSeatIds = [...leadershipSeatIds, ...seatIds];
 
   useEffect(() => {
-    localStorage.setItem(PLAN_STORAGE_KEY, JSON.stringify(plans));
-  }, [plans]);
+    if (!isSupabaseConfigured) {
+      localStorage.setItem(PLAN_STORAGE_KEY, JSON.stringify(plans));
+      return undefined;
+    }
+    let active = true;
+    void loadSeatPlans().then((saved) => {
+      if (!active) return;
+      remoteSnapshotRef.current = structuredClone(saved);
+      setPlans(saved);
+      setRemoteReady(true);
+      setSyncError("");
+    }).catch((error) => { if (active) setSyncError(error.message || "Could not load saved seat plans."); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return undefined;
+    let active = true;
+    let timer;
+    const unsubscribe = subscribeToTables(["seat_plans", "seat_positions", "seat_assignments"], () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => { void loadSeatPlans().then((saved) => {
+        if (!active) return;
+        remoteSnapshotRef.current = structuredClone(saved); setPlans(saved); setSyncError("");
+      }).catch((error) => { if (active) setSyncError(error.message || "Could not sync seat plan changes."); }); }, 180);
+    }, "seat-plan");
+    return () => { active = false; window.clearTimeout(timer); unsubscribe(); };
+  }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !remoteReady || !canEdit || !remoteSnapshotRef.current) return undefined;
+    const pending = Object.entries(plans).filter(([date, plan]) => JSON.stringify(plan) !== JSON.stringify(remoteSnapshotRef.current?.[date]));
+    if (!pending.length) return undefined;
+    const timeout = window.setTimeout(async () => {
+      try {
+        await Promise.all(pending.map(([date, plan]) => saveSeatPlan(date, plan)));
+        remoteSnapshotRef.current = { ...(remoteSnapshotRef.current ?? {}), ...Object.fromEntries(pending) };
+        setSyncError("");
+      } catch (error) {
+        setSyncError(error.message || "Could not save seat plan changes.");
+      }
+    }, 450);
+    return () => window.clearTimeout(timeout);
+  }, [plans, remoteReady, canEdit]);
 
   const membersById = useMemo(() => new Map(teamMembers.map((member) => [member.id, member])), [teamMembers]);
   const assignedIds = new Set(Object.values(assignments));
@@ -109,6 +161,7 @@ export default function SeatPlanPage() {
   }
 
   function updateActivePlan(updater) {
+    if (!canManage) return;
     setPlans((current) => {
       const plan = current[selectedDate] ?? emptyPlan;
       return { ...current, [selectedDate]: updater(plan) };
@@ -211,6 +264,7 @@ export default function SeatPlanPage() {
   }
 
   function startPointerDrag(event, payload) {
+    if (!canManage) return;
     if (event.pointerType === "mouse" && event.button !== 0) return;
     dragRef.current = { ...payload, startX: event.clientX, startY: event.clientY, moved: false };
   }
@@ -272,6 +326,7 @@ export default function SeatPlanPage() {
         aria-label={`${seatId}, ${member ? `${member.name}, ${member.role}` : "open seat"}${member?.mentorName ? `, mentor ${member.mentorName}` : ""}`}
         title={selectedMemberId ? `Assign selected teammate to ${seatId}` : `Select seat ${seatId}`}
         data-seat-drop-id={seatId}
+        disabled={!canManage}
         onPointerDown={(event) => { if (member) startPointerDrag(event, { memberId: member.id, fromSeatId: seatId }); }}
         onClick={() => handleSeatClick(seatId)}
         onKeyDown={(event) => {
@@ -289,7 +344,7 @@ export default function SeatPlanPage() {
           ) : (
             <span className="seat-empty-label"><span className="seat-empty-plus">+</span>{selectedSeatId === seatId ? "Seat selected" : "Open seat"}</span>
           )}
-          <span className="seat-remove" role="presentation" title={`Remove seat ${seatId}${member ? ` and return ${member.name} to the available list` : ""}`} onClick={(event) => { event.stopPropagation(); removeSeat(seatId); }} onMouseDown={(event) => event.stopPropagation()}><Trash2 size={12} /></span>
+          {canManage && <span className="seat-remove" role="presentation" title={`Remove seat ${seatId}${member ? ` and return ${member.name} to the available list` : ""}`} onClick={(event) => { event.stopPropagation(); removeSeat(seatId); }} onMouseDown={(event) => event.stopPropagation()}><Trash2 size={12} /></span>}
         </span>
         {facing === "north" && <span className="seat-chair"><Armchair size={19} strokeWidth={1.6} /></span>}
       </button>
@@ -327,8 +382,9 @@ export default function SeatPlanPage() {
           <span className="seat-control-icon"><CalendarDays size={17} /></span>
           <span><small>Seat plan for</small><input type="date" value={selectedDate} onChange={(event) => { if (event.target.value) setSelectedDate(event.target.value); setSelectedSeatId(null); setSelectedMemberId(null); }} /></span>
         </label>
-        <div className="seat-plan-status"><span className="seat-status-dot" /> Saved in this browser</div>
+        <div className="seat-plan-status"><span className="seat-status-dot" />{syncError ? "Sync issue" : isSupabaseConfigured ? remoteReady ? canEdit ? "Synced with workspace" : "Shared workspace" : "Loading plans…" : "Saved in this browser"}</div>
       </div>
+      {syncError && <p className="auth-error" role="alert">{syncError}</p>}
 
       <div className="seat-stats-grid">
         <div className="seat-stat-card"><span className="seat-stat-icon"><Armchair size={17} /></span><span><strong>{allSeatIds.length}</strong><small>Total seats</small></span></div>
@@ -340,7 +396,7 @@ export default function SeatPlanPage() {
         <section className="seat-map-panel">
           <div className="seat-panel-heading">
             <div><p className="eyebrow">FLOOR LAYOUT</p><h2>Seat plan for {printableDate}</h2></div>
-            <div className="seat-map-actions"><span className="seat-layout-badge">{allSeatIds.length} seats <i /> Leadership + team</span><Button variant="outline" className="seat-add-button" onClick={addSeat}><Plus size={15} /> Add team seat</Button></div>
+          <div className="seat-map-actions"><span className="seat-layout-badge">{allSeatIds.length} seats <i /> Leadership + team</span>{canManage && <Button variant="outline" className="seat-add-button" onClick={addSeat}><Plus size={15} /> Add team seat</Button>}</div>
           </div>
           <div className="seat-map-legend"><span><i className="legend-chair-icon" /> Chair</span><span><i className="legend-desk-icon" /> Desk & assigned teammate</span><span><i className="legend-open-icon" /> Open seat</span></div>
 
@@ -348,7 +404,7 @@ export default function SeatPlanPage() {
             <div className="seat-room-label"><span>WINDOWS</span><i /></div>
             <div className="seat-room">
               <div className="seat-leadership-layer">
-                <div className="seat-leadership-heading"><div><span className="seat-leadership-icon"><BriefcaseBusiness size={15} /></span><span><strong>Team Lead / Boss</strong><small>Leadership seats</small></span></div><div className="seat-leadership-actions"><span>{leadershipSeatIds.length} seats</span><Button variant="outline" className="seat-add-button" onClick={addLeadershipSeat}><Plus size={14} /> Add</Button></div></div>
+                <div className="seat-leadership-heading"><div><span className="seat-leadership-icon"><BriefcaseBusiness size={15} /></span><span><strong>Team Lead / Boss</strong><small>Leadership seats</small></span></div><div className="seat-leadership-actions"><span>{leadershipSeatIds.length} seats</span>{canManage && <Button variant="outline" className="seat-add-button" onClick={addLeadershipSeat}><Plus size={14} /> Add</Button>}</div></div>
                 {leadershipSeatIds.length > 0 ? <div className="seat-leadership-row">{leadershipSeatIds.map((seatId) => renderSeat(seatId))}</div> : <div className="seat-leadership-empty">No leadership seats yet. Add one to restore the row.</div>}
               </div>
               {seatPairs.length ? seatPairs.map((pairRows, pairIndex) => (
@@ -373,7 +429,7 @@ export default function SeatPlanPage() {
         <aside className="seat-note-panel">
           <div className="seat-note-heading"><span className="seat-note-icon"><CalendarDays size={16} /></span><div><h2>Plan notes</h2><p>Saved separately for each date.</p></div></div>
           <label className="seat-note-label" htmlFor="seat-plan-note">Notes for {printableDate}</label>
-          <textarea id="seat-plan-note" value={activePlan.note ?? ""} onChange={(event) => setNote(event.target.value)} placeholder="Add a note for this day…&#10;Example: Training at the front row" maxLength={500} />
+          <textarea id="seat-plan-note" value={activePlan.note ?? ""} onChange={(event) => setNote(event.target.value)} placeholder={canManage ? "Add a note for this day…&#10;Example: Training at the front row" : "No notes for this day"} maxLength={500} readOnly={!canManage} />
           <div className="seat-note-footer"><span>{(activePlan.note ?? "").length}/500</span><span>Autosaved</span></div>
         </aside>
       </div>
@@ -391,6 +447,7 @@ export default function SeatPlanPage() {
                 className={`available-person ${selectedMemberId === member.id ? "available-person-selected" : ""} ${draggingMemberId === member.id ? "is-dragging" : ""}`}
                 key={member.id}
                 type="button"
+                disabled={!canManage}
                 onPointerDown={(event) => startPointerDrag(event, { memberId: member.id, fromSeatId: null })}
                 onClick={() => handlePersonClickWithDrag(member.id)}
               >

@@ -1,0 +1,100 @@
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useAuth } from "@/app/auth-provider";
+import { ORGANIZATION_STORAGE_KEY, getOrganizationMembers } from "@/features/organization/organization-data";
+import { loadRemoteRoster, saveRemoteEmployeeProfile, saveRemoteMembers, saveRemoteProfileFieldDefinitions } from "@/lib/backend/organization";
+import { subscribeToTables } from "@/lib/backend/shared";
+
+const OrganizationContext = createContext(null);
+
+export function OrganizationProvider({ children }) {
+  const { configured, canEdit } = useAuth();
+  const [members, setMembers] = useState(() => configured ? [] : getOrganizationMembers());
+  const [profiles, setProfiles] = useState({});
+  const [customFieldDefinitions, setCustomFieldDefinitions] = useState([]);
+  const [loading, setLoading] = useState(configured);
+  const [error, setError] = useState("");
+
+  const refresh = useCallback(async () => {
+    if (!configured) {
+      const localMembers = getOrganizationMembers();
+      setMembers(localMembers);
+      setProfiles({});
+      setCustomFieldDefinitions([]);
+      setError("");
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const roster = await loadRemoteRoster(canEdit);
+      setMembers(roster.members);
+      setProfiles(roster.profiles);
+      setCustomFieldDefinitions(roster.definitions);
+      setError("");
+      try { localStorage.setItem(ORGANIZATION_STORAGE_KEY, JSON.stringify(roster.members)); } catch { /* server remains source of truth */ }
+    } catch (cause) {
+      setError(cause.message || "Could not load the employee directory.");
+    } finally {
+      setLoading(false);
+    }
+  }, [canEdit, configured]);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  useEffect(() => {
+    if (!configured) return undefined;
+    let active = true;
+    let timer;
+    const reload = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => { if (active) void refresh(); }, 150);
+    };
+    const unsubscribe = subscribeToTables(["employees", "employee_profiles", "agent_profile_field_definitions"], reload, "organization");
+    return () => { active = false; window.clearTimeout(timer); unsubscribe(); };
+  }, [configured, refresh]);
+
+  const saveMembers = useCallback(async (nextMembers, { deletedId = null } = {}) => {
+    if (!configured) {
+      setMembers(nextMembers);
+      try { localStorage.setItem(ORGANIZATION_STORAGE_KEY, JSON.stringify(nextMembers)); } catch { /* current session remains available */ }
+      return;
+    }
+    if (!canEdit) throw new Error("Sign in with an editor account to change employees.");
+    await saveRemoteMembers(members, nextMembers, deletedId);
+    await refresh();
+  }, [canEdit, configured, members, refresh]);
+
+  const saveEmployeeProfile = useCallback(async (employeeId, profile) => {
+    if (!configured) {
+      setProfiles((current) => ({ ...current, [employeeId]: profile }));
+      return;
+    }
+    if (!canEdit) throw new Error("Sign in with an editor account to edit profiles.");
+    await saveRemoteEmployeeProfile(employeeId, profile);
+    await refresh();
+  }, [canEdit, configured, refresh]);
+
+  const saveFieldDefinitions = useCallback(async (definitions) => {
+    if (!configured) {
+      setCustomFieldDefinitions(definitions);
+      return;
+    }
+    if (!canEdit) throw new Error("Sign in with an editor account to edit profile fields.");
+    await saveRemoteProfileFieldDefinitions(definitions);
+    await refresh();
+  }, [canEdit, configured, refresh]);
+
+  const value = useMemo(() => ({
+    members, profiles, customFieldDefinitions, loading, error, refresh,
+    saveMembers, saveEmployeeProfile, saveFieldDefinitions,
+  }), [members, profiles, customFieldDefinitions, loading, error, refresh, saveMembers, saveEmployeeProfile, saveFieldDefinitions]);
+
+  return <OrganizationContext.Provider value={value}>{children}</OrganizationContext.Provider>;
+}
+
+export function useOrganizationRoster() {
+  const context = useContext(OrganizationContext);
+  if (!context) throw new Error("useOrganizationRoster must be used within OrganizationProvider.");
+  return context;
+}

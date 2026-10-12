@@ -1,7 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowDownWideNarrow, Check, ClipboardCheck, Pencil, Plus, Search, SlidersHorizontal, Target, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
+import { useAuth } from "@/app/auth-provider";
+import { isSupabaseConfigured } from "@/lib/supabase";
+import { loadQaCriteria, saveQaCriteria } from "@/lib/backend-repositories";
 import "@/features/qa/qa-parameters.css";
 
 const STORAGE_KEY = "starter-app-qa-parameters-v1";
@@ -50,11 +53,22 @@ function percentLabel(value) {
 }
 
 export default function QaParametersPage() {
-  const [criteria, setCriteria] = useState(readCriteria);
+  const { canEdit, configured } = useAuth();
+  const [criteria, setCriteria] = useState(() => configured ? [] : readCriteria());
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
   const [sort, setSort] = useState("custom");
   const [editor, setEditor] = useState(null);
+  const [remoteReady, setRemoteReady] = useState(!configured);
+  const [loadError, setLoadError] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const canManage = canEdit && remoteReady;
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    let active = true;
+    void loadQaCriteria().then((items) => { if (active) { setCriteria(items); setRemoteReady(true); } }).catch((error) => { if (active) setLoadError(error.message || "Could not load QA criteria."); });
+    return () => { active = false; };
+  }, []);
   const categories = useMemo(() => [...new Set(criteria.map((item) => item.category).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [criteria]);
   const totals = useMemo(() => criteria.reduce((sum, item) => ({ tcr: sum.tcr + Number(item.tcr), tcp: sum.tcp + Number(item.tcp) }), { tcr: 0, tcp: 0 }), [criteria]);
   const overall = totals.tcr > 0 ? Math.round((totals.tcp / totals.tcr) * 10000) / 100 : null;
@@ -69,39 +83,49 @@ export default function QaParametersPage() {
     return Number(a.order ?? 0) - Number(b.order ?? 0);
   });
 
-  function persist(next) {
+  async function persist(next) {
+    if (configured) {
+      if (!canManage) return;
+      await saveQaCriteria(next);
+    }
     setCriteria(next);
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* keep this session's edits */ }
+    if (!configured) try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* keep edits in the current session */ }
+    setSaveError("");
   }
 
   function openEditor(item = null) {
+    if (!canManage) return;
     setEditor(item
       ? { ...item, tcr: String(item.tcr), tcp: String(item.tcp) }
       : { id: "", category: activeCategory === "All" ? "Customer experience" : activeCategory, criterion: "", tcr: "14", tcp: "14" });
   }
 
-  function saveCriterion(event) {
+  async function saveCriterion(event) {
     event.preventDefault();
+    if (!canManage) return;
     const tcr = Number(editor.tcr);
     const tcp = Number(editor.tcp);
     if (!editor.criterion.trim() || !editor.category.trim() || !Number.isInteger(tcr) || !Number.isInteger(tcp) || tcr < 0 || tcp < 0 || tcp > tcr) return;
     const existing = criteria.find((item) => item.id === editor.id);
     const nextItem = { ...editor, id: editor.id || makeId(), criterion: editor.criterion.trim(), category: editor.category.trim(), tcr, tcp, order: existing?.order ?? criteria.length };
-    persist(existing ? criteria.map((item) => item.id === existing.id ? nextItem : item) : [...criteria, nextItem]);
+    try { await persist(existing ? criteria.map((item) => item.id === existing.id ? nextItem : item) : [...criteria, nextItem]); }
+    catch (error) { setSaveError(error.message || "Could not save criterion."); return; }
     setActiveCategory(nextItem.category);
     setEditor(null);
   }
 
-  function deleteCriterion(id) {
+  async function deleteCriterion(id) {
+    if (!canManage) return;
     const next = criteria.filter((item) => item.id !== id).map((item, index) => ({ ...item, order: index }));
-    persist(next);
+    try { await persist(next); } catch (error) { setSaveError(error.message || "Could not delete criterion."); }
   }
 
   return <section className="page-content qa-parameters-page">
     <header className="page-heading qa-parameters-heading">
       <div><p className="eyebrow">QUALITY · ADMIN TOOLS</p><h1>QA parameters</h1><p className="page-description">Manage call quality criteria and track sample results for each one.</p></div>
-      <Button onClick={() => openEditor()}><Plus size={17} /> Add criterion</Button>
+      {canManage && <Button onClick={() => openEditor()}><Plus size={17} /> Add criterion</Button>}
     </header>
+    {(loadError || saveError) && <p className="auth-error" role="alert">{saveError || loadError}</p>}
 
     <section className="qa-params-overview">
       <div className="qa-params-score-panel">
@@ -131,17 +155,17 @@ export default function QaParametersPage() {
       {filteredCriteria.length ? <div className="qa-criteria-grid">{filteredCriteria.map((item, index) => {
         const performance = scoreOf(item);
         return <article className="qa-criterion-card" key={item.id}>
-          <div className="qa-criterion-top"><span className="qa-criterion-number">{String(index + 1).padStart(2, "0")}</span><span className="qa-criterion-category">{item.category}</span><div className="qa-criterion-actions"><Button type="button" variant="ghost" size="icon" title="Edit criterion" aria-label={"Edit criterion " + item.criterion} onClick={() => openEditor(item)}><Pencil size={15} /></Button><Button type="button" variant="ghost" size="icon" className="qa-criterion-delete" title="Delete criterion" aria-label={"Delete criterion " + item.criterion} onClick={() => deleteCriterion(item.id)}><Trash2 size={15} /></Button></div></div>
+          <div className="qa-criterion-top"><span className="qa-criterion-number">{String(index + 1).padStart(2, "0")}</span><span className="qa-criterion-category">{item.category}</span>{canManage && <div className="qa-criterion-actions"><Button type="button" variant="ghost" size="icon" title="Edit criterion" aria-label={"Edit criterion " + item.criterion} onClick={() => openEditor(item)}><Pencil size={15} /></Button><Button type="button" variant="ghost" size="icon" className="qa-criterion-delete" title="Delete criterion" aria-label={"Delete criterion " + item.criterion} onClick={() => void deleteCriterion(item.id)}><Trash2 size={15} /></Button></div>}</div>
           <h3>{item.criterion}</h3>
           <div className="qa-criterion-scoreline"><span>Performance</span><strong>{percentLabel(performance)}</strong></div>
           <div className="qa-criterion-meter" role="meter" aria-label={"Performance " + percentLabel(performance)} aria-valuemin="0" aria-valuemax="100" aria-valuenow={performance ?? 0}><i style={{ width: (performance ?? 0) + "%" }} /></div>
           <div className="qa-criterion-counts"><div><span>TCR <small>Total checks</small></span><strong>{item.tcr}</strong></div><i /><div><span>TCP <small>Passed checks</small></span><strong>{item.tcp}</strong></div><div className="qa-count-ratio"><strong>{item.tcp}<small>/{item.tcr}</small></strong><span>pass ratio</span></div></div>
         </article>;
-      })}</div> : <div className="qa-params-empty"><span><ClipboardCheck size={21} /></span><strong>{query ? "No matching criteria" : "No criteria in this category"}</strong><p>{query ? "Try a different search." : "Add a criterion to build your checklist."}</p>{!query && <Button variant="outline" onClick={() => openEditor()}><Plus size={16} /> Add criterion</Button>}</div>}
+      })}</div> : <div className="qa-params-empty"><span><ClipboardCheck size={21} /></span><strong>{query ? "No matching criteria" : "No criteria in this category"}</strong><p>{query ? "Try a different search." : canManage ? "Add a criterion to build your checklist." : "No criteria have been published yet."}</p>{!query && canManage && <Button variant="outline" onClick={() => openEditor()}><Plus size={16} /> Add criterion</Button>}</div>}
       <p className="qa-params-footnote"><ArrowDownWideNarrow size={14} /> Performance is TCP ÷ TCR. The overall sample score is total TCP ÷ total TCR, so criteria with more checks carry more weight.</p>
     </section>
 
-    {editor && <div className="qa-params-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditor(null); }}><form className="qa-params-dialog" role="dialog" aria-modal="true" aria-labelledby="qa-params-dialog-title" onSubmit={saveCriterion}>
+    {editor && canManage && <div className="qa-params-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditor(null); }}><form className="qa-params-dialog" role="dialog" aria-modal="true" aria-labelledby="qa-params-dialog-title" onSubmit={saveCriterion}>
       <div className="qa-params-dialog-heading"><div><p className="qa-params-kicker">{editor.id ? "EDIT QA CRITERION" : "NEW QA CRITERION"}</p><h2 id="qa-params-dialog-title">{editor.id ? "Update criterion" : "Add criterion"}</h2><p>Keep the checklist and sample score up to date.</p></div><Button type="button" variant="ghost" size="icon" aria-label="Close QA criterion form" onClick={() => setEditor(null)}><X size={17} /></Button></div>
       <label className="qa-params-field"><span>Criterion</span><textarea autoFocus rows="3" value={editor.criterion} onChange={(event) => setEditor((value) => ({ ...value, criterion: event.target.value }))} placeholder="Describe the behavior being evaluated" required /></label>
       <label className="qa-params-field"><span>Category</span><input list="qa-params-categories" value={editor.category} onChange={(event) => setEditor((value) => ({ ...value, category: event.target.value }))} placeholder="e.g. Communication" required /><datalist id="qa-params-categories">{categories.map((category) => <option key={category} value={category} />)}</datalist></label>

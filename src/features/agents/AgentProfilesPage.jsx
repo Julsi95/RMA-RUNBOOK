@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
-import { ArrowRight, Cake, CalendarDays, Check, ChevronRight, CircleUserRound, FilePlus2, Pencil, Plus, Search, Settings2, Sparkles, Trash2, UsersRound, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowRight, Cake, CalendarDays, Check, ChevronRight, CircleUserRound, Eye, FilePlus2, Pencil, Plus, Search, Settings2, Sparkles, Trash2, UsersRound, X } from "lucide-react";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/Button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
-import { getOrganizationMembers } from "@/features/organization/organization-data";
+import { useOrganizationRoster } from "@/app/organization-provider";
+import { useAuth } from "@/app/auth-provider";
 import "@/features/agents/agent-profiles.css";
 
 const PROFILES_KEY = "starter-app-agent-profiles-v1";
@@ -117,9 +118,13 @@ function PersonAvatar({ member, large = false }) {
 }
 
 export default function AgentProfilesPage() {
-  const [members] = useState(getOrganizationMembers);
-  const [profiles, setProfiles] = useState(() => readObject(PROFILES_KEY));
-  const [customFields, setCustomFields] = useState(readFields);
+  const { members, profiles: sharedProfiles, customFieldDefinitions, loading: rosterLoading, error: rosterError, saveEmployeeProfile, saveFieldDefinitions } = useOrganizationRoster();
+  const { canEdit, configured } = useAuth();
+  const canManage = canEdit && !rosterLoading && !rosterError;
+  const [localProfiles, setLocalProfiles] = useState(() => configured ? {} : readObject(PROFILES_KEY));
+  const [localCustomFields, setLocalCustomFields] = useState(() => configured ? [] : readFields());
+  const profiles = configured ? sharedProfiles : localProfiles;
+  const customFields = configured ? customFieldDefinitions.map((field) => ({ id: field.id, label: field.label, type: field.field_type ?? field.type })) : localCustomFields;
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("All roles");
   const [birthdayMonth, setBirthdayMonth] = useState("all");
@@ -127,7 +132,19 @@ export default function AgentProfilesPage() {
   const [selectedPerson, setSelectedPerson] = useState(null);
   const [draft, setDraft] = useState(null);
   const [fieldsOpen, setFieldsOpen] = useState(false);
+  const [visibilityOpen, setVisibilityOpen] = useState(false);
+  const visibilityControlRef = useRef(null);
   const [fieldDrafts, setFieldDrafts] = useState([]);
+  const [profileError, setProfileError] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
+  useEffect(() => {
+    if (!visibilityOpen) return undefined;
+    function closeOutside(event) {
+      if (!visibilityControlRef.current?.contains(event.target)) setVisibilityOpen(false);
+    }
+    document.addEventListener("pointerdown", closeOutside);
+    return () => document.removeEventListener("pointerdown", closeOutside);
+  }, [visibilityOpen]);
   const today = new Date();
   const roles = useMemo(() => [...new Set(members.map((member) => member.role).filter(Boolean))].sort(), [members]);
   const birthdaysThisYear = useMemo(() => members.map((member) => {
@@ -154,42 +171,68 @@ export default function AgentProfilesPage() {
     return (roleFilter === "All roles" || member.role === roleFilter) && text.includes(query.trim().toLowerCase());
   });
 
-  function persistProfiles(next) {
-    setProfiles(next);
+  useEffect(() => {
+    if (!configured) return;
+    setLocalProfiles({});
+    setLocalCustomFields([]);
+  }, [configured]);
+
+  function persistLocalProfiles(next) {
+    setLocalProfiles(next);
     try { localStorage.setItem(PROFILES_KEY, JSON.stringify(next)); } catch { /* keep edits for this session */ }
   }
 
-  function deleteBirthday(memberId) {
-    persistProfiles({ ...profiles, [memberId]: { ...(profiles[memberId] ?? {}), birthday: "" } });
+  async function deleteBirthday(memberId) {
+    if (!canManage) return;
+    const next = { ...(profiles[memberId] ?? {}), birthday: "" };
+    if (configured) {
+      try { await saveEmployeeProfile(memberId, next); setProfileError(""); }
+      catch (error) { setProfileError(error.message || "Could not update this profile."); }
+    } else persistLocalProfiles({ ...profiles, [memberId]: next });
   }
 
   function editPerson(member) {
-    const profile = profiles[member.id] ?? { birthday: "", hireDate: "", personality: "", summary: "", fields: {} };
+    const profile = profiles[member.id] ?? { birthday: "", hireDate: "", personality: "", summary: "", fields: {}, visibility: {} };
     setSelectedPerson(member);
-    setDraft({ ...profile, fields: { ...(profile.fields ?? {}) } });
+    setDraft({ ...profile, fields: { ...(profile.fields ?? {}) }, visibility: { photo: true, ...(profile.visibility ?? {}) } });
+    setProfileError("");
   }
 
-  function saveProfile(event) {
+  async function saveProfile(event) {
     event.preventDefault();
+    if (!canManage) return;
     const next = { ...profiles, [selectedPerson.id]: { ...draft, summary: draft.summary.trim() } };
-    persistProfiles(next);
-    setSelectedPerson(null);
-    setDraft(null);
+    setSavingProfile(true); setProfileError("");
+    try {
+      if (configured) await saveEmployeeProfile(selectedPerson.id, next[selectedPerson.id]);
+      else persistLocalProfiles(next);
+      setSelectedPerson(null); setDraft(null);
+    } catch (error) { setProfileError(error.message || "Could not save this profile."); }
+    finally { setSavingProfile(false); }
   }
 
   function openFields() {
-    setFieldDrafts(customFields.map((field) => ({ ...field })));
+    if (!canManage) return;
+    setFieldDrafts(customFields.map((field) => ({ ...field, type: field.type ?? field.field_type })));
     setFieldsOpen(true);
   }
 
-  function saveFields() {
+  async function saveFields() {
+    if (!canManage) return;
     const cleaned = fieldDrafts.map((field) => ({ ...field, label: field.label.trim() })).filter((field) => field.label);
     const keep = new Set(cleaned.map((field) => field.id));
     const nextProfiles = Object.fromEntries(Object.entries(profiles).map(([memberId, profile]) => [memberId, { ...profile, fields: Object.fromEntries(Object.entries(profile.fields ?? {}).filter(([id]) => keep.has(id))) }]));
-    setCustomFields(cleaned);
-    try { localStorage.setItem(FIELDS_KEY, JSON.stringify(cleaned)); } catch { /* keep edits for this session */ }
-    persistProfiles(nextProfiles);
-    setFieldsOpen(false);
+    try {
+      if (configured) {
+        await saveFieldDefinitions(cleaned);
+        await Promise.all(Object.entries(nextProfiles).filter(([id, profile]) => JSON.stringify(profile.fields) !== JSON.stringify(profiles[id]?.fields ?? {})).map(([id, profile]) => saveEmployeeProfile(id, profile)));
+      } else {
+        setLocalCustomFields(cleaned);
+        try { localStorage.setItem(FIELDS_KEY, JSON.stringify(cleaned)); } catch { /* current session remains available */ }
+        persistLocalProfiles(nextProfiles);
+      }
+      setFieldsOpen(false); setProfileError("");
+    } catch (error) { setProfileError(error.message || "Could not save profile fields."); }
   }
 
   function addField() {
@@ -199,8 +242,9 @@ export default function AgentProfilesPage() {
   return <section className="page-content agent-profiles-page">
     <header className="page-heading agent-profiles-heading">
       <div><p className="eyebrow">PEOPLE · TEAM DIRECTORY</p><h1>Agent profiles</h1><p className="page-description">Get to know your team, celebrate milestones, and keep useful profile details together.</p></div>
-      <div className="agent-profile-heading-actions"><Button type="button" variant="outline" onClick={openFields}><Settings2 size={16} /> Profile fields</Button><Link to="/organizational" className="agent-manage-roster-link"><UsersRound size={15} /> Manage roster <ArrowRight size={14} /></Link></div>
+      <div className="agent-profile-heading-actions">{canManage && <Button type="button" variant="outline" onClick={openFields}><Settings2 size={16} /> Profile fields</Button>}<Link to="/organizational" className="agent-manage-roster-link"><UsersRound size={15} /> Manage roster <ArrowRight size={14} /></Link></div>
     </header>
+    {(profileError || rosterError) && <p className="auth-error" role="alert">{profileError || rosterError}</p>}
 
     <section className="agent-directory-overview">
       <div className="agent-directory-copy"><span className="agent-directory-icon"><Sparkles size={19} /></span><div><span className="agent-directory-kicker">TEAM SNAPSHOT</span><strong>A little more about the people behind the work.</strong><small>Photos, names, and roles stay in sync with your organization chart.</small></div></div>
@@ -213,7 +257,7 @@ export default function AgentProfilesPage() {
       <div className="agent-birthday-months" role="group" aria-label="Filter birthdays by month"><button type="button" className={birthdayMonth === "all" ? "active" : ""} aria-pressed={birthdayMonth === "all"} onClick={() => setBirthdayMonth("all")}>{birthdayView === "upcoming" ? "All upcoming" : "All recent"}</button>{birthdayMonths.map((month) => <button type="button" className={birthdayMonth === String(month) ? "active" : ""} aria-pressed={birthdayMonth === String(month)} key={month} onClick={() => setBirthdayMonth(String(month))}>{new Intl.DateTimeFormat("en-US", { month: "short" }).format(new Date(today.getFullYear(), month - 1, 1))}<span>{birthdayCollection.filter((item) => item.month === month).length}</span></button>)}</div>
       {visibleBirthdays.length ? <div className="agent-birthday-list">{visibleBirthdays.map(({ member, date, daysAgo }) => {
         const days = Math.round((date - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / 86400000);
-        return <div className="agent-birthday-item" key={member.id}><button type="button" className="agent-birthday-open" onClick={() => editPerson(member)}><PersonAvatar member={member} /><span><strong>{member.name}</strong><small>{new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(date)} · {birthdayView === "upcoming" ? birthdayMessage(days) : birthdayAgoMessage(daysAgo)}</small></span><ChevronRight size={15} /></button><Button type="button" variant="ghost" size="icon" className="agent-birthday-delete" aria-label={"Remove birthday for " + member.name} title="Remove birthday" onClick={() => deleteBirthday(member.id)}><Trash2 size={14} /></Button></div>;
+        return <div className="agent-birthday-item" key={member.id}><button type="button" className="agent-birthday-open" onClick={() => editPerson(member)}><PersonAvatar member={member} /><span><strong>{member.name}</strong><small>{new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(date)} · {birthdayView === "upcoming" ? birthdayMessage(days) : birthdayAgoMessage(daysAgo)}</small></span><ChevronRight size={15} /></button>{canManage && <Button type="button" variant="ghost" size="icon" className="agent-birthday-delete" aria-label={"Remove birthday for " + member.name} title="Remove birthday" onClick={() => void deleteBirthday(member.id)}><Trash2 size={14} /></Button>}</div>;
       })}</div> : <button className="agent-birthday-empty" type="button" onClick={() => members[0] && editPerson(members[0])}><span>{birthdayView === "upcoming" ? (upcomingBirthdaysThisYear.length ? "No upcoming birthdays in this month" : "No birthdays remaining this year") : (recentlyPassedBirthdays.length ? "No recent birthdays in this month" : "No birthdays in the past 30 days")}</span><span>Add or edit a profile <ArrowRight size={14} /></span></button>}
     </section>
 
@@ -241,16 +285,18 @@ export default function AgentProfilesPage() {
         <div className="agent-profile-identity"><div><h2 id="agent-profile-dialog-title">{selectedPerson.name}</h2><span>{selectedPerson.role || "Team member"}</span></div><span className="agent-roster-sync"><Check size={13} /> Organization roster</span></div>
       </div>
       <div className="agent-profile-form-scroll">
-        <div className="agent-profile-date-grid"><label className="agent-profile-field"><span><Cake size={14} /> Birthday</span><input type="date" value={draft.birthday ?? ""} max={localDateValue()} onChange={(event) => setDraft((value) => ({ ...value, birthday: event.target.value }))} /></label><label className="agent-profile-field"><span><CalendarDays size={14} /> Joined the team</span><input type="date" value={draft.hireDate ?? ""} max={localDateValue()} onChange={(event) => setDraft((value) => ({ ...value, hireDate: event.target.value }))} /></label></div>
+      <div className="agent-profile-date-grid"><label className="agent-profile-field"><span><Cake size={14} /> Birthday</span><input type="date" disabled={!canManage} value={draft.birthday ?? ""} max={localDateValue()} onChange={(event) => setDraft((value) => ({ ...value, birthday: event.target.value }))} /></label><label className="agent-profile-field"><span><CalendarDays size={14} /> Joined the team</span><input type="date" disabled={!canManage} value={draft.hireDate ?? ""} max={localDateValue()} onChange={(event) => setDraft((value) => ({ ...value, hireDate: event.target.value }))} /></label></div>
+        {canManage && <div className="agent-visibility-control" ref={visibilityControlRef}><Button type="button" variant="outline" onClick={() => setVisibilityOpen((open) => !open)} aria-expanded={visibilityOpen}><Eye size={15} /> Profile visibility</Button>{visibilityOpen && <section className="agent-visibility-panel"><strong>Shown to signed-in users</strong><p>Hidden details are omitted from data reads.</p>{[["photo", "Profile photo"], ["birthday", "Birthday"], ["hireDate", "Hire date"], ["personality", "Personality"], ["summary", "Summary"]].map(([key, label]) => <label key={key}><input type="checkbox" checked={draft.visibility?.[key] ?? key === "photo"} onChange={(event) => setDraft((value) => ({ ...value, visibility: { ...value.visibility, [key]: event.target.checked } }))} /><span>{label}</span></label>)}{customFields.length > 0 && <div className="agent-visibility-custom"><span>Custom fields</span>{customFields.map((field) => <label key={field.id}><input type="checkbox" checked={Boolean(draft.visibility?.fields?.[field.id])} onChange={(event) => setDraft((value) => ({ ...value, visibility: { ...value.visibility, fields: { ...value.visibility?.fields, [field.id]: event.target.checked } } }))} /><span>{field.label}</span></label>)}</div>}</section>}</div>}
         {draft.hireDate && <div className="agent-tenure-display"><CalendarDays size={15} /><span>On the team for</span><strong>{tenureLabel(draft.hireDate, today) || "Less than a month"}</strong></div>}
-        <section className="agent-profile-personality"><div className="agent-profile-section-heading"><span><Sparkles size={15} /> Personality</span><small>Editable snapshot</small></div><label className="agent-profile-field"><span>16 personalities type</span><Select value={draft.personality || "none"} onValueChange={(personality) => setDraft((value) => ({ ...value, personality: personality === "none" ? "" : personality }))}><SelectTrigger aria-label="Select personality type"><SelectValue placeholder="Choose a personality type" /></SelectTrigger><SelectContent><SelectItem value="none">Not set</SelectItem>{PERSONALITY_OPTIONS.map((item) => <SelectItem value={item.value} key={item.value}>{item.name} · {item.value} · {item.family}</SelectItem>)}</SelectContent></Select></label>
+        <section className="agent-profile-personality"><div className="agent-profile-section-heading"><span><Sparkles size={15} /> Personality</span><small>{canManage ? "Editable snapshot" : "Team profile"}</small></div><label className="agent-profile-field"><span>16 personalities type</span><Select disabled={!canManage} value={draft.personality || "none"} onValueChange={(personality) => setDraft((value) => ({ ...value, personality: personality === "none" ? "" : personality }))}><SelectTrigger aria-label="Select personality type" disabled={!canManage}><SelectValue placeholder="Choose a personality type" /></SelectTrigger><SelectContent><SelectItem value="none">Not set</SelectItem>{PERSONALITY_OPTIONS.map((item) => <SelectItem value={item.value} key={item.value}>{item.name} · {item.value} · {item.family}</SelectItem>)}</SelectContent></Select></label>
           {draft.personality && <div className="agent-personality-badge"><span>{personalityInfo(draft.personality)?.name}</span><strong>{draft.personality}</strong><small>{personalityInfo(draft.personality)?.family}</small></div>}
-          <label className="agent-profile-field"><span>Short personality summary</span><textarea rows="3" value={draft.summary ?? ""} onChange={(event) => setDraft((value) => ({ ...value, summary: event.target.value }))} placeholder="Add a few words about their style or strengths" /></label>
+          <label className="agent-profile-field"><span>Short personality summary</span><textarea rows="3" readOnly={!canManage} value={draft.summary ?? ""} onChange={(event) => setDraft((value) => ({ ...value, summary: event.target.value }))} placeholder="Add a few words about their style or strengths" /></label>
         </section>
-        {customFields.length > 0 && <section className="agent-custom-profile-fields"><div className="agent-profile-section-heading"><span><FilePlus2 size={15} /> Extra details</span><small>Shared fields</small></div>{customFields.map((field) => <label className="agent-profile-field" key={field.id}><span>{field.label}</span>{field.type === "longText" ? <textarea rows="3" value={draft.fields?.[field.id] ?? ""} onChange={(event) => setDraft((value) => ({ ...value, fields: { ...value.fields, [field.id]: event.target.value } }))} /> : <input type={field.type === "url" ? "url" : field.type === "number" || field.type === "date" ? field.type : "text"} value={draft.fields?.[field.id] ?? ""} onChange={(event) => setDraft((value) => ({ ...value, fields: { ...value.fields, [field.id]: event.target.value } }))} />}</label>)}</section>}
+        {customFields.length > 0 && <section className="agent-custom-profile-fields"><div className="agent-profile-section-heading"><span><FilePlus2 size={15} /> Extra details</span><small>Shared fields</small></div>{customFields.map((field) => <label className="agent-profile-field" key={field.id}><span>{field.label}</span>{field.type === "longText" ? <textarea rows="3" readOnly={!canManage} value={draft.fields?.[field.id] ?? ""} onChange={(event) => setDraft((value) => ({ ...value, fields: { ...value.fields, [field.id]: event.target.value } }))} /> : <input readOnly={!canManage} type={field.type === "url" ? "url" : field.type === "number" || field.type === "date" ? field.type : "text"} value={draft.fields?.[field.id] ?? ""} onChange={(event) => setDraft((value) => ({ ...value, fields: { ...value.fields, [field.id]: event.target.value } }))} />}</label>)}</section>}
         <div className="agent-profile-sync-note">Name, role, and photo are managed from the <Link to="/organizational" onClick={() => { setSelectedPerson(null); setDraft(null); }}>Organization page</Link>.</div>
       </div>
-      <div className="agent-profile-drawer-actions"><Button type="button" variant="outline" onClick={() => { setSelectedPerson(null); setDraft(null); }}>Cancel</Button><Button type="submit"><Check size={15} /> Save profile</Button></div>
+      {profileError && <p className="auth-error" role="alert">{profileError}</p>}
+      <div className="agent-profile-drawer-actions"><Button type="button" variant="outline" onClick={() => { setSelectedPerson(null); setDraft(null); }}>{canManage ? "Cancel" : "Close"}</Button>{canManage && <Button type="submit" disabled={savingProfile}><Check size={15} /> {savingProfile ? "Saving…" : "Save profile"}</Button>}</div>
     </form></div>}
 
     {fieldsOpen && <div className="agent-fields-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setFieldsOpen(false); }}><section className="agent-fields-dialog" role="dialog" aria-modal="true" aria-labelledby="agent-fields-title">

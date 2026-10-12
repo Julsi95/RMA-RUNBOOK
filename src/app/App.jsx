@@ -14,13 +14,19 @@ import AppLinksPage from "@/features/links/AppLinksPage";
 import QaParametersPage from "@/features/qa/QaParametersPage";
 import AgentProfilesPage from "@/features/agents/AgentProfilesPage";
 import DashboardSettingsPage from "@/features/dashboard/DashboardSettingsPage";
+import RequireEditor from "@/app/RequireEditor";
+import { ForgotPasswordPage, LoginPage, ResetPasswordPage } from "@/pages/AuthPages";
+import HistoryPage from "@/features/history/HistoryPage";
 
 export default function App() {
   return (
     <Routes>
+      <Route path="login" element={<LoginPage />} />
+      <Route path="forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="reset-password" element={<ResetPasswordPage />} />
       <Route element={<AppShell />}>
         <Route index element={<DashboardPage />} />
-        <Route path="admin/dashboard" element={<DashboardSettingsPage />} />
+        <Route path="admin/dashboard" element={<RequireEditor><DashboardSettingsPage /></RequireEditor>} />
         <Route path="organizational" element={<OrganizationPage />} />
         <Route path="seat-plan" element={<SeatPlanPage />} />
         <Route path="projects" element={<ProjectsPage />} />
@@ -29,9 +35,10 @@ export default function App() {
         <Route path="vl-credits" element={<VlCreditsPage />} />
         <Route path="app-links" element={<AppLinksPage />} />
         <Route path="admin/qa-parameters" element={<QaParametersPage />} />
+        <Route path="history" element={<RequireEditor><HistoryPage /></RequireEditor>} />
         <Route path="agent-profiles" element={<AgentProfilesPage />} />
         <Route path="kpi-qa" element={<KpiQaPage />} />
-        <Route path="admin/kpi-scoring" element={<KpiScoringSettingsPage />} />
+        <Route path="admin/kpi-scoring" element={<RequireEditor><KpiScoringSettingsPage /></RequireEditor>} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

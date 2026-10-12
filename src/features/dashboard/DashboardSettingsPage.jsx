@@ -1,9 +1,12 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Copy, Eye, GripVertical, ImagePlus, Monitor, Pencil, Plus, RotateCcw, Smartphone, Tablet, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
 import DashboardContainer from "@/features/dashboard/DashboardContainer";
-import { CONTAINER_TYPES, CONTAINER_TYPE_LABELS, clearDashboardDraft, makeContainer, persistDashboardDraft, publishDashboard, readDashboardDraft, readPublishedDashboard } from "@/features/dashboard/dashboard-data";
+import { CONTAINER_TYPES, CONTAINER_TYPE_LABELS, clearDashboardDraft, createDefaultDashboard, makeContainer, persistDashboardDraft, publishDashboard, readDashboardDraft, readPublishedDashboard } from "@/features/dashboard/dashboard-data";
+import { useAuth } from "@/app/auth-provider";
+import { isSupabaseConfigured } from "@/lib/supabase";
+import { discardDashboardDraft, loadDashboardDraft, loadPublishedDashboard, publishDashboardDocument, saveDashboardDraft } from "@/lib/backend-repositories";
 import "@/features/dashboard/dashboard.css";
 
 function clone(value) {
@@ -57,9 +60,12 @@ const TEXT_POSITIONS = {
 };
 
 export default function DashboardSettingsPage() {
-  const [draft, setDraft] = useState(() => readDashboardDraft() ?? readPublishedDashboard());
-  const [hasChanges, setHasChanges] = useState(() => Boolean(readDashboardDraft()));
-  const [message, setMessage] = useState(() => readDashboardDraft() ? "Draft restored" : "Live dashboard");
+  const { configured, user } = useAuth();
+  const [draft, setDraft] = useState(() => configured ? createDefaultDashboard() : readDashboardDraft() ?? readPublishedDashboard());
+  const [published, setPublished] = useState(() => configured ? createDefaultDashboard() : readPublishedDashboard());
+  const [remoteReady, setRemoteReady] = useState(!configured);
+  const [hasChanges, setHasChanges] = useState(() => configured ? false : Boolean(readDashboardDraft()));
+  const [message, setMessage] = useState(() => configured ? "Loading saved dashboard" : readDashboardDraft() ? "Draft restored" : "Live dashboard");
   const [previewMode, setPreviewMode] = useState(false);
   const [viewport, setViewport] = useState("desktop");
   const [newType, setNewType] = useState("feature");
@@ -71,15 +77,37 @@ export default function DashboardSettingsPage() {
   const resizeSession = useRef(null);
   const draftItemCount = useMemo(() => draft.containers.length, [draft.containers.length]);
 
+  useEffect(() => {
+    if (!configured || !user) return undefined;
+    let active = true;
+    void Promise.all([loadPublishedDashboard(), loadDashboardDraft(user.id)]).then(([saved, remoteDraft]) => {
+      if (!active) return;
+      const publishedState = saved ?? createDefaultDashboard();
+      const nextDraft = remoteDraft ?? publishedState;
+      setPublished(publishedState); setDraft(nextDraft); draftRef.current = nextDraft;
+      setHasChanges(Boolean(remoteDraft)); setMessage(remoteDraft ? "Draft restored" : "Live dashboard");
+      setRemoteReady(true);
+    }).catch((error) => { if (active) setMessage(error.message || "Could not load the saved dashboard."); });
+    return () => { active = false; };
+  }, [configured, user?.id]);
+
+  useEffect(() => {
+    if (!configured || !user || !remoteReady || !hasChanges) return undefined;
+    const timeout = window.setTimeout(() => {
+      void saveDashboardDraft(user.id, draft).then(() => setMessage("Draft saved to your editor account")).catch((error) => setMessage(error.message || "Could not save dashboard draft."));
+    }, 900);
+    return () => window.clearTimeout(timeout);
+  }, [configured, user?.id, draft, hasChanges, remoteReady]);
+
   function commitDraft(next) {
+    if (configured && !remoteReady) return;
     draftRef.current = next;
     setDraft(next);
     setHasChanges(true);
     setMessage("Draft saved on this device");
-    try {
-      persistDashboardDraft(next);
-    } catch {
-      setMessage("Draft is active but too large to save in browser storage");
+    if (!configured) {
+      try { persistDashboardDraft(next); }
+      catch { setMessage("Draft is active but too large to save in browser storage"); }
     }
   }
 
@@ -88,12 +116,14 @@ export default function DashboardSettingsPage() {
   }
 
   function addContainer() {
+    if (configured && !remoteReady) return;
     const item = makeContainer(newType);
     setEditor(clone(item));
     setImageError("");
   }
 
   function openEditor(item) {
+    if (configured && !remoteReady) return;
     const next = clone(item);
     next.images = Array.isArray(next.images) ? next.images : (next.image ? [{ id: "legacy-image", src: next.image }] : []);
     next.imageMode = next.imageMode || "single";
@@ -150,20 +180,24 @@ export default function DashboardSettingsPage() {
     moveContainer(draft.containers[index].id, draft.containers[target].id);
   }
 
-  function publishChanges() {
+  async function publishChanges() {
+    if (configured && !remoteReady) return;
     try {
-      publishDashboard(draft);
-      setHasChanges(false);
-      setMessage("Changes published to the live dashboard");
-    } catch {
-      setMessage("Could not publish. Browser storage may be full.");
-    }
+      let publishedDocument = draft;
+      if (configured) ({ document: publishedDocument } = await publishDashboardDocument(draft));
+      publishDashboard(publishedDocument);
+      setDraft(publishedDocument); draftRef.current = publishedDocument; setPublished(publishedDocument);
+      setHasChanges(false); setMessage("Changes published to the live dashboard");
+    } catch (error) { setMessage(error.message || (configured ? "Could not publish dashboard." : "Could not publish. Browser storage may be full.")); }
   }
 
-  function discardChanges() {
-    const published = readPublishedDashboard();
+  async function discardChanges() {
+    if (configured && !remoteReady) return;
+    if (configured && user) {
+      try { await discardDashboardDraft(user.id); } catch (error) { setMessage(error.message || "Could not discard remote draft."); return; }
+    }
     try { clearDashboardDraft(); } catch { /* the visible draft is still reset */ }
-    setDraft(published);
+    setDraft(published); draftRef.current = published;
     setHasChanges(false);
     setEditor(null);
     setImageError("");
@@ -285,7 +319,7 @@ export default function DashboardSettingsPage() {
   return <section className="page-content dashboard-builder-page">
     <header className="page-heading dashboard-builder-heading">
       <div><p className="eyebrow">WORKSPACE · BUILDER</p><h1>Dashboard settings</h1><p className="page-description">Arrange announcements, features, messages, and shortcuts for your team home.</p></div>
-      <div className="dashboard-builder-heading-actions"><span className={"dashboard-draft-status" + (hasChanges ? " has-draft" : "")}><i />{message}</span><Button type="button" variant="outline" onClick={discardChanges} disabled={!hasChanges}><RotateCcw size={15} /> Discard changes</Button><Button type="button" onClick={publishChanges} disabled={!hasChanges || Boolean(editor)}><Check size={15} /> Save changes</Button></div>
+      <div className="dashboard-builder-heading-actions"><span className={"dashboard-draft-status" + (hasChanges ? " has-draft" : "")}><i />{message}</span><Button type="button" variant="outline" onClick={discardChanges} disabled={!hasChanges || (configured && !remoteReady)}><RotateCcw size={15} /> Discard changes</Button><Button type="button" onClick={publishChanges} disabled={!hasChanges || Boolean(editor) || (configured && !remoteReady)}><Check size={15} /> Save changes</Button></div>
     </header>
 
     <section className="dashboard-builder-intro">
