@@ -141,3 +141,11 @@ The preceding setup notes are historical. The user has already linked and config
 - Verified the current migration sequence plus seed in an isolated PGlite harness, covering public reads/private data denial, User profile-only permissions, Admin writes, audit deletion, schedule checks, VL ranges, and History restore. `npm run build` succeeds. Vite still reports a large main JS chunk warning.
 - No new migration was pushed and no external configuration was changed in this turn. Hosted Supabase Auth/email, Edge Function, Storage, RLS and Vercel checks remain outstanding.
 - Current manual next step: `npm run db:status`, `npm run db:dry-run`, then `npm run db:push`; deploy `manage-account`; configure/verify Auth email delivery and Vercel redirect allowlists; then run the hosted smoke checks in [`docs/auth-and-deployment.md`](docs/auth-and-deployment.md).
+
+## Access model update (2026-10-13, latest)
+
+The user changed the previous public-view decision: **all workspace pages now require sign-in before viewing**. Login, forgot-password, and reset-password routes remain reachable while signed out. Signed-in Users can read workspace data and edit their own account profile; Admin-only routes and all workspace writes remain restricted to Admins. Production Vercel should serve the app login screen publicly; do not put Vercel Authentication in front of the production domain.
+
+- `RequireAuth` now guards the app shell.
+- New forward-only migration `202610130003_require_login_for_workspace.sql` revokes `anon` table and function access. It remains pending on Supabase; push it with the CLI after dry-run/status.
+- Earlier statements in this handoff and architecture doc about anonymous workspace reads are historical and superseded by this update.

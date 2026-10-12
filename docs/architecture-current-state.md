@@ -5,12 +5,12 @@
 
 ## 1. Purpose and scope
 
-RUNBOOK is a SharePoint-inspired operations workspace for a customer-support team. Public visitors should be able to view ordinary pages and results. Authenticated editors can change content and data. The intended deployment is Vercel, with Supabase/PostgreSQL for persistence, Supabase Auth for editor access, and Supabase Storage for uploaded files.
+RUNBOOK is a SharePoint-inspired operations workspace for a customer-support team. Every workspace page and its database data require a signed-in Supabase account. Authenticated Users can view workspace data and manage their own account profile; Admins can change content and data. The intended deployment is Vercel, with Supabase/PostgreSQL for persistence, Supabase Auth for access, and Supabase Storage for uploaded files.
 
 This document distinguishes:
 
 - **Current implementation:** what the app does today, using sample defaults and browser `localStorage`.
-- **Approved backend architecture:** Supabase/PostgreSQL, Supabase Auth/Storage, public viewing with authenticated editing, central 30-day History/recovery, and saved Dashboard revisions. Details are recorded below.
+- **Current access decision:** All workspace pages require sign-in. Authenticated Users have read-only workspace access; Admins can edit. Dashboard Settings, KPI scoring settings, and History also require Admin. Central 30-day History/recovery and saved Dashboard revisions remain in place.
 
 The mock/browser data is not a production migration source. Backend setup should create seed/sample records that behave like ordinary records.
 
@@ -259,15 +259,15 @@ The audit reviewed the route table, app shell/theme, page components, feature da
 
 ## 17. Current implementation update (2026-10-13)
 
-This section supersedes earlier statements above that still describe backend setup as proposed or pending.
+This section supersedes earlier statements above that describe backend setup as proposed or public read access as the approved model.
 
-- **Viewing/access model:** Dashboard and ordinary workspace pages are public and read-only. A signed-in account can manage its own account profile. Admin accounts can edit workspace data, use Dashboard Settings/KPI scoring settings, manage login accounts, and access History. The Dashboard Settings and KPI scoring settings navigation items are hidden unless signed in as Admin. Direct routes and all writes are also protected by Supabase RLS/RPC checks.
+- **Viewing/access model:** All workspace routes require a valid signed-in session. Signed-in Users can read workspace data and manage their own account profile. Admin accounts can edit workspace data, use Dashboard Settings/KPI scoring settings, manage login accounts, and access History. Admin routes and writes are protected by route guards plus Supabase RLS/RPC checks. Login, forgot-password, and reset-password pages remain available while signed out.
 - **Auth and accounts:** `app_accounts.role` is `admin` or `user`; legacy `can_edit` is synchronized for compatibility. Employee records remain separate from Auth accounts. Admins invite accounts through the `manage-account` Edge Function; passwords are set through the emailed Supabase invitation and are never handled by the app as plaintext.
 - **Profile:** Signed-in users can update display name, summary, login email, password, and a static or animated GIF photo. If linked to an employee, supported profile fields sync to that employee record. Public employee reads continue through a field-visibility-filtered RPC.
 - **History:** Change history and recoverable snapshots are Admin-only. Employee delete audit now reads `purge_after` through JSON only for employee deletes, avoiding errors when a different table is deleted. History restore remains limited to supported record types and the retention cleanup path.
 - **Realtime:** Shared roster and key page data subscribe to Supabase Realtime where configured, so open pages refresh after remote changes.
 - **Schedules/VL:** Work schedule saves reject weekend endpoints and duplicate employee assignments within a saved period; range updates/deletes target affected rows. VL credits use effective date ranges, validate nonnegative numeric values or `Proby`, reject overlapping records for the same employee, and support recoverable delete/restore.
-- **Migrations:** Two new migrations (202610130001 and 202610130002) add role/access changes, account profiles, audit fix, realtime publication membership, schedule validation, and VL effective-date operations. They are local/pending until applied with the Supabase CLI. Public read grants are intentionally limited to approved workspace data; account, History, and draft data stay private.
-- **Verification:** `npm run build` passes. A local PGlite harness applied all migrations and `seed.sql` and exercised public reads, account-role permissions, profile update, checked writes, audit behavior, schedule validation, VL overlap/value checks, and History restore. The Vite bundle-size warning remains. Hosted Supabase Auth email delivery, Edge Function execution, actual Storage URL behavior, and Vercel deployment still require project-side verification.
+- **Migrations:** Migrations 202610130001 and 202610130002 add role/account profile support, the audit fix, realtime publication membership, schedule validation, and VL effective-date operations. Migration 202610130003 removes anonymous access to app tables/functions so workspace reads require authentication. The first two migrations were applied remotely; 202610130003 remains pending.
+- **Verification:** `npm run build` passed before the latest route-gating change; rerun it after this update. An isolated PGlite harness previously verified the first two new migrations and seed. Rerun it with migration 202610130003 to confirm anonymous reads fail, signed-in User reads work, and Admin writes/recovery still work. Hosted Auth email delivery, Edge Function execution, actual Storage behavior, and Vercel deployment still require project-side verification.
 
 See [`auth-and-deployment.md`](auth-and-deployment.md) for required manual Supabase/Vercel actions before production use.

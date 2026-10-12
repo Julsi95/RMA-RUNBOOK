@@ -1,6 +1,6 @@
 # Authentication and deployment checklist
 
-The frontend supports public read-only viewing. A signed-in account can edit its own account profile; only Admin accounts can change workspace data or open Admin pages. Supabase RLS and checked RPCs enforce this model independently of the UI.
+Every workspace page requires a signed-in Supabase account. A signed-in User can read workspace data and edit their own account profile; only Admin accounts can change workspace data or open Admin pages. Supabase RLS and checked RPCs enforce this model independently of the UI. Login and password recovery routes remain accessible while signed out.
 
 ## Apply the local database changes
 
@@ -13,7 +13,7 @@ npm run db:push
 npm run db:status
 ```
 
-The expected new migrations are `202610130001_roles_auth_realtime_and_audit_fix.sql` and `202610130002_work_schedule_and_vl_validity.sql`. Do not pass `--include-seed` again unless you intentionally want to rerun seed data.
+The new migrations are `202610130001_roles_auth_realtime_and_audit_fix.sql`, `202610130002_work_schedule_and_vl_validity.sql`, and `202610130003_require_login_for_workspace.sql`. Check which versions are pending before pushing. Do not pass `--include-seed` again unless you intentionally want to rerun seed data.
 
 The account that already had `can_edit = true` is promoted to Admin by the migration. Confirm it in Settings → Account access after deploying.
 
@@ -47,11 +47,10 @@ Redeploy after changing environment variables. Never add the Supabase database p
 
 After deploying, verify in separate browser sessions:
 
-1. Signed-out visitors can view public workspace pages and published Dashboard content.
-2. Signed-out visitors cannot save changes or access Dashboard Settings, KPI scoring settings, or History.
-3. A normal User can sign in, edit their own profile, and cannot perform workspace CRUD.
-4. An Admin can invite a User, edit workspace data, access History, and restore a supported change.
-5. Invitations, password reset, password update, email change confirmation, employee profile photos (including GIF), and profile visibility work with real Auth and Storage.
-6. Work schedule and VL validations work against hosted Postgres, and two open sessions see realtime updates.
+1. Signed-out visitors are redirected to the app login page from every workspace route; direct Supabase table reads as `anon` are denied.
+2. A normal User can sign in, read workspace pages, edit their own profile, and cannot perform workspace CRUD.
+3. An Admin can invite a User, edit workspace data, access History, and restore a supported change.
+4. Invitations, password reset, password update, email change confirmation, employee profile photos (including GIF), and profile visibility work with real Auth and Storage.
+5. Work schedule and VL validations work against hosted Postgres, and two open sessions see realtime updates.
 
 The local build and PGlite checks do not replace these hosted checks.

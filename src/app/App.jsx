@@ -15,6 +15,7 @@ import QaParametersPage from "@/features/qa/QaParametersPage";
 import AgentProfilesPage from "@/features/agents/AgentProfilesPage";
 import DashboardSettingsPage from "@/features/dashboard/DashboardSettingsPage";
 import RequireEditor from "@/app/RequireEditor";
+import RequireAuth from "@/app/RequireAuth";
 import { ForgotPasswordPage, LoginPage, ResetPasswordPage } from "@/pages/AuthPages";
 import HistoryPage from "@/features/history/HistoryPage";
 
@@ -24,7 +25,7 @@ export default function App() {
       <Route path="login" element={<LoginPage />} />
       <Route path="forgot-password" element={<ForgotPasswordPage />} />
       <Route path="reset-password" element={<ResetPasswordPage />} />
-      <Route element={<AppShell />}>
+      <Route element={<RequireAuth><AppShell /></RequireAuth>}>
         <Route index element={<DashboardPage />} />
         <Route path="admin/dashboard" element={<RequireEditor><DashboardSettingsPage /></RequireEditor>} />
         <Route path="organizational" element={<OrganizationPage />} />
