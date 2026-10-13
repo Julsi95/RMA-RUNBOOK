@@ -173,6 +173,19 @@ h1 { margin: 0; font-size: clamp(27px, 3vw, 34px); font-weight: 620; letter-spac
 .data-refresh-status { display: inline-flex; align-items: center; gap: 8px; }
 .data-refresh-spinner { flex: 0 0 auto; animation: topbar-sync-spin 1s linear infinite; }
 .data-refresh-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.session-loading-screen { display: grid; min-height: 100vh; min-height: 100dvh; place-items: center; padding: 24px; background: radial-gradient(ellipse at 50% 40%, color-mix(in srgb, var(--surface) 68%, var(--background)) 0, var(--background) 54%); color: var(--foreground); }
+.session-loading-card { display: grid; width: min(100%, 390px); justify-items: center; gap: 12px; padding: 36px 28px 32px; border: 1px solid var(--border); border-radius: 22px; background: color-mix(in srgb, var(--surface) 88%, transparent); box-shadow: 0 24px 80px rgb(0 0 0 / .25); text-align: center; }
+.session-loading-art { position: relative; display: grid; width: 186px; aspect-ratio: 1; place-items: center; margin-bottom: 5px; overflow: hidden; border: 1px solid rgb(255 255 255 / .11); border-radius: 50%; background: #303238; box-shadow: 0 0 0 9px color-mix(in srgb, var(--surface) 74%, transparent), 0 0 42px rgb(112 106 255 / .16); }
+.session-loading-art::before, .session-loading-art::after { position: absolute; inset: -15px; border: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-radius: 50%; content: ""; pointer-events: none; }
+.session-loading-art::after { inset: -30px; opacity: .55; }
+.session-loading-art img { z-index: 1; display: block; width: 100%; height: 100%; object-fit: cover; }
+.session-loading-brand { margin: 8px 0 0; color: var(--muted-foreground); font-size: 10px; font-weight: 700; letter-spacing: .2em; }
+.session-loading-card h1 { font-size: 22px; letter-spacing: -.035em; }
+.session-loading-copy { display: inline-flex; align-items: center; gap: 8px; margin: 0; color: var(--muted-foreground); font-size: 13px; }
+.session-loading-copy svg { animation: topbar-sync-spin 1s linear infinite; }
+.session-loading-track { width: min(100%, 200px); height: 3px; margin-top: 8px; overflow: hidden; border-radius: 99px; background: var(--muted); }
+.session-loading-track i { display: block; width: 38%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #7672ed, #9a86ff); animation: session-loading-progress 1.5s ease-in-out infinite; }
+@keyframes session-loading-progress { 0% { transform: translateX(-110%); } 100% { transform: translateX(370%); } }
 .auth-success, .auth-notice { margin: 22px 0; padding: 12px; border: 1px solid var(--border); border-radius: 9px; color: var(--muted-foreground); font-size: 13px; }
 .auth-secondary-link, .auth-back-link { display: flex; align-items: center; gap: 7px; width: fit-content; margin-top: 17px; color: var(--foreground); font-size: 13px; text-decoration: none; }
 .auth-secondary-link { margin-left: auto; color: var(--muted-foreground); }

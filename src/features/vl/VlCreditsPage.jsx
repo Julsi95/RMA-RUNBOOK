@@ -107,7 +107,10 @@ export default function VlCreditsPage() {
     if (!isSupabaseConfigured) return undefined;
     let active = true;
     let timer;
-    const unsubscribe = subscribeToTables(["vl_months", "vl_credit_entries"], () => {
+    const unsubscribe = subscribeToTables([
+      "vl_months",
+      { table: "realtime_sync_signals", filter: "source_table=eq.vl_credit_entries" },
+    ], () => {
       window.clearTimeout(timer);
       timer = window.setTimeout(() => { if (active) void refreshRemote().catch((error) => setSyncError(error.message || "Could not sync VL credits.")); }, 160);
     }, "vl-credits");

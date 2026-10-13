@@ -5,6 +5,7 @@ import { useAuth } from "@/app/auth-provider";
 import { useOrganizationRoster } from "@/app/organization-provider";
 import { Button } from "@/components/ui/Button";
 import { manageAccounts, signedOwnProfilePhoto, uploadOwnProfilePhoto } from "@/lib/backend-repositories";
+import { subscribeToTables } from "@/lib/backend/shared";
 
 export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
@@ -61,6 +62,22 @@ export default function SettingsPage() {
     void manageAccounts({ action: "list" }).then((result) => { if (active) setAccounts(result.accounts ?? []); })
       .catch((error) => { if (active) setAccountError(error.message || "Could not load accounts."); });
     return () => { active = false; };
+  }, [canEdit, configured]);
+
+  useEffect(() => {
+    if (!canEdit || !configured) return undefined;
+    let active = true;
+    let timer;
+    const unsubscribe = subscribeToTables(["app_accounts"], () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        if (!active) return;
+        void manageAccounts({ action: "list" }).then((result) => {
+          if (active) { setAccounts(result.accounts ?? []); setAccountError(""); }
+        }).catch((error) => { if (active) setAccountError(error.message || "Could not sync account changes."); });
+      }, 160);
+    }, "settings-accounts");
+    return () => { active = false; window.clearTimeout(timer); unsubscribe(); };
   }, [canEdit, configured]);
 
   async function saveProfile(event) {

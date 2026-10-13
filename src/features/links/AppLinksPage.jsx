@@ -107,7 +107,7 @@ export default function AppLinksPage() {
     const item = { ...editor, id: editor.id || newId(), name, url, group, application: editor.application.trim(), description: editor.description.trim() };
     try { await persist(editor.id ? resources.map((current) => current.id === editor.id ? item : current) : [item, ...resources]); }
     catch (error) { setSaveError(error.message || "Could not save this resource."); return; }
-    setActiveGroup(group);
+    setActiveGroup("All");
     setEditor(null);
   }
 
@@ -140,7 +140,7 @@ export default function AppLinksPage() {
         <label className="app-links-search"><Search size={16} /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search tools, links, or apps" aria-label="Search app links" /></label>
       </div>
 
-      <div className="app-links-section-heading"><div><p className="app-links-kicker">{activeGroup === "All" ? "RESOURCE DIRECTORY" : "COLLECTION"}</p><h2>{activeGroup === "All" ? "Browse resources" : activeGroup}</h2></div><span>{visibleResources.length} {visibleResources.length === 1 ? "resource" : "resources"}</span></div>
+      <div className="app-links-section-heading"><div><p className="app-links-kicker">{activeGroup === "All" ? "RESOURCE DIRECTORY" : "COLLECTION"}</p><h2>{activeGroup === "All" ? "Browse resources" : activeGroup}</h2></div><span>{activeGroup === "All" ? `${visibleResources.length} ${visibleResources.length === 1 ? "resource" : "resources"}` : `Showing ${visibleResources.length} of ${resources.length} resources`}</span></div>
 
       {visibleResources.length ? <div className="app-links-grid">{visibleResources.map((item, index) => <article className={"app-link-card app-link-tone-" + (index % 4)} key={item.id}>
         <div className="app-link-card-top"><span className="app-link-group-tag"><i />{item.group}</span>{canManage && <div className="app-link-actions"><Button type="button" variant="ghost" size="icon" title="Edit resource" aria-label={"Edit " + item.name} onClick={() => openEditor(item)}><Pencil size={15} /></Button><Button type="button" variant="ghost" size="icon" className="app-link-delete" title="Delete resource" aria-label={"Delete " + item.name} onClick={() => void deleteResource(item.id)}><Trash2 size={15} /></Button></div>}</div>

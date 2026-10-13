@@ -73,7 +73,10 @@ export function AuthProvider({ children }) {
     const currentUser = session?.user;
     if (!supabase || !currentUser) return undefined;
     let active = true;
-    const unsubscribe = subscribeToTables([{ table: "app_accounts", filter: `user_id=eq.${currentUser.id}` }], () => {
+    const unsubscribe = subscribeToTables([
+      { table: "app_accounts", filter: `user_id=eq.${currentUser.id}` },
+      { table: "account_profiles", filter: `user_id=eq.${currentUser.id}` },
+    ], () => {
       if (active) void loadAccount(currentUser);
     }, "current-account");
     return () => { active = false; unsubscribe(); };

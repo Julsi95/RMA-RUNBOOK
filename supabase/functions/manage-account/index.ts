@@ -120,6 +120,8 @@ Deno.serve(async (request) => {
         ban_duration: body.action === "suspend" ? "876000h" : "none",
       });
       if (error) throw error;
+      const { error: mappingError } = await admin.from("app_accounts").update({ updated_at: new Date().toISOString() }).eq("user_id", userId);
+      if (mappingError) throw mappingError;
       await recordAccessEvent("update", userId, `${body.action === "suspend" ? "Suspended" : "Restored"} account sign-in access.`);
       return response({ message: body.action === "suspend" ? "Account access suspended." : "Account access restored." });
     }

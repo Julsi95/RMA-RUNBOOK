@@ -50,7 +50,11 @@ export function OrganizationProvider({ children }) {
       window.clearTimeout(timer);
       timer = window.setTimeout(() => { if (active) void refresh(); }, 150);
     };
-    const unsubscribe = subscribeToTables(["employees", "employee_profiles", "agent_profile_field_definitions"], reload, "organization");
+    const unsubscribe = subscribeToTables([
+      "agent_profile_field_definitions",
+      { table: "realtime_sync_signals", filter: "source_table=eq.employees" },
+      { table: "realtime_sync_signals", filter: "source_table=eq.employee_profiles" },
+    ], reload, "organization");
     return () => { active = false; window.clearTimeout(timer); unsubscribe(); };
   }, [configured, refresh]);
 
