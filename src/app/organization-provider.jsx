@@ -7,7 +7,7 @@ import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 const OrganizationContext = createContext(null);
 
 export function OrganizationProvider({ children }) {
-  const { configured, canEdit } = useAuth();
+  const { configured, canEdit, loading: authLoading, user } = useAuth();
   const [members, setMembers] = useState(() => configured ? [] : getOrganizationMembers());
   const [profiles, setProfiles] = useState({});
   const [customFieldDefinitions, setCustomFieldDefinitions] = useState([]);
@@ -18,6 +18,18 @@ export function OrganizationProvider({ children }) {
     if (!configured) {
       const localMembers = getOrganizationMembers();
       setMembers(localMembers);
+      setProfiles({});
+      setCustomFieldDefinitions([]);
+      setError("");
+      setLoading(false);
+      return;
+    }
+
+    // OrganizationProvider mounts before the route-level auth guard. Wait for
+    // Supabase to restore the persisted session before calling authenticated RPCs.
+    if (authLoading) return;
+    if (!user) {
+      setMembers([]);
       setProfiles({});
       setCustomFieldDefinitions([]);
       setError("");
@@ -38,12 +50,12 @@ export function OrganizationProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  }, [canEdit, configured]);
+  }, [authLoading, canEdit, configured, user?.id]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
   useEffect(() => {
-    if (!configured) return undefined;
+    if (!configured || authLoading || !user) return undefined;
     let active = true;
     let timer;
     const reload = () => {
@@ -56,7 +68,7 @@ export function OrganizationProvider({ children }) {
       { table: "realtime_sync_signals", filter: "source_table=eq.employee_profiles" },
     ], reload, "organization");
     return () => { active = false; window.clearTimeout(timer); unsubscribe(); };
-  }, [configured, refresh]);
+  }, [authLoading, configured, refresh, user?.id]);
 
   const saveMembers = useCallback(async (nextMembers, { deletedId = null } = {}) => {
     if (!configured) {
