@@ -18,6 +18,11 @@ import RequireEditor from "@/app/RequireEditor";
 import RequireAuth from "@/app/RequireAuth";
 import { ForgotPasswordPage, LoginPage, ResetPasswordPage } from "@/pages/AuthPages";
 import HistoryPage from "@/features/history/HistoryPage";
+import NotificationsPage from "@/features/notifications/NotificationsPage";
+import { DashboardKpiProvider } from "@/features/dashboard/dashboard-kpi-provider";
+
+function DashboardWithKpi() { return <DashboardKpiProvider><DashboardPage /></DashboardKpiProvider>; }
+function DashboardSettingsWithKpi() { return <DashboardKpiProvider><DashboardSettingsPage /></DashboardKpiProvider>; }
 
 export default function App() {
   return (
@@ -26,8 +31,8 @@ export default function App() {
       <Route path="forgot-password" element={<ForgotPasswordPage />} />
       <Route path="reset-password" element={<ResetPasswordPage />} />
       <Route element={<RequireAuth><AppShell /></RequireAuth>}>
-        <Route index element={<DashboardPage />} />
-        <Route path="admin/dashboard" element={<RequireEditor><DashboardSettingsPage /></RequireEditor>} />
+        <Route index element={<DashboardWithKpi />} />
+        <Route path="admin/dashboard" element={<RequireEditor><DashboardSettingsWithKpi /></RequireEditor>} />
         <Route path="organizational" element={<OrganizationPage />} />
         <Route path="seat-plan" element={<SeatPlanPage />} />
         <Route path="projects" element={<ProjectsPage />} />
@@ -37,6 +42,7 @@ export default function App() {
         <Route path="app-links" element={<AppLinksPage />} />
         <Route path="admin/qa-parameters" element={<QaParametersPage />} />
         <Route path="history" element={<RequireEditor><HistoryPage /></RequireEditor>} />
+        <Route path="notifications" element={<NotificationsPage />} />
         <Route path="agent-profiles" element={<AgentProfilesPage />} />
         <Route path="kpi-qa" element={<KpiQaPage />} />
         <Route path="admin/kpi-scoring" element={<RequireEditor><KpiScoringSettingsPage /></RequireEditor>} />

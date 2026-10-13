@@ -6,11 +6,13 @@ import { useOrganizationRoster } from "@/app/organization-provider";
 import { Button } from "@/components/ui/Button";
 import { manageAccounts, signedOwnProfilePhoto, uploadOwnProfilePhoto } from "@/lib/backend-repositories";
 import { subscribeToTables } from "@/lib/backend/shared";
+import { useBranding } from "@/app/branding-provider";
 
 export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
   const { configured, user, account, accountProfile, canEdit, updateAccountProfile, updateEmail, updatePassword, signOut } = useAuth();
   const { members } = useOrganizationRoster();
+  const { branding, logoUrl, save: saveBranding } = useBranding();
   const [displayName, setDisplayName] = useState(account?.display_name ?? "");
   const [email, setEmail] = useState(user?.email ?? "");
   const [summary, setSummary] = useState(accountProfile?.summary ?? "");
@@ -33,6 +35,19 @@ export default function SettingsPage() {
   const [accountMessage, setAccountMessage] = useState("");
   const [accountError, setAccountError] = useState("");
   const [invite, setInvite] = useState({ email: "", displayName: "", role: "user", employeeId: "", confirmAdmin: false });
+  const [brandingTitle, setBrandingTitle] = useState(branding.sidebar_title);
+  const [brandingFile, setBrandingFile] = useState(null);
+  const [brandingPreview, setBrandingPreview] = useState("");
+  const [brandingBusy, setBrandingBusy] = useState(false);
+  const [brandingMessage, setBrandingMessage] = useState("");
+  const [brandingError, setBrandingError] = useState("");
+
+  useEffect(() => setBrandingTitle(branding.sidebar_title), [branding.sidebar_title]);
+  useEffect(() => {
+    if (!brandingFile) { setBrandingPreview(""); return undefined; }
+    const url = URL.createObjectURL(brandingFile); setBrandingPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [brandingFile]);
 
   useEffect(() => {
     setDisplayName(account?.display_name ?? "");
@@ -108,6 +123,16 @@ export default function SettingsPage() {
     finally { setSavingPassword(false); }
   }
 
+  async function saveWorkspaceBranding(event) {
+    event.preventDefault(); setBrandingError(""); setBrandingMessage("");
+    if (!brandingTitle.trim()) { setBrandingError("Enter a sidebar title."); return; }
+    if (brandingFile && (!/^image\/(jpeg|png|webp|gif)$/.test(brandingFile.type) || brandingFile.size > 5 * 1024 * 1024)) { setBrandingError("Choose a JPEG, PNG, WebP, or GIF image up to 5 MB."); return; }
+    setBrandingBusy(true);
+    try { await saveBranding({ title: brandingTitle, file: brandingFile, actorId: user?.id }); setBrandingFile(null); setBrandingMessage("Sidebar branding saved and synced for everyone."); }
+    catch (cause) { setBrandingError(cause.message || "Branding could not be saved."); }
+    finally { setBrandingBusy(false); }
+  }
+
   async function refreshAccounts(message = "") {
     const result = await manageAccounts({ action: "list" });
     setAccounts(result.accounts ?? []); setAccountMessage(message); setAccountError("");
@@ -180,6 +205,15 @@ export default function SettingsPage() {
         </section>
         <div className="settings-signout"><span>Signed in as <strong>{user.email}</strong> · {account?.role ?? "user"}</span><Button variant="outline" onClick={() => void signOut()}><LogOut size={15} /> Sign out</Button></div>
       </>}
+      {configured && canEdit && <section className="settings-card settings-admin-section">
+        <div><h2>Sidebar branding</h2><p>Changes appear in the sidebar for everyone signed in.</p></div>
+        <form className="settings-branding-form" onSubmit={saveWorkspaceBranding}>
+          <label className="form-field"><span>Sidebar title</span><input maxLength={48} required value={brandingTitle} onChange={(event) => setBrandingTitle(event.target.value)} /></label>
+          <div className="settings-branding-logo"><span>{brandingPreview || logoUrl ? <img src={brandingPreview || logoUrl} alt="Sidebar logo preview" /> : "VF"}</span><label className="photo-upload-button"><ImagePlus size={15} />{brandingFile ? "Change image" : "Upload logo"}<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(event) => setBrandingFile(event.target.files?.[0] ?? null)} /></label><small>JPEG, PNG, WebP, or GIF · max 5 MB</small></div>
+          {brandingError && <p className="auth-error" role="alert">{brandingError}</p>}{brandingMessage && <p className="auth-success" role="status">{brandingMessage}</p>}
+          <Button type="submit" disabled={brandingBusy}>{brandingBusy ? "Saving…" : "Save sidebar branding"}</Button>
+        </form>
+      </section>}
       {configured && canEdit && <section className="settings-card settings-admin-section">
         <div><h2><Shield size={19} /> Account access</h2><p>Invite employees and control who can edit RUNBOOK. Invitations never expose or store passwords.</p></div>
         {accountError && <p className="auth-error" role="alert">{accountError}</p>}{accountMessage && <p className="auth-success" role="status">{accountMessage}</p>}

@@ -54,6 +54,7 @@ a { color: inherit; text-decoration: none; }
 .sidebar-brand-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 7px 25px; }
 .brand { display: inline-flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 650; letter-spacing: -.03em; }
 .brand-mark { display: grid; width: 29px; height: 29px; place-items: center; border-radius: 9px; background: var(--foreground); color: var(--background); font-size: 14px; font-weight: 700; }
+.brand-mark img { display: block; width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
 .workspace-switcher { display: flex; align-items: center; gap: 10px; margin-bottom: 26px; padding: 10px; border: 1px solid var(--border); border-radius: 11px; }
 .workspace-avatar { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; background: var(--muted); font-size: 13px; font-weight: 650; }
 .workspace-name { margin: 0; font-size: 13px; font-weight: 600; }
@@ -85,6 +86,50 @@ a { color: inherit; text-decoration: none; }
 @keyframes topbar-sync-spin { to { transform: rotate(360deg); } }
 .breadcrumb { color: var(--muted-foreground); font-size: 13px; }
 .breadcrumb-separator { padding: 0 8px; color: var(--border); }
+.topbar-actions { display: flex; align-items: center; gap: 7px; }
+.topbar-popover-anchor { position: relative; }
+.topbar-notification-button { position: relative; }
+.topbar-notification-count { position: absolute; top: 1px; right: 0; display: grid; min-width: 16px; height: 16px; place-items: center; padding: 0 3px; border: 2px solid var(--background); border-radius: 999px; background: #cf5965; color: #fff; font-size: 8px; font-weight: 750; line-height: 1; }
+.topbar-profile-button { display: inline-flex; height: 36px; align-items: center; gap: 5px; padding: 2px 6px 2px 2px; border-radius: 999px; }
+.topbar-profile-avatar { display: grid; width: 30px; height: 30px; place-items: center; overflow: hidden; border: 1px solid var(--border); border-radius: 50%; background: var(--muted); color: var(--foreground); font-size: 11px; font-weight: 650; }
+.topbar-profile-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.profile-menu, .notification-menu { position: absolute; z-index: 60; top: calc(100% + 9px); right: 0; width: min(360px, calc(100vw - 28px)); overflow: hidden; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); box-shadow: 0 18px 55px rgb(0 0 0 / .2); }
+.profile-menu { width: min(290px, calc(100vw - 28px)); padding: 7px; }
+.profile-menu-identity { display: grid; gap: 4px; padding: 11px 10px 13px; border-bottom: 1px solid var(--border); }
+.profile-menu-identity strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.profile-menu-identity span, .profile-menu-identity p { overflow-wrap: anywhere; margin: 0; color: var(--muted-foreground); font-size: 11px; }
+.profile-menu > a, .profile-menu > button { display: flex; width: 100%; min-height: 38px; align-items: center; gap: 9px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--foreground); font-size: 12px; text-align: left; }
+.profile-menu > a:hover, .profile-menu > button:hover { background: var(--muted); }
+.notification-menu-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 14px; border-bottom: 1px solid var(--border); }
+.notification-menu-heading > div { display: grid; gap: 3px; }
+.notification-menu-heading strong { font-size: 13px; }
+.notification-menu-heading span, .notification-menu-empty { color: var(--muted-foreground); font-size: 11px; }
+.notification-menu-heading button { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--muted-foreground); font-size: 10px; }
+.notification-menu-list { max-height: min(440px, 60vh); overflow: auto; }
+.notification-row { display: flex; width: 100%; align-items: flex-start; gap: 10px; padding: 12px 13px; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--foreground); text-align: left; }
+.notification-row:hover, .notification-row.is-unread { background: color-mix(in srgb, var(--muted) 62%, transparent); }
+.notification-row-icon { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border: 1px solid var(--border); border-radius: 9px; color: var(--muted-foreground); }
+.notification-row-content { display: grid; min-width: 0; flex: 1; gap: 4px; }
+.notification-row-content strong { font-size: 11px; }
+.notification-row-content > span { color: var(--muted-foreground); font-size: 10px; line-height: 1.45; }
+.notification-row-content time { color: var(--muted-foreground); font-size: 9px; }
+.notification-unread-dot { width: 7px; height: 7px; flex: 0 0 auto; margin-top: 7px; border-radius: 50%; background: #7181dc; }
+.notification-menu-empty { margin: 0; padding: 24px 14px; text-align: center; }
+.notification-menu-error { margin: 0; padding: 8px 14px; color: #dc2626; font-size: 10px; }
+.notification-view-all { display: flex; min-height: 40px; align-items: center; justify-content: center; gap: 6px; color: var(--muted-foreground); font-size: 10px; }
+.notification-view-all:hover { color: var(--foreground); }
+.notifications-page { gap: 18px; }
+.notification-archive-list { display: grid; gap: 8px; }
+.notification-archive-item { display: flex; align-items: center; gap: 12px; padding: 13px 15px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); }
+.notification-archive-open { display: flex; min-width: 0; flex: 1; align-items: center; gap: 12px; color: var(--foreground); text-decoration: none; }
+.notification-archive-open:hover .notification-archive-copy strong { text-decoration: underline; }
+.notification-archive-item .notification-archive-copy { display: grid; min-width: 0; flex: 1; gap: 4px; }
+.notification-archive-copy strong { font-size: 13px; }
+.notification-archive-copy p { margin: 0; color: var(--muted-foreground); font-size: 12px; }
+.notification-archive-copy time, .notification-archive-copy small { color: var(--muted-foreground); font-size: 10px; }
+.notification-archive-state { display: grid; min-height: 200px; justify-items: center; align-content: center; gap: 8px; border: 1px dashed var(--border); border-radius: 13px; color: var(--muted-foreground); font-size: 12px; }
+.notification-archive-state strong { color: var(--foreground); font-size: 14px; }
+.notification-load-more { justify-self: center; }
 .avatar { display: grid; width: 29px; height: 29px; place-items: center; border: 1px solid var(--border); border-radius: 50%; background: var(--muted); font-size: 12px; font-weight: 600; }
 .menu-button, .sidebar-close { display: none; }
 .page-container { width: min(100%, 1480px); margin: 0 auto; padding: 43px 34px 64px; }
@@ -489,6 +534,13 @@ h1 { margin: 0; font-size: clamp(27px, 3vw, 34px); font-weight: 620; letter-spac
 .settings-account-row > div strong,.settings-account-row > div span { overflow-wrap: anywhere; }
 .settings-account-row > div span,.settings-account-row label span { color: var(--muted-foreground); font-size: 11px; }
 .settings-account-row label { display: grid; gap: 5px; }
+.settings-branding-form { display: grid; max-width: 620px; gap: 13px; }
+.settings-branding-logo { display: grid; grid-template-columns: 56px auto; align-items: center; gap: 5px 12px; }
+.settings-branding-logo > span { display: grid; width: 56px; height: 56px; grid-row: span 2; place-items: center; overflow: hidden; border: 1px solid var(--border); border-radius: 13px; background: var(--foreground); color: var(--background); font-size: 18px; font-weight: 700; }
+.settings-branding-logo img { width: 100%; height: 100%; object-fit: cover; }
+.settings-branding-logo .photo-upload-button { justify-self: start; margin: 0; }
+.settings-branding-logo small { color: var(--muted-foreground); }
+.settings-branding-form > button { justify-self: start; }
 .settings-account-row select { min-width: 0; height: 36px; border: 1px solid var(--border); border-radius: 8px; padding: 0 8px; background: var(--background); color: var(--foreground); }
 @media (max-width: 850px) { .settings-account-row { grid-template-columns: repeat(2,minmax(0,1fr)); } .settings-account-row > div { grid-column: 1/-1; } }
 @media (max-width: 600px) { .settings-invite-form { grid-template-columns: 1fr; } .settings-signout { align-items: flex-start; flex-direction: column; } .settings-account-row { grid-template-columns: 1fr; } .settings-account-row > div { grid-column: auto; } }

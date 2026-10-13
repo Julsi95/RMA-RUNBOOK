@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { ArrowRight, ArrowUpRight, CalendarDays, ChevronLeft, ChevronRight, Quote } from "lucide-react";
 import { Link } from "react-router";
+import { getOverallScore, getKpiScoringSettings } from "@/features/kpi/kpi-data";
+import { useDashboardKpi } from "@/features/dashboard/dashboard-kpi-provider";
 
 function safeHref(value) {
   if (!value || typeof value !== "string") return "";
@@ -46,6 +48,7 @@ function colorWithOpacity(color, opacity) {
 }
 
 export default function DashboardContainer({ item, linksEnabled = true }) {
+  const kpiData = useDashboardKpi();
   const imageList = Array.isArray(item.images) && item.images.length ? item.images : item.image ? [{ id: "legacy-image", src: item.image }] : [];
   const images = imageList.map((image) => ({ ...image, src: safeImageSource(image.src) })).filter((image) => image.src);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
@@ -70,6 +73,24 @@ export default function DashboardContainer({ item, linksEnabled = true }) {
 
   function changeImage(direction) {
     setActiveImageIndex((index) => (index + direction + images.length) % images.length);
+  }
+  if (item.type === "topAgents" || item.type === "kpiResult") {
+    const availableMonths = Object.entries(kpiData.months ?? {}).filter(([, month]) => Object.keys(month.records ?? {}).length);
+    const [monthKey, month] = availableMonths.sort(([a], [b]) => b.localeCompare(a))[0] ?? ["", null];
+    const settings = month?.scoringSettings ?? getKpiScoringSettings();
+    const ranked = (kpiData.members ?? []).map((member) => month?.records?.[member.id] ? { ...month.records[member.id], memberName: member.name, role: member.role, computedScore: getOverallScore(month.records[member.id], settings) } : null).filter(Boolean)
+      .sort((a, b) => b.computedScore - a.computedScore || a.memberName.localeCompare(b.memberName));
+    const scoreLabel = (value) => `${Number(value).toFixed(2)} / 5`;
+    const monthLabel = monthKey ? new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${monthKey}-01T00:00:00Z`)) : "No published month";
+    const width = Math.min(24, Math.max(1, Number(item.width) || 12));
+    return <article className={`dashboard-content-card dashboard-kpi-widget dashboard-kpi-${item.type}`} style={{ "--dashboard-span-desktop": width, "--dashboard-span-tablet": Math.min(12, Math.ceil(width / 2)), "--dashboard-height": `${Math.max(120, Number(item.height) || 250)}px` }} data-dashboard-container={item.id}>
+      <div className="dashboard-kpi-widget-head"><div><span className="dashboard-card-kicker">{item.type === "topAgents" ? "MONTHLY LEADERS" : "MONTHLY KPI"}</span><h2>{item.title || (item.type === "topAgents" ? "Top Agents" : "KPI Result")}</h2><p>{monthLabel}</p></div><span className="dashboard-kpi-widget-mark">{item.type === "topAgents" ? "TOP" : "KPI"}</span></div>
+      {(kpiData.loading || kpiData.rosterLoading) && !ranked.length ? <p className="dashboard-kpi-widget-state">Loading actual KPI results…</p>
+        : !ranked.length ? <p className="dashboard-kpi-widget-state">No KPI results have been published yet.</p>
+          : item.type === "topAgents" ? <ol className="dashboard-top-agents-list">{ranked.slice(0, item.topAgentsLimit || 3).map((agent, index) => <li key={agent.memberId}><span className="dashboard-agent-rank">{String(index + 1).padStart(2, "0")}</span><span className="dashboard-agent-name"><strong>{agent.memberName}</strong><small>{agent.role || "Team member"}</small></span><strong className="dashboard-agent-score">{scoreLabel(agent.computedScore)}</strong></li>)}</ol>
+            : <div className="dashboard-kpi-result-grid"><div><span>Team average</span><strong>{scoreLabel(ranked.reduce((total, record) => total + record.computedScore, 0) / ranked.length)}</strong></div><div><span>Published agents</span><strong>{ranked.length}</strong></div><div><span>Top result</span><strong>{scoreLabel(ranked[0].computedScore)}</strong><small>{ranked[0].memberName}</small></div></div>}
+      {kpiData.error && <small className="dashboard-kpi-widget-error">KPI data could not be refreshed.</small>}
+    </article>;
   }
   const textLayers = (item.textLayers ?? []).filter((layer) => layer.text?.trim());
   const hasBaseText = Boolean(item.eyebrow || item.title || item.description || item.body || (item.type === "announcement" && item.showDate && item.date) || item.buttonLabel || (item.type === "quickLinks" && item.links?.some((link) => link.label || link.url)));

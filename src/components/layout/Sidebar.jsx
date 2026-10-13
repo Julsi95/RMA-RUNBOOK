@@ -2,6 +2,7 @@ import { Armchair, BarChart3, BriefcaseBusiness, CalendarClock, ChevronsLeft, Ch
 import { NavLink } from "react-router";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/app/auth-provider";
+import { useBranding } from "@/app/branding-provider";
 
 const links = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -22,14 +23,15 @@ const links = [
 
 export default function Sidebar({ open, collapsed, onClose, onToggleCollapse }) {
   const { canEdit } = useAuth();
+  const { branding, logoUrl } = useBranding();
   return (
     <>
       {open && <button className="sidebar-scrim" aria-label="Close navigation" onClick={onClose} />}
       <aside className={`sidebar ${open ? "sidebar-open" : ""} ${collapsed ? "sidebar-collapsed" : ""}`}>
         <div className="sidebar-brand-row">
-          <NavLink to="/" className="brand" onClick={onClose} title="RUNBOOK">
-            <span className="brand-mark">VF</span>
-            <span>RUNBOOK</span>
+          <NavLink to="/" className="brand" onClick={onClose} title={branding.sidebar_title}>
+            <span className="brand-mark">{logoUrl ? <img src={logoUrl} alt="" /> : "VF"}</span>
+            <span>{branding.sidebar_title}</span>
           </NavLink>
           <Button
             variant="ghost"

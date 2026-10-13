@@ -2,8 +2,14 @@ import { useState } from "react";
 import { Outlet } from "react-router";
 import Navbar from "@/components/layout/Navbar";
 import Sidebar from "@/components/layout/Sidebar";
+import { BrandingProvider } from "@/app/branding-provider";
+import { NotificationProvider } from "@/app/notification-provider";
 
 export default function AppShell() {
+  return <BrandingProvider><NotificationProvider><AppShellLayout /></NotificationProvider></BrandingProvider>;
+}
+
+function AppShellLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => localStorage.getItem("starter-app-sidebar-collapsed") === "true",

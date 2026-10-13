@@ -6,6 +6,8 @@ export const CONTAINER_TYPES = [
   { value: "feature", label: "Feature" },
   { value: "content", label: "Simple content" },
   { value: "quickLinks", label: "Quick links" },
+  { value: "topAgents", label: "Top Agents" },
+  { value: "kpiResult", label: "KPI Result" },
 ];
 
 const LEGACY_WIDTHS = { small: 6, medium: 8, half: 12, wide: 16, full: 24 };
@@ -147,6 +149,7 @@ function normalizeDashboard(value) {
       carouselControls: item.carouselControls !== false,
       carouselIndicators: item.carouselIndicators !== false,
       links: Array.isArray(item.links) ? item.links : [],
+      topAgentsLimit: Math.min(10, Math.max(1, Number(item.topAgentsLimit) || 3)),
       textLayers: Array.isArray(item.textLayers) ? item.textLayers.map((layer, index) => ({
         id: layer?.id || `text-${item.id}-${index}`,
         text: typeof layer?.text === "string" ? layer.text : "",
@@ -200,6 +203,8 @@ export function makeContainer(type = "feature") {
     feature: "Featured content",
     content: "Your message",
     quickLinks: "Quick links",
+    topAgents: "Top Agents",
+    kpiResult: "KPI Result",
   };
   return {
     id: globalThis.crypto?.randomUUID?.() ?? "dashboard-" + Date.now() + "-" + Math.random().toString(16).slice(2),
@@ -231,5 +236,6 @@ export function makeContainer(type = "feature") {
     textColor: "#ffffff",
     textLayers: [],
     links: type === "quickLinks" ? [{ id: "quick-" + Date.now(), label: "New link", url: "/" }] : [],
+    topAgentsLimit: 3,
   };
 }
