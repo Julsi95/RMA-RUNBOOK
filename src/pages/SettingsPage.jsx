@@ -203,7 +203,7 @@ export default function SettingsPage() {
             <Button type="submit" disabled={savingPassword}>{savingPassword ? "Updating…" : "Update password"}</Button>
           </form>
         </section>
-        <div className="settings-signout"><span>Signed in as <strong>{user.email}</strong> · {account?.role ?? "user"}</span><Button variant="outline" onClick={() => void signOut()}><LogOut size={15} /> Sign out</Button></div>
+        <div className="settings-signout"><span>Signed in as <strong>{user.email}</strong> · {account?.role === "super_admin" ? "Super Admin" : account?.role ?? "user"}</span><Button variant="outline" onClick={() => void signOut()}><LogOut size={15} /> Sign out</Button></div>
       </>}
       {configured && canEdit && <section className="settings-card settings-admin-section">
         <div><h2>Sidebar branding</h2><p>Changes appear in the sidebar for everyone signed in.</p></div>

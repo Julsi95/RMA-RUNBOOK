@@ -90,8 +90,8 @@ export function AuthProvider({ children }) {
     account,
     accountProfile,
     role: isSupabaseConfigured ? account?.role ?? "user" : "admin",
-    isAdmin: !isSupabaseConfigured || account?.role === "admin",
-    canEdit: !isSupabaseConfigured || account?.role === "admin",
+    isAdmin: !isSupabaseConfigured || account?.role === "admin" || account?.role === "super_admin",
+    canEdit: !isSupabaseConfigured || account?.role === "admin" || account?.role === "super_admin",
     async updateAccountProfile({ displayName, summary, photoPath }) {
       if (!supabase) throw new Error("Connect Supabase before updating your profile.");
       const { error } = await supabase.rpc("update_my_account_profile", {

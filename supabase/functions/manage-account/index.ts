@@ -32,7 +32,7 @@ Deno.serve(async (request) => {
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const { data: account, error: accountError } = await admin.from("app_accounts").select("role").eq("user_id", authData.user.id).maybeSingle();
-  if (accountError || account?.role !== "admin") return response({ error: "Administrator access is required." }, 403);
+  if (accountError || !["admin", "super_admin"].includes(account?.role ?? "")) return response({ error: "Administrator access is required." }, 403);
 
   async function recordAccessEvent(action: "create" | "update", entityId: string, summary: string) {
     const { error } = await admin.from("history_events").insert({
@@ -62,7 +62,7 @@ Deno.serve(async (request) => {
         confirmed: Boolean(user.email_confirmed_at),
         bannedUntil: user.banned_until ?? null,
         ...(byId.get(user.id) ?? { employee_id: null, display_name: user.email ?? "RUNBOOK user", role: "user" }),
-      })) });
+      })).filter((user) => user.role !== "super_admin") });
     }
 
     if (body.action === "invite") {
@@ -105,7 +105,9 @@ Deno.serve(async (request) => {
         if (error) throw error;
         if (!employee) return response({ error: "Select an active employee record." }, 400);
       }
-      const { data: prior } = await admin.from("app_accounts").select("role,employee_id").eq("user_id", userId).maybeSingle();
+      const { data: prior, error: priorError } = await admin.from("app_accounts").select("role,employee_id").eq("user_id", userId).maybeSingle();
+      if (priorError) throw priorError;
+      if (prior?.role === "super_admin") return response({ error: "The protected Super Admin account cannot be edited." }, 403);
       const { error } = await admin.from("app_accounts").update({ role, can_edit: role === "admin", employee_id: employeeId, updated_at: new Date().toISOString() }).eq("user_id", userId);
       if (error) throw error;
       await recordAccessEvent("update", userId, `Changed account access from ${prior?.role ?? "unknown"} to ${role}${employeeId ? " and updated its employee link" : ""}.`);
@@ -116,6 +118,9 @@ Deno.serve(async (request) => {
       const userId = String(body.userId ?? "");
       if (!userId) return response({ error: "Account ID is required." }, 400);
       if (userId === authData.user.id) return response({ error: "You cannot suspend your own account." }, 400);
+      const { data: target, error: targetError } = await admin.from("app_accounts").select("role").eq("user_id", userId).maybeSingle();
+      if (targetError) throw targetError;
+      if (target?.role === "super_admin") return response({ error: "The protected Super Admin account cannot be suspended." }, 403);
       const { error } = await admin.auth.admin.updateUserById(userId, {
         ban_duration: body.action === "suspend" ? "876000h" : "none",
       });
