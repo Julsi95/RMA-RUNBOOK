@@ -1,4 +1,4 @@
-import { Bell, ChevronDown, LogIn, LogOut, Menu, Moon, Sun, UserRoundPen } from "lucide-react";
+import { Bell, ChevronDown, Clock3, LogIn, LogOut, Menu, Moon, Sun, UserRoundPen } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router";
 import { useTheme } from "@/app/theme-provider";
@@ -9,7 +9,7 @@ import { useNotifications } from "@/app/notification-provider";
 import NotificationMenu from "@/features/notifications/NotificationMenu";
 
 export default function Navbar({ onMenuClick }) {
-  const { configured, user, account, accountProfile, signOut } = useAuth();
+  const { configured, user, account, accountProfile, sessionRemainingSeconds, sessionWarning, sessionStatus, extendSession, signOut } = useAuth();
   const { theme, setTheme } = useTheme();
   const { unreadCount } = useNotifications();
   const { pathname } = useLocation();
@@ -26,6 +26,9 @@ export default function Navbar({ onMenuClick }) {
   const currentPage = pageLabels[pathname] ?? "Dashboard";
   const isDark = theme === "dark" || (theme === "system" && document.documentElement.dataset.theme === "dark");
   const displayName = account?.display_name || user?.email || "Account";
+  const countdown = sessionRemainingSeconds == null ? "Checking…" : `${Math.floor(sessionRemainingSeconds / 60)}:${String(sessionRemainingSeconds % 60).padStart(2, "0")}`;
+  const absoluteDeadlineFirst = sessionStatus?.absoluteDeadline && sessionStatus?.inactivityDeadline
+    && new Date(sessionStatus.absoluteDeadline).getTime() <= new Date(sessionStatus.inactivityDeadline).getTime();
 
   useEffect(() => {
     let active = true;
@@ -69,11 +72,24 @@ export default function Navbar({ onMenuClick }) {
             </Button>
             {openMenu === "profile" && <section className="profile-menu" aria-label="Profile menu">
               <div className="profile-menu-identity"><strong>{displayName}</strong><span>{user.email}</span>{accountProfile?.summary && <p>{accountProfile.summary}</p>}</div>
+              <div className="profile-menu-session"><Clock3 size={14} /><span>Session ends in</span><strong>{countdown}</strong></div>
               <Link to="/settings" onClick={() => setOpenMenu("")}><UserRoundPen size={15} /> Edit profile</Link>
               <button type="button" onClick={() => { setOpenMenu(""); void signOut(); }}><LogOut size={15} /> Sign out</button>
             </section>}
           </div>
         : <Link className="topbar-login" to="/login"><LogIn size={15} /> Sign in</Link>)}
     </div>
+    {configured && user && sessionWarning && <div className="session-warning-backdrop">
+      <section className="session-warning-dialog" role="alertdialog" aria-modal="true" aria-labelledby="session-warning-title" aria-describedby="session-warning-description">
+        <span className="session-warning-icon"><Clock3 size={19} /></span>
+        <p className="eyebrow">SESSION SECURITY</p>
+        <h2 id="session-warning-title">Your session is ending soon</h2>
+        <p id="session-warning-description">You will be signed out in <strong>{countdown}</strong>. Save any work you have open.</p>
+        <div className="session-warning-actions">
+          {!absoluteDeadlineFirst && <Button onClick={() => void extendSession()}>Stay signed in</Button>}
+          <Button variant="outline" onClick={() => void signOut()}><LogOut size={15} /> Sign out</Button>
+        </div>
+      </section>
+    </div>}
   </header>;
 }

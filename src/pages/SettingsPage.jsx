@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { ImagePlus, LogOut, Shield, UserPlus } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Clock3, ImagePlus, LogOut, Shield, UserPlus } from "lucide-react";
 import { useTheme } from "@/app/theme-provider";
 import { useAuth } from "@/app/auth-provider";
 import { useOrganizationRoster } from "@/app/organization-provider";
@@ -7,10 +7,11 @@ import { Button } from "@/components/ui/Button";
 import { manageAccounts, signedOwnProfilePhoto, uploadOwnProfilePhoto } from "@/lib/backend-repositories";
 import { subscribeToTables } from "@/lib/backend/shared";
 import { useBranding } from "@/app/branding-provider";
+import { loadRunbookSessionSettings, saveRunbookSessionSettings } from "@/lib/backend/session";
 
 export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
-  const { configured, user, account, accountProfile, canEdit, updateAccountProfile, updateEmail, updatePassword, signOut } = useAuth();
+  const { configured, user, account, accountProfile, canEdit, updateAccountProfile, updateEmail, updatePassword, signOut, refreshSessionStatus } = useAuth();
   const { members } = useOrganizationRoster();
   const { branding, logoUrl, save: saveBranding } = useBranding();
   const [displayName, setDisplayName] = useState(account?.display_name ?? "");
@@ -31,9 +32,16 @@ export default function SettingsPage() {
   const [passwordError, setPasswordError] = useState("");
   const [savingPassword, setSavingPassword] = useState(false);
   const [accounts, setAccounts] = useState([]);
+  const [accountListLoading, setAccountListLoading] = useState(false);
+  const [accountListError, setAccountListError] = useState("");
+  const accountLoadSequence = useRef(0);
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountMessage, setAccountMessage] = useState("");
   const [accountError, setAccountError] = useState("");
+  const [sessionPolicy, setSessionPolicy] = useState({ inactivity_timeout_minutes: 30, absolute_timeout_hours: 12, warning_minutes: 2 });
+  const [sessionPolicyBusy, setSessionPolicyBusy] = useState(false);
+  const [sessionPolicyMessage, setSessionPolicyMessage] = useState("");
+  const [sessionPolicyError, setSessionPolicyError] = useState("");
   const [invite, setInvite] = useState({ email: "", displayName: "", role: "user", employeeId: "", confirmAdmin: false });
   const [brandingTitle, setBrandingTitle] = useState(branding.sidebar_title);
   const [brandingFile, setBrandingFile] = useState(null);
@@ -55,7 +63,7 @@ export default function SettingsPage() {
     setSummary(accountProfile?.summary ?? "");
     setPhotoPath(accountProfile?.photo_path ?? "");
     setPhotoFile(null);
-  }, [account, accountProfile, user]);
+  }, [account?.display_name, accountProfile?.summary, accountProfile?.photo_path, user?.email]);
 
   useEffect(() => {
     let active = true;
@@ -73,9 +81,18 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (!canEdit || !configured) return undefined;
+    void refreshAccounts().catch(() => {});
+    return () => { accountLoadSequence.current += 1; };
+  }, [canEdit, configured]);
+
+  useEffect(() => {
     let active = true;
-    void manageAccounts({ action: "list" }).then((result) => { if (active) setAccounts(result.accounts ?? []); })
-      .catch((error) => { if (active) setAccountError(error.message || "Could not load accounts."); });
+    if (!canEdit || !configured) return undefined;
+    void loadRunbookSessionSettings().then((settings) => {
+      if (active && settings) setSessionPolicy(settings);
+    }).catch((error) => {
+      if (active) setSessionPolicyError(error.message || "Could not load session settings.");
+    });
     return () => { active = false; };
   }, [canEdit, configured]);
 
@@ -87,12 +104,10 @@ export default function SettingsPage() {
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
         if (!active) return;
-        void manageAccounts({ action: "list" }).then((result) => {
-          if (active) { setAccounts(result.accounts ?? []); setAccountError(""); }
-        }).catch((error) => { if (active) setAccountError(error.message || "Could not sync account changes."); });
+        void refreshAccounts().catch(() => {});
       }, 160);
     }, "settings-accounts");
-    return () => { active = false; window.clearTimeout(timer); unsubscribe(); };
+    return () => { active = false; window.clearTimeout(timer); accountLoadSequence.current += 1; unsubscribe(); };
   }, [canEdit, configured]);
 
   async function saveProfile(event) {
@@ -133,17 +148,44 @@ export default function SettingsPage() {
     finally { setBrandingBusy(false); }
   }
 
+  async function saveSessionPolicy(event) {
+    event.preventDefault(); setSessionPolicyError(""); setSessionPolicyMessage(""); setSessionPolicyBusy(true);
+    try {
+      await saveRunbookSessionSettings(sessionPolicy);
+      await refreshSessionStatus();
+      setSessionPolicyMessage("Session security settings saved for everyone.");
+    } catch (error) { setSessionPolicyError(error.message || "Session settings could not be saved."); }
+    finally { setSessionPolicyBusy(false); }
+  }
+
   async function refreshAccounts(message = "") {
-    const result = await manageAccounts({ action: "list" });
-    setAccounts(result.accounts ?? []); setAccountMessage(message); setAccountError("");
+    const requestSequence = ++accountLoadSequence.current;
+    setAccountListLoading(true);
+    setAccountListError("");
+    try {
+      const result = await manageAccounts({ action: "list" });
+      if (requestSequence === accountLoadSequence.current) {
+        setAccounts(result.accounts ?? []);
+        if (message) setAccountMessage(message);
+      }
+      return result;
+    } catch (error) {
+      if (requestSequence === accountLoadSequence.current) setAccountListError(error.message || "Could not load accounts.");
+      throw error;
+    } finally {
+      if (requestSequence === accountLoadSequence.current) setAccountListLoading(false);
+    }
   }
 
   async function sendInvite(event) {
     event.preventDefault(); setAccountBusy(true); setAccountMessage(""); setAccountError("");
     try {
       const result = await manageAccounts({ ...invite, action: "invite", redirectTo: window.location.origin + "/login" });
-      await refreshAccounts(result.message || "Invitation sent.");
       setInvite({ email: "", displayName: "", role: "user", employeeId: "", confirmAdmin: false });
+      setAccountMessage(result.message || "Invitation sent.");
+      // The invite is complete once the server accepts it. A slow directory
+      // refresh must not keep the invite button locked or mask that success.
+      void refreshAccounts().catch(() => {});
     } catch (error) { setAccountError(error.message || "Invitation could not be sent."); }
     finally { setAccountBusy(false); }
   }
@@ -225,7 +267,23 @@ export default function SettingsPage() {
           {invite.role === "admin" && <label className="settings-confirm-admin"><input type="checkbox" checked={invite.confirmAdmin} onChange={(event) => setInvite((value) => ({ ...value, confirmAdmin: event.target.checked }))} /><span>Confirm this account should have full administrator access.</span></label>}
           <Button type="submit" disabled={accountBusy || (invite.role === "admin" && !invite.confirmAdmin)}><UserPlus size={15} />{accountBusy ? "Sending…" : "Send secure invitation"}</Button>
         </form>
-        <div className="settings-account-list"><h3>Existing accounts</h3>{accounts.map((row) => <AccountRow key={row.userId} row={row} members={members} busy={accountBusy} onSave={updateAccess} onToggleSuspend={toggleSuspend} />)}</div>
+        <div className="settings-account-list">
+          <h3>Existing accounts</h3>
+          {accountListLoading && <p className="page-description" role="status">Loading saved accounts…</p>}
+          {accountListError && <div className="settings-account-list-error"><p className="auth-error" role="alert">{accountListError}</p><Button type="button" variant="outline" onClick={() => void refreshAccounts().catch(() => {})}>Retry account list</Button></div>}
+          {!accountListLoading && !accountListError && accounts.length === 0 && <p className="page-description">No editable accounts to show.</p>}
+          {accounts.map((row) => <AccountRow key={row.userId} row={row} members={members} busy={accountBusy} onSave={updateAccess} onToggleSuspend={toggleSuspend} />)}
+        </div>
+      </section>}
+      {configured && canEdit && <section className="settings-card settings-admin-section">
+        <div><h2><Clock3 size={19} /> Session security</h2><p>Choose how long a signed-in session may stay inactive and its maximum lifetime.</p></div>
+        <form className="session-policy-form" onSubmit={saveSessionPolicy}>
+          <label className="form-field"><span>Sign out after inactivity (minutes)</span><input type="number" min="5" max="720" required value={sessionPolicy.inactivity_timeout_minutes} onChange={(event) => setSessionPolicy((value) => ({ ...value, inactivity_timeout_minutes: event.target.value }))} /></label>
+          <label className="form-field"><span>Maximum session lifetime (hours)</span><input type="number" min="1" max="168" required value={sessionPolicy.absolute_timeout_hours} onChange={(event) => setSessionPolicy((value) => ({ ...value, absolute_timeout_hours: event.target.value }))} /></label>
+          <label className="form-field"><span>Warn before sign out (minutes)</span><input type="number" min="1" max="15" required value={sessionPolicy.warning_minutes} onChange={(event) => setSessionPolicy((value) => ({ ...value, warning_minutes: event.target.value }))} /></label>
+          {sessionPolicyError && <p className="auth-error" role="alert">{sessionPolicyError}</p>}{sessionPolicyMessage && <p className="auth-success" role="status">{sessionPolicyMessage}</p>}
+          <Button type="submit" disabled={sessionPolicyBusy}>{sessionPolicyBusy ? "Saving…" : "Save session settings"}</Button>
+        </form>
       </section>}
     </section>
   );

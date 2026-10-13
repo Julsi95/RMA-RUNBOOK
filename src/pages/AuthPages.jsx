@@ -9,7 +9,7 @@ function AuthFrame({ eyebrow, title, description, children }) {
 }
 
 export function LoginPage() {
-  const { configured, loading, user, signIn } = useAuth();
+  const { configured, loading, user, signIn, sessionNotice } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -30,6 +30,7 @@ export function LoginPage() {
 
   return <AuthFrame eyebrow="EDITOR SIGN IN" title="Welcome back" description="Sign in with your editor account to manage RUNBOOK.">
     <form className="auth-form" onSubmit={submit}>
+      {sessionNotice && <p className="auth-notice" role="status">{sessionNotice}</p>}
       <label>Email address<span className="auth-input"><Mail size={16} /><input type="email" autoComplete="username" required value={email} onChange={(event) => setEmail(event.target.value)} /></span></label>
       <label>Password<span className="auth-input"><LockKeyhole size={16} /><input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} /></span></label>
       {error && <p className="auth-error" role="alert">{error}</p>}

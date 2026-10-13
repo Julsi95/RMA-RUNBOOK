@@ -29,6 +29,8 @@ Deno.serve(async (request) => {
   const callerClient = createClient(url, anonKey, { global: { headers: { Authorization: `Bearer ${jwt}` } } });
   const { data: authData, error: authError } = await callerClient.auth.getUser(jwt);
   if (authError || !authData.user) return response({ error: "Your session is invalid or expired." }, 401);
+  const { data: sessionIsCurrent, error: sessionError } = await callerClient.rpc("is_current_runbook_session");
+  if (sessionError || !sessionIsCurrent) return response({ error: "This session is no longer active. Sign in again." }, 401);
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const { data: account, error: accountError } = await admin.from("app_accounts").select("role").eq("user_id", authData.user.id).maybeSingle();
