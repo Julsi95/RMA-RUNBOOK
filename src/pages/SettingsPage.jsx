@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Clock3, ImagePlus, LogOut, Shield, UserPlus } from "lucide-react";
+import { Clock3, ImagePlus, KeyRound, LogOut, Shield, UserPlus } from "lucide-react";
 import { useTheme } from "@/app/theme-provider";
 import { useAuth } from "@/app/auth-provider";
 import { useOrganizationRoster } from "@/app/organization-provider";
@@ -43,6 +43,7 @@ export default function SettingsPage() {
   const [sessionPolicyMessage, setSessionPolicyMessage] = useState("");
   const [sessionPolicyError, setSessionPolicyError] = useState("");
   const [invite, setInvite] = useState({ email: "", displayName: "", role: "user", employeeId: "", confirmAdmin: false });
+  const [directAccount, setDirectAccount] = useState({ email: "", displayName: "", role: "user", employeeId: "", password: "", confirmPassword: "", confirmAdmin: false });
   const [brandingTitle, setBrandingTitle] = useState(branding.sidebar_title);
   const [brandingFile, setBrandingFile] = useState(null);
   const [brandingPreview, setBrandingPreview] = useState("");
@@ -190,6 +191,28 @@ export default function SettingsPage() {
     finally { setAccountBusy(false); }
   }
 
+  async function createAccountWithPassword(event) {
+    event.preventDefault(); setAccountBusy(true); setAccountMessage(""); setAccountError("");
+    if (directAccount.password.length < 8) { setAccountError("Use a password with at least 8 characters."); setAccountBusy(false); return; }
+    if (directAccount.password !== directAccount.confirmPassword) { setAccountError("The passwords do not match."); setAccountBusy(false); return; }
+    try {
+      const result = await manageAccounts({ ...directAccount, action: "create-with-password" });
+      setDirectAccount({ email: "", displayName: "", role: "user", employeeId: "", password: "", confirmPassword: "", confirmAdmin: false });
+      setAccountMessage(result.message || "Account created.");
+      void refreshAccounts().catch(() => {});
+    } catch (error) { setAccountError(error.message || "Account could not be created."); }
+    finally { setAccountBusy(false); }
+  }
+
+  async function setAccountPassword(accountRow, nextPassword) {
+    setAccountBusy(true); setAccountMessage(""); setAccountError("");
+    try {
+      await manageAccounts({ action: "set-password", userId: accountRow.userId, password: nextPassword });
+      setAccountMessage(`Password updated for ${accountRow.email}.`);
+    } catch (error) { setAccountError(error.message || "Password could not be updated."); throw error; }
+    finally { setAccountBusy(false); }
+  }
+
   async function updateAccess(accountRow, role, employeeId) {
     if (role === "admin" && !window.confirm("Give administrator access to " + accountRow.email + "? They will be able to edit all RUNBOOK data.")) return;
     setAccountBusy(true); setAccountMessage(""); setAccountError("");
@@ -257,7 +280,7 @@ export default function SettingsPage() {
         </form>
       </section>}
       {configured && canEdit && <section className="settings-card settings-admin-section">
-        <div><h2><Shield size={19} /> Account access</h2><p>Invite employees and control who can edit RUNBOOK. Invitations never expose or store passwords.</p></div>
+        <div><h2><Shield size={19} /> Account access</h2><p>Invite employees and control who can edit RUNBOOK.</p></div>
         {accountError && <p className="auth-error" role="alert">{accountError}</p>}{accountMessage && <p className="auth-success" role="status">{accountMessage}</p>}
         <form className="settings-invite-form" onSubmit={sendInvite}>
           <label className="form-field"><span>Employee name</span><input required maxLength={80} value={invite.displayName} onChange={(event) => setInvite((value) => ({ ...value, displayName: event.target.value }))} /></label>
@@ -267,12 +290,25 @@ export default function SettingsPage() {
           {invite.role === "admin" && <label className="settings-confirm-admin"><input type="checkbox" checked={invite.confirmAdmin} onChange={(event) => setInvite((value) => ({ ...value, confirmAdmin: event.target.checked }))} /><span>Confirm this account should have full administrator access.</span></label>}
           <Button type="submit" disabled={accountBusy || (invite.role === "admin" && !invite.confirmAdmin)}><UserPlus size={15} />{accountBusy ? "Sending…" : "Send secure invitation"}</Button>
         </form>
+        {account?.role === "super_admin" && <div className="settings-direct-account">
+          <div><h3><KeyRound size={17} /> Create account with password</h3><p>Creates a confirmed sign-in account directly without sending an email. Share the password securely with its owner.</p></div>
+          <form className="settings-invite-form" onSubmit={createAccountWithPassword}>
+            <label className="form-field"><span>Employee name</span><input required maxLength={80} value={directAccount.displayName} onChange={(event) => setDirectAccount((value) => ({ ...value, displayName: event.target.value }))} /></label>
+            <label className="form-field"><span>Email / login username</span><input type="email" autoComplete="off" required value={directAccount.email} onChange={(event) => setDirectAccount((value) => ({ ...value, email: event.target.value }))} /></label>
+            <label className="form-field"><span>Link employee record</span><select value={directAccount.employeeId} onChange={(event) => setDirectAccount((value) => ({ ...value, employeeId: event.target.value }))}><option value="">No employee link</option>{members.map((member) => <option key={member.id} value={member.id}>{member.name} · {member.role}</option>)}</select></label>
+            <label className="form-field"><span>Access level</span><select value={directAccount.role} onChange={(event) => setDirectAccount((value) => ({ ...value, role: event.target.value, confirmAdmin: false }))}><option value="user">User · view and own profile</option><option value="admin">Admin · full edit access</option></select></label>
+            <label className="form-field"><span>Temporary password</span><input type="password" autoComplete="new-password" minLength={8} maxLength={128} required value={directAccount.password} onChange={(event) => setDirectAccount((value) => ({ ...value, password: event.target.value }))} /></label>
+            <label className="form-field"><span>Confirm password</span><input type="password" autoComplete="new-password" minLength={8} maxLength={128} required value={directAccount.confirmPassword} onChange={(event) => setDirectAccount((value) => ({ ...value, confirmPassword: event.target.value }))} /></label>
+            {directAccount.role === "admin" && <label className="settings-confirm-admin"><input type="checkbox" checked={directAccount.confirmAdmin} onChange={(event) => setDirectAccount((value) => ({ ...value, confirmAdmin: event.target.checked }))} /><span>Confirm this account should have full administrator access.</span></label>}
+            <Button type="submit" disabled={accountBusy || (directAccount.role === "admin" && !directAccount.confirmAdmin)}><UserPlus size={15} />{accountBusy ? "Creating…" : "Create account"}</Button>
+          </form>
+        </div>}
         <div className="settings-account-list">
           <h3>Existing accounts</h3>
           {accountListLoading && <p className="page-description" role="status">Loading saved accounts…</p>}
           {accountListError && <div className="settings-account-list-error"><p className="auth-error" role="alert">{accountListError}</p><Button type="button" variant="outline" onClick={() => void refreshAccounts().catch(() => {})}>Retry account list</Button></div>}
           {!accountListLoading && !accountListError && accounts.length === 0 && <p className="page-description">No editable accounts to show.</p>}
-          {accounts.map((row) => <AccountRow key={row.userId} row={row} members={members} busy={accountBusy} onSave={updateAccess} onToggleSuspend={toggleSuspend} />)}
+          {accounts.map((row) => <AccountRow key={row.userId} row={row} members={members} busy={accountBusy} canSetPassword={account?.role === "super_admin"} onSave={updateAccess} onToggleSuspend={toggleSuspend} onSetPassword={setAccountPassword} />)}
         </div>
       </section>}
       {configured && canEdit && <section className="settings-card settings-admin-section">
@@ -289,9 +325,20 @@ export default function SettingsPage() {
   );
 }
 
-function AccountRow({ row, members, busy, onSave, onToggleSuspend }) {
+function AccountRow({ row, members, busy, canSetPassword, onSave, onToggleSuspend, onSetPassword }) {
   const [role, setRole] = useState(row.role ?? "user");
   const [employeeId, setEmployeeId] = useState(row.employee_id ?? "");
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordError, setPasswordError] = useState("");
   useEffect(() => { setRole(row.role ?? "user"); setEmployeeId(row.employee_id ?? ""); }, [row]);
-  return <article className="settings-account-row"><div><strong>{row.display_name || row.email}</strong><span>{row.email}{row.confirmed ? " · confirmed" : " · invitation pending"}</span></div><label><span>Role</span><select value={role} onChange={(event) => setRole(event.target.value)}><option value="user">User</option><option value="admin">Admin</option></select></label><label><span>Employee link</span><select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}><option value="">None</option>{members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label><Button variant="outline" disabled={busy || (role === row.role && employeeId === (row.employee_id ?? ""))} onClick={() => onSave(row, role, employeeId)}>Save access</Button><Button variant="ghost" disabled={busy} onClick={() => onToggleSuspend(row)}>{row.bannedUntil ? "Restore sign-in" : "Suspend sign-in"}</Button></article>;
+  async function submitPassword(event) {
+    event.preventDefault(); setPasswordError("");
+    if (password.length < 8) { setPasswordError("Use at least 8 characters."); return; }
+    if (password !== confirmPassword) { setPasswordError("The passwords do not match."); return; }
+    try { await onSetPassword(row, password); setPassword(""); setConfirmPassword(""); setPasswordOpen(false); }
+    catch (error) { setPasswordError(error.message || "Password could not be updated."); }
+  }
+  return <article className="settings-account-row"><div><strong>{row.display_name || row.email}</strong><span>{row.email}{row.confirmed ? " · confirmed" : " · invitation pending"}</span></div><label><span>Role</span><select value={role} onChange={(event) => setRole(event.target.value)}><option value="user">User</option><option value="admin">Admin</option></select></label><label><span>Employee link</span><select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}><option value="">None</option>{members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label><Button variant="outline" disabled={busy || (role === row.role && employeeId === (row.employee_id ?? ""))} onClick={() => onSave(row, role, employeeId)}>Save access</Button><Button variant="ghost" disabled={busy} onClick={() => onToggleSuspend(row)}>{row.bannedUntil ? "Restore sign-in" : "Suspend sign-in"}</Button>{canSetPassword && <><Button className="settings-account-password-toggle" variant="outline" disabled={busy} onClick={() => { setPasswordOpen((open) => !open); setPasswordError(""); }}>Change password</Button>{passwordOpen && <form className="settings-account-password-form" onSubmit={submitPassword}><label><span>New password</span><input type="password" autoComplete="new-password" minLength={8} maxLength={128} required value={password} onChange={(event) => setPassword(event.target.value)} /></label><label><span>Confirm password</span><input type="password" autoComplete="new-password" minLength={8} maxLength={128} required value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></label>{passwordError && <p className="auth-error" role="alert">{passwordError}</p>}<div><Button type="submit" disabled={busy}>Save password</Button><Button type="button" variant="ghost" disabled={busy} onClick={() => { setPasswordOpen(false); setPassword(""); setConfirmPassword(""); setPasswordError(""); }}>Cancel</Button></div></form>}</>}</article>;
 }

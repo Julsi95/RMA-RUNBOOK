@@ -529,6 +529,10 @@ h1 { margin: 0; font-size: clamp(27px, 3vw, 34px); font-weight: 620; letter-spac
 .settings-confirm-admin { display: flex; gap: 9px; align-items: center; font-size: 13px; }
 .settings-account-list { display: grid; gap: 10px; }
 .settings-account-list h3 { margin: 0; font-size: 16px; }
+.settings-direct-account { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--muted) 24%, transparent); }
+.settings-direct-account > div h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 5px; font-size: 15px; }
+.settings-direct-account > div p { margin: 0; color: var(--muted-foreground); font-size: 12px; }
+.settings-direct-account .settings-invite-form { padding-top: 4px; }
 .settings-account-row { display: grid; grid-template-columns: minmax(150px,1.3fr) minmax(100px,.55fr) minmax(140px,.8fr) auto auto; gap: 10px; align-items: end; border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
 .settings-account-row > div { display: grid; gap: 4px; align-self: center; min-width: 0; }
 .settings-account-row > div strong,.settings-account-row > div span { overflow-wrap: anywhere; }
@@ -542,6 +546,13 @@ h1 { margin: 0; font-size: clamp(27px, 3vw, 34px); font-weight: 620; letter-spac
 .settings-branding-logo small { color: var(--muted-foreground); }
 .settings-branding-form > button { justify-self: start; }
 .settings-account-row select { min-width: 0; height: 36px; border: 1px solid var(--border); border-radius: 8px; padding: 0 8px; background: var(--background); color: var(--foreground); }
+.settings-account-password-toggle { grid-column: 1/-1; justify-self: start; }
+.settings-account-password-form { display: grid; grid-column: 1/-1; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.settings-account-password-form label { display: grid; gap: 5px; }
+.settings-account-password-form label span { color: var(--muted-foreground); font-size: 11px; }
+.settings-account-password-form input { min-width: 0; height: 36px; border: 1px solid var(--border); border-radius: 8px; padding: 0 9px; background: var(--background); color: var(--foreground); }
+.settings-account-password-form > p,.settings-account-password-form > div { grid-column: 1/-1; }
+.settings-account-password-form > div { display: flex; gap: 8px; }
 .session-policy-form { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; align-items: end; }
 .session-policy-form > button,.session-policy-form > p { grid-column: 1/-1; justify-self: start; }
 .session-policy-form input { width: 100%; min-height: 39px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--background); color: var(--foreground); font-size: 13px; }
@@ -557,4 +568,4 @@ h1 { margin: 0; font-size: clamp(27px, 3vw, 34px); font-weight: 620; letter-spac
 .session-warning-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 9px; margin-top: 8px; }
 @media (max-width: 850px) { .settings-account-row { grid-template-columns: repeat(2,minmax(0,1fr)); } .settings-account-row > div { grid-column: 1/-1; } }
 @media (max-width: 700px) { .session-policy-form { grid-template-columns: 1fr; } .session-policy-form > button,.session-policy-form > p { grid-column: auto; } }
-@media (max-width: 600px) { .settings-invite-form { grid-template-columns: 1fr; } .settings-signout { align-items: flex-start; flex-direction: column; } .settings-account-row { grid-template-columns: 1fr; } .settings-account-row > div { grid-column: auto; } }
+@media (max-width: 600px) { .settings-invite-form { grid-template-columns: 1fr; } .settings-signout { align-items: flex-start; flex-direction: column; } .settings-account-row { grid-template-columns: 1fr; } .settings-account-row > div { grid-column: auto; } .settings-account-password-form { grid-template-columns: 1fr; } }
