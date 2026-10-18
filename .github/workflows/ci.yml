@@ -2,9 +2,9 @@ name: RUNBOOK CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, backend-vercel]
   push:
-    branches: [main]
+    branches: [main, backend-vercel]
 
 permissions:
   contents: read
