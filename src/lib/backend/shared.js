@@ -74,7 +74,7 @@ export function throwIfErrors(results) {
   }
 }
 
-export async function createPrivateSignedUrlMap(paths, expiresIn = 300) {
+export async function createPrivateSignedUrlMap(paths, expiresIn = 3600) {
   const uniquePaths = [...new Set(paths.filter(Boolean))];
   if (!uniquePaths.length) return new Map();
 

@@ -1,43 +1,34 @@
-﻿# RUNBOOK session security
+# RUNBOOK session security
 
-## Current behavior
+## Enforcement
 
-RUNBOOK uses Supabase Auth for credentials and refresh-token handling. A signed-in account also has one active RUNBOOK device session, tracked by the `runbook_active_sessions` table and the Supabase JWT `session_id` claim. The session ID is never stored in browser storage separately or written to logs.
+Supabase Auth manages access and refresh tokens. RUNBOOK also tracks one active app session per account using `runbook_active_sessions` and the Auth JWT `session_id`. The session identifier is not separately persisted in browser storage or written to logs.
 
-`claim_runbook_session` serializes claims per user with a PostgreSQL advisory lock. It compares the Auth session creation time with the active record, so an older restored session cannot replace a later sign-in. A replacement updates a private Realtime signal row; the previous browser receives the change and signs out locally. Session signals expose no session ID or token.
+`is_current_runbook_session()` is used by row-level policies and protected RPCs. The account-management Edge Function checks the same active session and resolves the caller's role from `app_accounts`. A stale JWT cannot continue reading or changing RUNBOOK data after the database session expires or is replaced.
 
-Every existing authenticated, anonymous, or public RLS policy on application and Storage tables is additionally checked against the active RUNBOOK session. Session-aware helper RPCs and the account-management Edge Function apply the same check. Therefore an old JWT may still exist until Supabase Auth refresh/revocation catches up, but it cannot use RUNBOOK-protected table, Storage, or account-management operations after replacement or timeout.
+The fixed inactivity limit is five minutes. The migration sets the database setting to five minutes and constrains it so client settings cannot increase it. The browser checks status every 15 seconds and when it returns online or becomes visible. When the server reports inactivity expiry, the app shows **“You have been logged out due to inactivity.”**, releases the RUNBOOK session, and requests Supabase Auth global sign-out. No countdown is shown. Routine token refreshes only replace the token-bearing session state; they do not remount pages or clear form state.
 
-## Timeout defaults and controls
+The existing absolute session lifetime remains editable by Admins in Settings. The default is 12 hours.
 
-Defaults are 30 minutes of inactivity, 12 hours absolute lifetime, and a warning 2 minutes before the next deadline. An administrator can change these values in **Settings → Session security**:
+For provider-level expiry of Auth refresh sessions as well, configure **Supabase Dashboard → Authentication → Sessions → Inactivity timeout** to five minutes if that control is available for the project's plan. Supabase documents this provider setting as a paid-plan feature. RUNBOOK's database check remains the app data-access enforcement if that setting is unavailable.
 
-- Inactivity: 5–720 minutes
-- Absolute lifetime: 1–168 hours
-- Warning: 1–15 minutes
+## Images and real-time updates
 
-User activity extends only the inactivity deadline. The absolute deadline cannot be extended; the user must sign in again. A network failure does not immediately clear a session. The client retries checks on a 15-second cadence and when the browser returns online or to the foreground.
+Public dashboard and branding images use stable public object URLs. Private employee and account photos use one-hour signed URLs, refreshed before expiration and again when a browser returns online or after a long background period. Failed refreshes keep the prior URL in state while the app retries instead of replacing it with an empty value.
 
-The app warns before expiry and retains the requested page path through reauthentication. Existing forms do not have a universal draft store, so client-only unsaved values may be lost after forced sign-out; save before the countdown reaches zero.
+Workspace pages subscribe to their related tables or privacy-safe `realtime_sync_signals` and refetch data after changes/reconnects. Account mapping changes use the `app_accounts` signal so the account list can refresh without broadcasting account fields to ordinary users. RLS is enabled on all public tables; policies still determine which rows and events each role can read.
 
-Routine checks do not remount the application shell. Auth initialization uses Supabase's `INITIAL_SESSION` event once; a separate competing `getSession()` initialization was removed. Focus and visibility changes no longer trigger validation; the session status is polled periodically and checked again when connectivity returns. Overlapping status calls for the same Auth session share one in-flight request.
+## Invitations and account deletion
 
-Settings loads account records from the `manage-account` Edge Function, which reads persistent Supabase Auth users and `app_accounts` mappings. It refreshes that list on entry and Realtime changes. The protected Super Admin account is intentionally excluded from the editable account list.
+Invitation email links return to `/setup-password`. That page only offers password setup when Supabase has restored a verified, active user session and RUNBOOK has validated that session against the database; the URL alone grants no workspace access. Expired or already-used links show a request-a-new-invitation message. Add the production and local setup-password URLs to Supabase's Auth redirect allow-list.
 
-The account list now has independent loading/error/retry state and ignores out-of-order responses. Invitation success is reported and the form is cleared immediately after the server accepts the invite; the account-directory refresh runs separately so a slow list request cannot leave the invite action disabled or imply the invitation failed. Failed invite submissions keep their field values available for correction/retry. Settings form synchronization uses primitive profile values instead of whole token/user objects.
+Deleting an account is permanent. It removes the Supabase Auth identity, its account mapping/profile and active session rows, plus an account-owned profile image. An employee record and work history are retained because employee records are independent of login accounts. The protected Super Admin cannot be deleted. Admins may delete User accounts; only the Super Admin may delete another Admin.
 
-## Supabase setting to enable manually
-
-If the Supabase plan exposes **Authentication → Sessions → Single session per user**, enable it as an additional Auth-provider safeguard. Supabase documents that this setting is available on paid plans and enforces on refresh; an access JWT can remain valid until expiration. RUNBOOK's RLS session guard is the immediate data-access enforcement layer, while the provider option also limits Auth refreshes.
-
-No extra database setup is needed beyond applying the migration. The migration adds the session tables/functions, RLS conditions, and Realtime publication entry for `runbook_session_signals`.
-
-## Testing performed
+## Verification
 
 - `npm run build` succeeds.
-- Migration `202610130009_session_timeout_and_single_device.sql` is applied to the linked Supabase project.
-- Remote catalog query confirms both session tables exist, the Realtime signal is published, and all applicable public/storage RLS conditions include the current-session guard (zero missing conditions).
-- The updated `manage-account` Edge Function is deployed and active.
-- Local browser check confirms the RUNBOOK login route renders and unauthenticated access to `/` returns to `/login`.
-
-Manual verification still required: sign in on two separate browsers, confirm the first browser is signed out and cannot query protected data, then verify inactivity warning/extension, absolute expiration, logout, and connectivity recovery. Test with a non-admin and admin account. Avoid using two tabs in one browser as the only single-device test; Supabase Auth may share the same session across tabs.
+- `git diff --check` succeeds.
+- Linked Supabase dry-run reports only migrations `202610190001` and `202610190002` pending.
+- A read-only query confirmed RLS is enabled on all 36 current public tables.
+- Source review confirms each data page subscribes to its tables/signals and cleans subscriptions up on unmount. A second-browser live-change test still needs to be performed after deployment.
+- Hosted invitation delivery, expiry behavior, account deletion/cascade behavior, and browser inactivity sign-out need a live check after applying migrations and deploying the function/frontend.

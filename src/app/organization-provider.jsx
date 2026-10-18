@@ -1,8 +1,8 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/app/auth-provider";
 import { ORGANIZATION_STORAGE_KEY, getOrganizationMembers } from "@/features/organization/organization-data";
 import { loadRemoteRoster, saveRemoteEmployeeProfile, saveRemoteMembers, saveRemoteProfileFieldDefinitions } from "@/lib/backend/organization";
-import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
+import { createPrivateSignedUrlMap, retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 
 const OrganizationContext = createContext(null);
 
@@ -13,8 +13,11 @@ export function OrganizationProvider({ children }) {
   const [customFieldDefinitions, setCustomFieldDefinitions] = useState([]);
   const [loading, setLoading] = useState(configured);
   const [error, setError] = useState("");
+  const requestSequence = useRef(0);
+  const photoUrlsUpdatedAt = useRef(0);
 
   const refresh = useCallback(async () => {
+    const requestId = ++requestSequence.current;
     if (!configured) {
       const localMembers = getOrganizationMembers();
       setMembers(localMembers);
@@ -40,19 +43,56 @@ export function OrganizationProvider({ children }) {
     setLoading(true);
     try {
       const roster = await retryDataLoad(() => loadRemoteRoster(canEdit));
+      if (requestId !== requestSequence.current) return;
       setMembers(roster.members);
+      photoUrlsUpdatedAt.current = Date.now();
       setProfiles(roster.profiles);
       setCustomFieldDefinitions(roster.definitions);
       setError("");
       try { localStorage.setItem(ORGANIZATION_STORAGE_KEY, JSON.stringify(roster.members)); } catch { /* server remains source of truth */ }
     } catch (cause) {
-      setError(cause.message || "Could not load the employee directory.");
+      if (requestId === requestSequence.current) setError(cause.message || "Could not load the employee directory.");
     } finally {
-      setLoading(false);
+      if (requestId === requestSequence.current) setLoading(false);
     }
   }, [authLoading, canEdit, configured, user?.id]);
 
+  const refreshSignedPhotoUrls = useCallback(async () => {
+    if (!configured || authLoading || !user) return;
+    const paths = [...new Set(members.map((member) => member.photoPath).filter(Boolean))];
+    if (!paths.length) return;
+    const signedPhotos = await createPrivateSignedUrlMap(paths, 3600);
+    setMembers((current) => current.map((member) => ({
+      ...member,
+      photo: member.photoPath ? signedPhotos.get(member.photoPath) ?? member.photo : member.photo,
+    })));
+    photoUrlsUpdatedAt.current = Date.now();
+  }, [authLoading, configured, members, user?.id]);
+
   useEffect(() => { void refresh(); }, [refresh]);
+
+  useEffect(() => {
+    if (!configured || authLoading || !user) return undefined;
+    let active = true;
+    let inFlight = false;
+    const maybeRefresh = () => {
+      if (!active || inFlight || Date.now() - photoUrlsUpdatedAt.current < 40 * 60 * 1000) return;
+      inFlight = true;
+      void refreshSignedPhotoUrls().catch(() => {
+        // Keep the existing image URL while offline and retry on reconnect or next visibility.
+      }).finally(() => { inFlight = false; });
+    };
+    const timer = window.setInterval(maybeRefresh, 45 * 60 * 1000);
+    const onVisible = () => { if (document.visibilityState === "visible") maybeRefresh(); };
+    window.addEventListener("online", maybeRefresh);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener("online", maybeRefresh);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [authLoading, configured, refreshSignedPhotoUrls, user?.id]);
 
   useEffect(() => {
     if (!configured || authLoading || !user) return undefined;

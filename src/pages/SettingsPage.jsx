@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Clock3, ImagePlus, KeyRound, LogOut, Shield, UserPlus } from "lucide-react";
+import { Clock3, ImagePlus, KeyRound, LogOut, Shield, Trash2, UserPlus } from "lucide-react";
 import { useTheme } from "@/app/theme-provider";
 import { useAuth } from "@/app/auth-provider";
 import { useOrganizationRoster } from "@/app/organization-provider";
@@ -38,7 +38,7 @@ export default function SettingsPage() {
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountMessage, setAccountMessage] = useState("");
   const [accountError, setAccountError] = useState("");
-  const [sessionPolicy, setSessionPolicy] = useState({ inactivity_timeout_minutes: 30, absolute_timeout_hours: 12, warning_minutes: 2 });
+  const [sessionPolicy, setSessionPolicy] = useState({ inactivity_timeout_minutes: 5, absolute_timeout_hours: 12, warning_minutes: 2 });
   const [sessionPolicyBusy, setSessionPolicyBusy] = useState(false);
   const [sessionPolicyMessage, setSessionPolicyMessage] = useState("");
   const [sessionPolicyError, setSessionPolicyError] = useState("");
@@ -101,7 +101,7 @@ export default function SettingsPage() {
     if (!canEdit || !configured) return undefined;
     let active = true;
     let timer;
-    const unsubscribe = subscribeToTables(["app_accounts"], () => {
+    const unsubscribe = subscribeToTables([{ table: "realtime_sync_signals", filter: "source_table=eq.app_accounts" }], () => {
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
         if (!active) return;
@@ -152,7 +152,7 @@ export default function SettingsPage() {
   async function saveSessionPolicy(event) {
     event.preventDefault(); setSessionPolicyError(""); setSessionPolicyMessage(""); setSessionPolicyBusy(true);
     try {
-      await saveRunbookSessionSettings(sessionPolicy);
+      await saveRunbookSessionSettings({ ...sessionPolicy, inactivity_timeout_minutes: 5 });
       await refreshSessionStatus();
       setSessionPolicyMessage("Session security settings saved for everyone.");
     } catch (error) { setSessionPolicyError(error.message || "Session settings could not be saved."); }
@@ -181,7 +181,7 @@ export default function SettingsPage() {
   async function sendInvite(event) {
     event.preventDefault(); setAccountBusy(true); setAccountMessage(""); setAccountError("");
     try {
-      const result = await manageAccounts({ ...invite, action: "invite", redirectTo: window.location.origin + "/login" });
+      const result = await manageAccounts({ ...invite, action: "invite", redirectTo: window.location.origin + "/setup-password" });
       setInvite({ email: "", displayName: "", role: "user", employeeId: "", confirmAdmin: false });
       setAccountMessage(result.message || "Invitation sent.");
       // The invite is complete once the server accepts it. A slow directory
@@ -229,6 +229,17 @@ export default function SettingsPage() {
     setAccountBusy(true); setAccountMessage(""); setAccountError("");
     try { await manageAccounts({ action, userId: accountRow.userId }); await refreshAccounts(action === "suspend" ? "Sign-in suspended." : "Sign-in restored."); }
     catch (error) { setAccountError(error.message || "Account access could not be changed."); }
+    finally { setAccountBusy(false); }
+  }
+
+  async function deleteAccount(accountRow) {
+    const warning = `Permanently delete ${accountRow.email}? This removes the login, account profile, sessions, and account-only profile image. Any linked employee and their operational records will remain. This cannot be undone.`;
+    if (!window.confirm(warning)) return;
+    setAccountBusy(true); setAccountMessage(""); setAccountError("");
+    try {
+      const result = await manageAccounts({ action: "delete", userId: accountRow.userId });
+      await refreshAccounts(result.message || "Account permanently deleted.");
+    } catch (error) { setAccountError(error.message || "Account could not be deleted."); }
     finally { setAccountBusy(false); }
   }
 
@@ -308,15 +319,16 @@ export default function SettingsPage() {
           {accountListLoading && <p className="page-description" role="status">Loading saved accounts…</p>}
           {accountListError && <div className="settings-account-list-error"><p className="auth-error" role="alert">{accountListError}</p><Button type="button" variant="outline" onClick={() => void refreshAccounts().catch(() => {})}>Retry account list</Button></div>}
           {!accountListLoading && !accountListError && accounts.length === 0 && <p className="page-description">No editable accounts to show.</p>}
-          {accounts.map((row) => <AccountRow key={row.userId} row={row} members={members} busy={accountBusy} canSetPassword={account?.role === "super_admin"} onSave={updateAccess} onToggleSuspend={toggleSuspend} onSetPassword={setAccountPassword} />)}
+          {!accountListLoading && !accountListError && accounts.length > 0 && <div className="settings-account-table-wrap"><table className="settings-account-table"><thead><tr><th>Account</th><th>Status</th><th>Access</th><th>Employee</th><th>Last sign-in</th><th>Actions</th></tr></thead><tbody>
+            {accounts.map((row) => <AccountRow key={row.userId} row={row} members={members} busy={accountBusy} canSetPassword={account?.role === "super_admin"} canDelete={account?.role === "super_admin" || row.role !== "admin"} onSave={updateAccess} onToggleSuspend={toggleSuspend} onSetPassword={setAccountPassword} onDelete={deleteAccount} />)}
+          </tbody></table></div>}
         </div>
       </section>}
       {configured && canEdit && <section className="settings-card settings-admin-section">
-        <div><h2><Clock3 size={19} /> Session security</h2><p>Choose how long a signed-in session may stay inactive and its maximum lifetime.</p></div>
+        <div><h2><Clock3 size={19} /> Session security</h2><p>Inactive sessions are ended after five minutes. The timeout is enforced by the database.</p></div>
         <form className="session-policy-form" onSubmit={saveSessionPolicy}>
-          <label className="form-field"><span>Sign out after inactivity (minutes)</span><input type="number" min="5" max="720" required value={sessionPolicy.inactivity_timeout_minutes} onChange={(event) => setSessionPolicy((value) => ({ ...value, inactivity_timeout_minutes: event.target.value }))} /></label>
+          <div className="session-policy-fixed"><span>Inactivity timeout</span><strong>5 minutes</strong></div>
           <label className="form-field"><span>Maximum session lifetime (hours)</span><input type="number" min="1" max="168" required value={sessionPolicy.absolute_timeout_hours} onChange={(event) => setSessionPolicy((value) => ({ ...value, absolute_timeout_hours: event.target.value }))} /></label>
-          <label className="form-field"><span>Warn before sign out (minutes)</span><input type="number" min="1" max="15" required value={sessionPolicy.warning_minutes} onChange={(event) => setSessionPolicy((value) => ({ ...value, warning_minutes: event.target.value }))} /></label>
           {sessionPolicyError && <p className="auth-error" role="alert">{sessionPolicyError}</p>}{sessionPolicyMessage && <p className="auth-success" role="status">{sessionPolicyMessage}</p>}
           <Button type="submit" disabled={sessionPolicyBusy}>{sessionPolicyBusy ? "Saving…" : "Save session settings"}</Button>
         </form>
@@ -325,7 +337,7 @@ export default function SettingsPage() {
   );
 }
 
-function AccountRow({ row, members, busy, canSetPassword, onSave, onToggleSuspend, onSetPassword }) {
+function AccountRow({ row, members, busy, canSetPassword, canDelete, onSave, onToggleSuspend, onSetPassword, onDelete }) {
   const [role, setRole] = useState(row.role ?? "user");
   const [employeeId, setEmployeeId] = useState(row.employee_id ?? "");
   const [passwordOpen, setPasswordOpen] = useState(false);
@@ -340,5 +352,27 @@ function AccountRow({ row, members, busy, canSetPassword, onSave, onToggleSuspen
     try { await onSetPassword(row, password); setPassword(""); setConfirmPassword(""); setPasswordOpen(false); }
     catch (error) { setPasswordError(error.message || "Password could not be updated."); }
   }
-  return <article className="settings-account-row"><div><strong>{row.display_name || row.email}</strong><span>{row.email}{row.confirmed ? " · confirmed" : " · invitation pending"}</span></div><label><span>Role</span><select value={role} onChange={(event) => setRole(event.target.value)}><option value="user">User</option><option value="admin">Admin</option></select></label><label><span>Employee link</span><select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}><option value="">None</option>{members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label><Button variant="outline" disabled={busy || (role === row.role && employeeId === (row.employee_id ?? ""))} onClick={() => onSave(row, role, employeeId)}>Save access</Button><Button variant="ghost" disabled={busy} onClick={() => onToggleSuspend(row)}>{row.bannedUntil ? "Restore sign-in" : "Suspend sign-in"}</Button>{canSetPassword && <><Button className="settings-account-password-toggle" variant="outline" disabled={busy} onClick={() => { setPasswordOpen((open) => !open); setPasswordError(""); }}>Change password</Button>{passwordOpen && <form className="settings-account-password-form" onSubmit={submitPassword}><label><span>New password</span><input type="password" autoComplete="new-password" minLength={8} maxLength={128} required value={password} onChange={(event) => setPassword(event.target.value)} /></label><label><span>Confirm password</span><input type="password" autoComplete="new-password" minLength={8} maxLength={128} required value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></label>{passwordError && <p className="auth-error" role="alert">{passwordError}</p>}<div><Button type="submit" disabled={busy}>Save password</Button><Button type="button" variant="ghost" disabled={busy} onClick={() => { setPasswordOpen(false); setPassword(""); setConfirmPassword(""); setPasswordError(""); }}>Cancel</Button></div></form>}</>}</article>;
+  const suspended = row.bannedUntil && new Date(row.bannedUntil).getTime() > Date.now();
+  const lastSignIn = row.lastSignInAt ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(row.lastSignInAt)) : "Never";
+  return <>
+    <tr>
+      <td className="settings-account-identity"><strong>{row.display_name || row.email}</strong><span>{row.email}</span></td>
+      <td><span className={`settings-account-status ${suspended ? "is-suspended" : row.confirmed ? "is-active" : "is-pending"}`}>{suspended ? "Suspended" : row.confirmed ? "Active" : "Invite pending"}</span></td>
+      <td><select aria-label={`Access level for ${row.email}`} value={role} onChange={(event) => setRole(event.target.value)}><option value="user">User</option><option value="admin">Admin</option></select></td>
+      <td><select aria-label={`Employee link for ${row.email}`} value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}><option value="">None</option>{members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></td>
+      <td className="settings-account-last-signin">{lastSignIn}</td>
+      <td><div className="settings-account-actions">
+        <Button size="sm" variant="outline" disabled={busy || (role === row.role && employeeId === (row.employee_id ?? ""))} onClick={() => onSave(row, role, employeeId)}>Save access</Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => onToggleSuspend(row)}>{suspended ? "Reactivate" : "Suspend"}</Button>
+        {canSetPassword && <Button size="sm" variant="outline" disabled={busy} onClick={() => { setPasswordOpen((open) => !open); setPasswordError(""); }}>Change password</Button>}
+        {canDelete && <Button size="sm" variant="ghost" disabled={busy} onClick={() => onDelete(row)}><Trash2 size={14} /> Delete user</Button>}
+      </div></td>
+    </tr>
+    {canSetPassword && passwordOpen && <tr><td colSpan={6}><form className="settings-account-password-form" onSubmit={submitPassword}>
+      <label><span>New password</span><input type="password" autoComplete="new-password" minLength={8} maxLength={128} required value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+      <label><span>Confirm password</span><input type="password" autoComplete="new-password" minLength={8} maxLength={128} required value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></label>
+      {passwordError && <p className="auth-error" role="alert">{passwordError}</p>}
+      <div><Button type="submit" disabled={busy}>Save password</Button><Button type="button" variant="ghost" disabled={busy} onClick={() => { setPasswordOpen(false); setPassword(""); setConfirmPassword(""); setPasswordError(""); }}>Cancel</Button></div>
+    </form></td></tr>}
+  </>;
 }

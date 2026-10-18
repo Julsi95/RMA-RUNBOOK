@@ -16,7 +16,7 @@ import AgentProfilesPage from "@/features/agents/AgentProfilesPage";
 import DashboardSettingsPage from "@/features/dashboard/DashboardSettingsPage";
 import RequireEditor from "@/app/RequireEditor";
 import RequireAuth from "@/app/RequireAuth";
-import { ForgotPasswordPage, LoginPage, ResetPasswordPage } from "@/pages/AuthPages";
+import { ForgotPasswordPage, InvitationPasswordSetupPage, LoginPage, ResetPasswordPage } from "@/pages/AuthPages";
 import HistoryPage from "@/features/history/HistoryPage";
 import NotificationsPage from "@/features/notifications/NotificationsPage";
 import { DashboardKpiProvider } from "@/features/dashboard/dashboard-kpi-provider";
@@ -30,6 +30,7 @@ export default function App() {
       <Route path="login" element={<LoginPage />} />
       <Route path="forgot-password" element={<ForgotPasswordPage />} />
       <Route path="reset-password" element={<ResetPasswordPage />} />
+      <Route path="setup-password" element={<InvitationPasswordSetupPage />} />
       <Route element={<RequireAuth><AppShell /></RequireAuth>}>
         <Route index element={<DashboardWithKpi />} />
         <Route path="admin/dashboard" element={<RequireEditor><DashboardSettingsWithKpi /></RequireEditor>} />

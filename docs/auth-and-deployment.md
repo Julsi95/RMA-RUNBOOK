@@ -4,7 +4,7 @@ Every workspace page requires a signed-in Supabase account. A signed-in User can
 
 ## Apply the local database changes
 
-The new local migrations are pending. From the project folder, run:
+The pending migrations add the five-minute database inactivity limit and the privacy-safe account Realtime signal. From the project folder, run:
 
 ```powershell
 npm run db:status
@@ -13,7 +13,7 @@ npm run db:push
 npm run db:status
 ```
 
-The new migrations are `202610130001_roles_auth_realtime_and_audit_fix.sql`, `202610130002_work_schedule_and_vl_validity.sql`, and `202610130003_require_login_for_workspace.sql`. Check which versions are pending before pushing. Do not pass `--include-seed` again unless you intentionally want to rerun seed data.
+The currently pending migrations are `202610190001_session_inactivity_five_minutes.sql` and `202610190002_realtime_account_signals.sql`. Check which versions are pending before pushing. Do not pass `--include-seed` again unless you intentionally want to rerun seed data.
 
 The account that already had `can_edit = true` is promoted to Admin by the migration. Confirm it in Settings → Account access after deploying.
 
@@ -29,7 +29,8 @@ Supabase supplies the project URL, anon key, and service-role key to Edge Functi
 
 ## Configure Auth in Supabase Dashboard
 
-- Set the production site URL and allowlist the deployed Vercel URL plus any preview URL used for testing. Include `/reset-password` and `/login` redirect paths as applicable.
+- Set the production Site URL to the deployed app origin (for example, `https://rma-runbook.vercel.app`) and allowlist `https://rma-runbook.vercel.app/setup-password`, `/reset-password`, and any preview URL used for testing. Add `http://localhost:5173/setup-password` and `/reset-password` for local development.
+- If available on the project's plan, set **Authentication → Sessions → Inactivity timeout** to five minutes so Supabase Auth also ends inactive refresh sessions. RUNBOOK's database session guard enforces five minutes for app data regardless.
 - Configure reliable SMTP/email delivery for invitations, password resets, and email-change confirmation. Test delivery to an address you control.
 - Keep public self-signup disabled. Admins invite accounts from Settings → Account access.
 - Confirm that the initial owner account has the `admin` role. If no account was previously marked `can_edit`, promote the intended owner from the Supabase SQL editor using its Auth user ID; do not share the service-role key.
@@ -50,7 +51,9 @@ After deploying, verify in separate browser sessions:
 1. Signed-out visitors are redirected to the app login page from every workspace route; direct Supabase table reads as `anon` are denied.
 2. A normal User can sign in, read workspace pages, edit their own profile, and cannot perform workspace CRUD.
 3. An Admin can invite a User, edit workspace data, access History, and restore a supported change.
-4. Invitations, password reset, password update, email change confirmation, employee profile photos (including GIF), and profile visibility work with real Auth and Storage.
-5. Work schedule and VL validations work against hosted Postgres, and two open sessions see realtime updates.
+4. Invitation links land on `/setup-password`, allow the invited user to set a password only after Supabase verifies the link, and reject expired/reused links.
+5. Admins can permanently delete User accounts; only the Super Admin can delete Admin accounts. The Super Admin account cannot be changed or deleted.
+6. Invitations, password reset, password update, email change confirmation, employee profile photos (including GIF), and profile visibility work with real Auth and Storage.
+7. Work schedule and VL validations work against hosted Postgres, and two open sessions see realtime updates.
 
 The local build and PGlite checks do not replace these hosted checks.

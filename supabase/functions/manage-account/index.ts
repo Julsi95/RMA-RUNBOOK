@@ -37,7 +37,7 @@ Deno.serve(async (request) => {
   if (accountError || !["admin", "super_admin"].includes(account?.role ?? "")) return response({ error: "Administrator access is required." }, 403);
   const isSuperAdmin = account?.role === "super_admin";
 
-  async function recordAccessEvent(action: "create" | "update", entityId: string, summary: string) {
+  async function recordAccessEvent(action: "create" | "update" | "delete", entityId: string, summary: string) {
     const { error } = await admin.from("history_events").insert({
       actor_id: authData.user.id,
       actor_label: authData.user.email ?? "RUNBOOK administrator",
@@ -48,7 +48,10 @@ Deno.serve(async (request) => {
       summary,
       recoverable: false,
     });
-    if (error) console.error("Could not record account management history", error.message);
+    if (error) {
+      console.error("Could not record account management history", error.message);
+      if (action === "delete") throw error;
+    }
   }
 
   try {
@@ -62,6 +65,8 @@ Deno.serve(async (request) => {
       return response({ accounts: (data.users ?? []).map((user) => ({
         userId: user.id,
         email: user.email ?? "",
+        createdAt: user.created_at ?? null,
+        lastSignInAt: user.last_sign_in_at ?? null,
         confirmed: Boolean(user.email_confirmed_at),
         bannedUntil: user.banned_until ?? null,
         ...(byId.get(user.id) ?? { employee_id: null, display_name: user.email ?? "RUNBOOK user", role: "user" }),
@@ -184,6 +189,37 @@ Deno.serve(async (request) => {
       if (mappingError) throw mappingError;
       await recordAccessEvent("update", userId, `${body.action === "suspend" ? "Suspended" : "Restored"} account sign-in access.`);
       return response({ message: body.action === "suspend" ? "Account access suspended." : "Account access restored." });
+    }
+
+    if (body.action === "delete") {
+      const userId = String(body.userId ?? "");
+      if (!userId) return response({ error: "Account ID is required." }, 400);
+      if (userId === authData.user.id) return response({ error: "You cannot delete the account you are currently using." }, 400);
+      const { data: target, error: targetError } = await admin.from("app_accounts").select("role,employee_id,display_name").eq("user_id", userId).maybeSingle();
+      if (targetError) throw targetError;
+      if (target?.role === "super_admin") return response({ error: "The protected Super Admin account cannot be deleted." }, 403);
+      if (target?.role === "admin" && !isSuperAdmin) return response({ error: "Only the Super Admin can delete another administrator account." }, 403);
+      const { data: authTarget, error: authTargetError } = await admin.auth.admin.getUserById(userId);
+      if (authTargetError) throw authTargetError;
+      if (!authTarget.user) return response({ error: "Account was not found." }, 404);
+      const email = authTarget.user.email ?? userId;
+      const { data: profile, error: profileError } = await admin.from("account_profiles").select("photo_path").eq("user_id", userId).maybeSingle();
+      if (profileError) throw profileError;
+      const ownedPhotoPath = profile?.photo_path?.startsWith(`accounts/${userId}/`) ? profile.photo_path : null;
+      await recordAccessEvent("delete", userId, `Permanently deleted the RUNBOOK sign-in account for ${email}. Its employee record, if linked, was retained.`);
+      const { error: deleteError } = await admin.auth.admin.deleteUser(userId);
+      if (deleteError) throw deleteError;
+      let cleanupPending = false;
+      if (ownedPhotoPath) {
+        const { error: storageError } = await admin.storage.from("runbook-private").remove([ownedPhotoPath]);
+        if (storageError) {
+          cleanupPending = true;
+          console.error("Deleted account profile photo cleanup failed", storageError.message);
+        }
+      }
+      return response({ message: cleanupPending
+        ? `Account ${email} was deleted. Its profile image could not be removed automatically and needs storage cleanup.`
+        : `Account ${email} was permanently deleted. Its linked employee record and operational records were retained.` });
     }
 
     return response({ error: "Unsupported account action." }, 400);

@@ -1,4 +1,4 @@
-import { Bell, ChevronDown, Clock3, LogIn, LogOut, Menu, Moon, Sun, UserRoundPen } from "lucide-react";
+import { Bell, ChevronDown, LogIn, LogOut, Menu, Moon, Sun, UserRoundPen } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router";
 import { useTheme } from "@/app/theme-provider";
@@ -9,7 +9,7 @@ import { useNotifications } from "@/app/notification-provider";
 import NotificationMenu from "@/features/notifications/NotificationMenu";
 
 export default function Navbar({ onMenuClick }) {
-  const { configured, user, account, accountProfile, sessionRemainingSeconds, sessionWarning, sessionStatus, extendSession, signOut } = useAuth();
+  const { configured, user, account, accountProfile, signOut } = useAuth();
   const { theme, setTheme } = useTheme();
   const { unreadCount } = useNotifications();
   const { pathname } = useLocation();
@@ -26,20 +26,25 @@ export default function Navbar({ onMenuClick }) {
   const currentPage = pageLabels[pathname] ?? "Dashboard";
   const isDark = theme === "dark" || (theme === "system" && document.documentElement.dataset.theme === "dark");
   const displayName = account?.display_name || user?.email || "Account";
-  const countdown = sessionRemainingSeconds == null ? "Checking…" : `${Math.floor(sessionRemainingSeconds / 60)}:${String(sessionRemainingSeconds % 60).padStart(2, "0")}`;
-  const absoluteDeadlineFirst = sessionStatus?.absoluteDeadline && sessionStatus?.inactivityDeadline
-    && new Date(sessionStatus.absoluteDeadline).getTime() <= new Date(sessionStatus.inactivityDeadline).getTime();
-
   useEffect(() => {
     let active = true;
+    let lastSignedAt = 0;
+    let inFlight = false;
+    setPhotoUrl("");
     const load = async () => {
       if (!configured || !accountProfile?.photo_path) { if (active) setPhotoUrl(""); return; }
-      try { const url = await signedOwnProfilePhoto(accountProfile.photo_path); if (active) setPhotoUrl(url); }
-      catch { if (active) setPhotoUrl(""); }
+      if (inFlight || Date.now() - lastSignedAt < 40 * 60 * 1000) return;
+      inFlight = true;
+      try { const url = await signedOwnProfilePhoto(accountProfile.photo_path); if (active) { setPhotoUrl(url); lastSignedAt = Date.now(); } }
+      catch { /* Keep the current signed URL while offline; retry on reconnect or visibility. */ }
+      finally { inFlight = false; }
     };
     void load();
-    const renew = window.setInterval(() => { void load(); }, 4 * 60 * 1000);
-    return () => { active = false; window.clearInterval(renew); };
+    const renew = window.setInterval(() => { void load(); }, 45 * 60 * 1000);
+    const onVisible = () => { if (document.visibilityState === "visible" && Date.now() - lastSignedAt >= 40 * 60 * 1000) void load(); };
+    window.addEventListener("online", load);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { active = false; window.clearInterval(renew); window.removeEventListener("online", load); document.removeEventListener("visibilitychange", onVisible); };
   }, [accountProfile?.photo_path, configured]);
 
   useEffect(() => {
@@ -72,24 +77,11 @@ export default function Navbar({ onMenuClick }) {
             </Button>
             {openMenu === "profile" && <section className="profile-menu" aria-label="Profile menu">
               <div className="profile-menu-identity"><strong>{displayName}</strong><span>{user.email}</span>{accountProfile?.summary && <p>{accountProfile.summary}</p>}</div>
-              <div className="profile-menu-session"><Clock3 size={14} /><span>Session ends in</span><strong>{countdown}</strong></div>
               <Link to="/settings" onClick={() => setOpenMenu("")}><UserRoundPen size={15} /> Edit profile</Link>
               <button type="button" onClick={() => { setOpenMenu(""); void signOut(); }}><LogOut size={15} /> Sign out</button>
             </section>}
           </div>
         : <Link className="topbar-login" to="/login"><LogIn size={15} /> Sign in</Link>)}
     </div>
-    {configured && user && sessionWarning && <div className="session-warning-backdrop">
-      <section className="session-warning-dialog" role="alertdialog" aria-modal="true" aria-labelledby="session-warning-title" aria-describedby="session-warning-description">
-        <span className="session-warning-icon"><Clock3 size={19} /></span>
-        <p className="eyebrow">SESSION SECURITY</p>
-        <h2 id="session-warning-title">Your session is ending soon</h2>
-        <p id="session-warning-description">You will be signed out in <strong>{countdown}</strong>. Save any work you have open.</p>
-        <div className="session-warning-actions">
-          {!absoluteDeadlineFirst && <Button onClick={() => void extendSession()}>Stay signed in</Button>}
-          <Button variant="outline" onClick={() => void signOut()}><LogOut size={15} /> Sign out</Button>
-        </div>
-      </section>
-    </div>}
   </header>;
 }

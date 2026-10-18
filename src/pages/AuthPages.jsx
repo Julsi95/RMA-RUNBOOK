@@ -80,3 +80,40 @@ export function ResetPasswordPage() {
     <Link className="auth-back-link" to="/login"><ArrowLeft size={15} /> Back to sign in</Link>
   </AuthFrame>;
 }
+
+export function InvitationPasswordSetupPage() {
+  const { configured, loading, user, sessionStatus, updatePassword } = useAuth();
+  const navigate = useNavigate();
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [complete, setComplete] = useState(false);
+
+  async function submit(event) {
+    event.preventDefault(); setError("");
+    if (password.length < 8) { setError("Use at least 8 characters."); return; }
+    if (password !== confirm) { setError("The passwords do not match."); return; }
+    setBusy(true);
+    try {
+      await updatePassword(password);
+      setPassword(""); setConfirm(""); setComplete(true);
+    } catch (cause) { setError(cause.message || "The invitation link may have expired. Ask an administrator to send a new invitation."); }
+    finally { setBusy(false); }
+  }
+
+  const verifiedInvitationSession = Boolean(user && sessionStatus?.active);
+  return <AuthFrame eyebrow="COMPLETE YOUR INVITATION" title="Set your password" description="Choose a password for your RUNBOOK account.">
+    {!configured ? <p className="auth-notice">Password setup is unavailable until Supabase is configured.</p>
+      : loading || (user && !sessionStatus) ? <p className="auth-notice" role="status">Verifying your invitation…</p>
+      : complete ? <><p className="auth-success" role="status">Your password is set. You can now use your RUNBOOK account.</p><Button type="button" onClick={() => navigate("/", { replace: true })}>Continue to RUNBOOK</Button></>
+      : !verifiedInvitationSession ? <><p className="auth-error" role="alert">This invitation link is invalid, expired, or already used. Ask an administrator to send a new invitation.</p><Link className="auth-back-link" to="/login"><ArrowLeft size={15} /> Back to sign in</Link></>
+      : <form className="auth-form" onSubmit={submit}>
+        <p className="auth-notice">Setting a password for <strong>{user.email}</strong></p>
+        <label>New password<span className="auth-input"><KeyRound size={16} /><input type="password" autoComplete="new-password" minLength={8} required value={password} onChange={(event) => setPassword(event.target.value)} /></span></label>
+        <label>Confirm password<span className="auth-input"><KeyRound size={16} /><input type="password" autoComplete="new-password" minLength={8} required value={confirm} onChange={(event) => setConfirm(event.target.value)} /></span></label>
+        {error && <p className="auth-error" role="alert">{error}</p>}
+        <Button type="submit" disabled={busy}>{busy ? "Saving…" : "Set password"}</Button>
+      </form>}
+  </AuthFrame>;
+}

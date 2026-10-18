@@ -13,7 +13,7 @@ const AuthContext = createContext(null);
 
 function sessionEndMessage(state) {
   if (state === "replaced") return "This account was signed in on another device. Sign in again to continue.";
-  if (state === "expired") return "Your session expired. Sign in again to continue.";
+  if (state === "expired") return "You have been logged out due to inactivity.";
   return "This sign-in could not be verified. Sign in again to continue.";
 }
 
@@ -25,7 +25,6 @@ export function AuthProvider({ children }) {
   const [sessionNotice, setSessionNotice] = useState("");
   const [sessionCheckError, setSessionCheckError] = useState("");
   const [loading, setLoading] = useState(isSupabaseConfigured);
-  const [clock, setClock] = useState(Date.now());
   const currentSessionRef = useRef(null);
   const sessionCheckSequence = useRef(0);
   const sessionStatusRequestRef = useRef(null);
@@ -53,7 +52,7 @@ export function AuthProvider({ children }) {
     setAccountProfile(profile ?? null);
   }, []);
 
-  const clearLocalSession = useCallback((message = "", release = true) => {
+  const clearLocalSession = useCallback((message = "", release = true, revokeAuthSessions = false) => {
     sessionCheckSequence.current += 1;
     currentSessionRef.current = null;
     setSessionNotice(message);
@@ -63,7 +62,7 @@ export function AuthProvider({ children }) {
     setSessionStatus(null);
     setLoading(false);
     if (release) void releaseRunbookSession().catch(() => {});
-    void supabase?.auth.signOut({ scope: "local" }).catch(() => {});
+    void supabase?.auth.signOut({ scope: revokeAuthSessions ? "global" : "local" }).catch(() => {});
   }, []);
 
   const verifyCurrentSession = useCallback(async (nextSession, { claim = false, updateLoading = false } = {}) => {
@@ -87,14 +86,14 @@ export function AuthProvider({ children }) {
         const claimed = await claimRunbookSession(nextSession);
         if (!claimed) {
           const status = await checkRunbookSession();
-          if (sequence === sessionCheckSequence.current) clearLocalSession(sessionEndMessage(status?.state), false);
+          if (sequence === sessionCheckSequence.current) clearLocalSession(sessionEndMessage(status?.state), true, status?.state === "expired");
           return false;
         }
       }
       const status = await checkRunbookSession();
       if (sequence !== sessionCheckSequence.current) return false;
       if (!status?.active) {
-        clearLocalSession(sessionEndMessage(status?.state), false);
+        clearLocalSession(sessionEndMessage(status?.state), true, status?.state === "expired");
         return false;
       }
       await loadAccount(nextSession.user);
@@ -124,7 +123,7 @@ export function AuthProvider({ children }) {
         const status = await checkRunbookSession();
         if (getSessionId(currentSessionRef.current) !== sessionId) return null;
         if (!status?.active) {
-          clearLocalSession(sessionEndMessage(status?.state), false);
+          clearLocalSession(sessionEndMessage(status?.state), true, status?.state === "expired");
           return null;
         }
         setSessionStatus(status);
@@ -196,7 +195,8 @@ export function AuthProvider({ children }) {
       pingInFlight = true;
       void touchRunbookSession().then(async (active) => {
         if (!active) {
-          clearLocalSession("Your session expired. Sign in again to continue.", false);
+          const status = await checkRunbookSession().catch(() => null);
+          clearLocalSession(sessionEndMessage(status?.state), true, status?.state === "expired");
           return;
         }
         await refreshSessionStatus();
@@ -211,10 +211,13 @@ export function AuthProvider({ children }) {
     if (!session?.user || !sessionStatus?.active) return undefined;
     const interval = window.setInterval(() => { void refreshSessionStatus(); }, 15_000);
     const onOnline = () => { void refreshSessionStatus(); };
+    const onVisible = () => { if (document.visibilityState === "visible") void refreshSessionStatus(); };
     window.addEventListener("online", onOnline);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       window.clearInterval(interval);
       window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [refreshSessionStatus, session?.user?.id, sessionStatus?.active]);
 
@@ -225,25 +228,6 @@ export function AuthProvider({ children }) {
     ], () => { void refreshSessionStatus(); }, "session-replacement");
     return unsubscribe;
   }, [refreshSessionStatus, session?.user?.id, sessionStatus?.active]);
-
-  useEffect(() => {
-    if (!session?.user || !sessionStatus?.active) return undefined;
-    const interval = window.setInterval(() => setClock(Date.now()), 1000);
-    return () => window.clearInterval(interval);
-  }, [session?.user?.id, sessionStatus?.active]);
-
-  const deadlines = [sessionStatus?.inactivityDeadline, sessionStatus?.absoluteDeadline]
-    .map((value) => value ? new Date(value).getTime() : 0)
-    .filter((value) => value > 0);
-  const sessionExpiresAt = deadlines.length ? Math.min(...deadlines) : 0;
-  const sessionRemainingSeconds = sessionExpiresAt ? Math.max(0, Math.ceil((sessionExpiresAt - clock) / 1000)) : null;
-  const sessionWarning = Boolean(sessionStatus?.active && sessionRemainingSeconds !== null
-    && sessionRemainingSeconds <= Number(sessionStatus.warningMinutes ?? 2) * 60);
-
-  useEffect(() => {
-    if (sessionRemainingSeconds !== 0 || !session?.user) return;
-    void refreshSessionStatus();
-  }, [refreshSessionStatus, session?.user?.id, sessionRemainingSeconds]);
 
   const value = useMemo(() => ({
     configured: isSupabaseConfigured,
@@ -256,21 +240,9 @@ export function AuthProvider({ children }) {
     isAdmin: !isSupabaseConfigured || account?.role === "admin" || account?.role === "super_admin",
     canEdit: !isSupabaseConfigured || account?.role === "admin" || account?.role === "super_admin",
     sessionStatus,
-    sessionRemainingSeconds,
-    sessionWarning,
     sessionNotice,
     sessionCheckError,
     clearSessionNotice: () => setSessionNotice(""),
-    async extendSession() {
-      const active = await touchRunbookSession();
-      if (!active) {
-        clearLocalSession("Your session expired. Sign in again to continue.", false);
-        return false;
-      }
-      lastActivityPing.current = Date.now();
-      await refreshSessionStatus();
-      return true;
-    },
     async updateAccountProfile({ displayName, summary, photoPath }) {
       if (!supabase) throw new Error("Connect Supabase before updating your profile.");
       const { error } = await supabase.rpc("update_my_account_profile", {
@@ -333,7 +305,7 @@ export function AuthProvider({ children }) {
     async refreshSessionStatus() {
       return refreshSessionStatus();
     },
-  }), [account, accountProfile, clearLocalSession, loadAccount, loading, refreshSessionStatus, session, sessionCheckError, sessionNotice, sessionRemainingSeconds, sessionStatus, sessionWarning]);
+  }), [account, accountProfile, clearLocalSession, loadAccount, loading, refreshSessionStatus, session, sessionCheckError, sessionNotice, sessionStatus]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

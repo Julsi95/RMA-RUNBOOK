@@ -22,10 +22,10 @@ export async function uploadOwnProfilePhoto(file, userId, employeeId = null) {
   return path;
 }
 
-export async function signedOwnProfilePhoto(path) {
+export async function signedOwnProfilePhoto(path, expiresIn = 3600) {
   if (!path) return "";
   const client = assertBackendConfigured();
-  const { data, error } = await client.storage.from("runbook-private").createSignedUrl(path, 300);
+  const { data, error } = await client.storage.from("runbook-private").createSignedUrl(path, expiresIn);
   throwIfError(error);
   return data?.signedUrl ?? "";
 }

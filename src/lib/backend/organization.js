@@ -64,8 +64,16 @@ export async function loadRemoteRoster(canEdit) {
 
 async function storeEmployeePhoto(photo, currentPath, employeeId) {
   if (!photo) return { photoUrl: "", photoPath: null };
+  if (currentPath) return { photoUrl: "", photoPath: currentPath };
+  if (photo.includes("/storage/v1/object/sign/runbook-private/")) {
+    const signedPath = photo.split("/storage/v1/object/sign/runbook-private/")[1]?.split("?")[0];
+    if (signedPath) {
+      const path = decodeURIComponent(signedPath);
+      if (path.startsWith(`employees/${employeeId}/`)) return { photoUrl: "", photoPath: path };
+      throw new Error("This private profile photo could not be matched to its employee. Re-upload the photo before saving.");
+    }
+  }
   if (!photo.startsWith("data:")) {
-    if (currentPath) return { photoUrl: "", photoPath: currentPath };
     return { photoUrl: photo, photoPath: null };
   }
 
