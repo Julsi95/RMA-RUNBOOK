@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router";
 import AppShell from "@/components/layout/AppShell";
 import DashboardPage from "@/pages/DashboardPage";
 import SettingsPage from "@/pages/SettingsPage";
+import ProfilePage from "@/pages/ProfilePage";
 import OrganizationPage from "@/features/organization/OrganizationPage";
 import SeatPlanPage from "@/features/seating/SeatPlanPage";
 import KpiQaPage from "@/features/kpi/KpiQaPage";
@@ -48,6 +49,7 @@ export default function App() {
         <Route path="kpi-qa" element={<KpiQaPage />} />
         <Route path="admin/kpi-scoring" element={<RequireEditor><KpiScoringSettingsPage /></RequireEditor>} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="profile" element={<ProfilePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

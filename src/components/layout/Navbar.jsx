@@ -1,4 +1,4 @@
-import { Bell, ChevronDown, LogIn, LogOut, Menu, Moon, Sun, UserRoundPen } from "lucide-react";
+import { Bell, ChevronDown, CircleUserRound, LogIn, LogOut, Menu, Moon, Settings2, Sun } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router";
 import { useTheme } from "@/app/theme-provider";
@@ -21,7 +21,7 @@ export default function Navbar({ onMenuClick }) {
     "/organizational": "Organizational", "/seat-plan": "Seat plan", "/projects": "Project coverage",
     "/inbound-call-time": "Inbound call time", "/work-schedule": "Work schedule", "/vl-credits": "VL credits",
     "/app-links": "App / Links", "/agent-profiles": "Agent profiles", "/kpi-qa": "Monthly KPI / QA",
-    "/admin/kpi-scoring": "KPI scoring settings", "/admin/qa-parameters": "QA parameters", "/settings": "Settings",
+    "/admin/kpi-scoring": "KPI scoring settings", "/admin/qa-parameters": "QA parameters", "/settings": "Settings", "/profile": "My profile",
   };
   const currentPage = pageLabels[pathname] ?? "Dashboard";
   const isDark = theme === "dark" || (theme === "system" && document.documentElement.dataset.theme === "dark");
@@ -76,8 +76,9 @@ export default function Navbar({ onMenuClick }) {
               <span className="topbar-profile-avatar">{photoUrl ? <img src={photoUrl} alt="" /> : displayName.slice(0, 1).toUpperCase()}</span><ChevronDown size={14} />
             </Button>
             {openMenu === "profile" && <section className="profile-menu" aria-label="Profile menu">
-              <div className="profile-menu-identity"><strong>{displayName}</strong><span>{user.email}</span>{accountProfile?.summary && <p>{accountProfile.summary}</p>}</div>
-              <Link to="/settings" onClick={() => setOpenMenu("")}><UserRoundPen size={15} /> Edit profile</Link>
+              <div className="profile-menu-identity"><strong>{displayName}</strong><span>{user.email}</span><small>{account?.role === "super_admin" ? "Super Admin" : account?.role === "admin" || account?.can_edit ? "Admin" : "RUNBOOK member"}</small>{accountProfile?.summary && <p>{accountProfile.summary}</p>}</div>
+              <Link to="/profile" onClick={() => setOpenMenu("")}><CircleUserRound size={15} /> View profile</Link>
+              <Link to="/settings" onClick={() => setOpenMenu("")}><Settings2 size={15} /> Account settings</Link>
               <button type="button" onClick={() => { setOpenMenu(""); void signOut(); }}><LogOut size={15} /> Sign out</button>
             </section>}
           </div>
