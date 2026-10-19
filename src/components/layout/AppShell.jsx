@@ -5,11 +5,11 @@ import Sidebar from "@/components/layout/Sidebar";
 import { BrandingProvider } from "@/app/branding-provider";
 import { NotificationProvider } from "@/app/notification-provider";
 
-export default function AppShell() {
-  return <BrandingProvider><NotificationProvider><AppShellLayout /></NotificationProvider></BrandingProvider>;
+export default function AppShell({ publicWorkspace = false }) {
+  return <BrandingProvider><NotificationProvider><AppShellLayout publicWorkspace={publicWorkspace} /></NotificationProvider></BrandingProvider>;
 }
 
-function AppShellLayout() {
+function AppShellLayout({ publicWorkspace }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => localStorage.getItem("starter-app-sidebar-collapsed") === "true",
@@ -26,13 +26,14 @@ function AppShellLayout() {
   return (
     <div className={`app-shell ${sidebarCollapsed ? "sidebar-is-collapsed" : ""}`}>
       <Sidebar
+        publicWorkspace={publicWorkspace}
         open={sidebarOpen}
         collapsed={sidebarCollapsed}
         onClose={() => setSidebarOpen(false)}
         onToggleCollapse={toggleSidebar}
       />
       <div className="main-column">
-        <Navbar onMenuClick={() => setSidebarOpen(true)} />
+        <Navbar onMenuClick={() => setSidebarOpen(true)} publicWorkspace={publicWorkspace} />
         <main className="page-container"><Outlet /></main>
       </div>
     </div>

@@ -8,7 +8,7 @@ import { signedOwnProfilePhoto } from "@/lib/backend-repositories";
 import { useNotifications } from "@/app/notification-provider";
 import NotificationMenu from "@/features/notifications/NotificationMenu";
 
-export default function Navbar({ onMenuClick }) {
+export default function Navbar({ onMenuClick, publicWorkspace = false }) {
   const { configured, user, account, accountProfile, signOut } = useAuth();
   const { theme, setTheme } = useTheme();
   const { unreadCount } = useNotifications();
@@ -63,6 +63,7 @@ export default function Navbar({ onMenuClick }) {
       <span className="breadcrumb">Workspace <span className="breadcrumb-separator">/</span> {currentPage}</span>
     </div>
     <div className="topbar-actions" ref={menuRef}>
+      {publicWorkspace && user && <Link className="topbar-login" to="/" aria-label="Back to public workspace">Public workspace</Link>}
       <Button variant="ghost" size="icon" aria-label={`Switch to ${isDark ? "light" : "dark"} mode`} onClick={toggleTheme}>{isDark ? <Sun size={18} /> : <Moon size={18} />}</Button>
       {configured && user && <div className="topbar-popover-anchor">
         <Button variant="ghost" size="icon" className="topbar-notification-button" aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread` : ""}`} aria-expanded={openMenu === "notifications"} onClick={() => setOpenMenu((current) => current === "notifications" ? "" : "notifications")}>
