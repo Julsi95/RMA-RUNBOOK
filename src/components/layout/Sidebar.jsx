@@ -21,7 +21,7 @@ const links = [
   { to: "/admin/qa-parameters", label: "QA parameters", icon: ClipboardCheck },
 ];
 
-export default function Sidebar({ open, collapsed, onClose, onToggleCollapse }) {
+export default function Sidebar({ open, collapsed, onClose, onToggleCollapse, publicWorkspace = false }) {
   const { canEdit } = useAuth();
   const { branding, logoUrl } = useBranding();
   return (
@@ -48,7 +48,7 @@ export default function Sidebar({ open, collapsed, onClose, onToggleCollapse }) 
           </Button>
         </div>
         <nav className="nav-list" aria-label="Main navigation">
-          {links.filter((item) => !item.editorOnly || canEdit).map(({ to, label, icon: Icon, end }) => (
+          {links.filter((item) => publicWorkspace ? ["/", "/organizational", "/agent-profiles", "/app-links"].includes(item.to) : !item.editorOnly || canEdit).map(({ to, label, icon: Icon, end }) => (
             <NavLink key={to} to={to} end={end} onClick={onClose} title={label} className={({ isActive }) => `nav-link ${isActive ? "nav-link-active" : ""}`}>
               <Icon size={18} strokeWidth={1.8} />
               <span>{label}</span>
@@ -56,10 +56,12 @@ export default function Sidebar({ open, collapsed, onClose, onToggleCollapse }) 
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <NavLink to="/settings" onClick={onClose} title="Settings" className={({ isActive }) => `nav-link ${isActive ? "nav-link-active" : ""}`}>
-            <Settings size={18} strokeWidth={1.8} />
-            <span>Settings</span>
-          </NavLink>
+          {publicWorkspace ? <>
+            {canEdit && <NavLink to="/admin/dashboard" onClick={onClose} title="Open editor settings" className={({ isActive }) => `nav-link ${isActive ? "nav-link-active" : ""}`}><PanelsTopLeft size={18} strokeWidth={1.8} /><span>Editor settings</span></NavLink>}
+          </> : <>
+            <NavLink to="/" onClick={onClose} title="Back to public workspace" className="nav-link"><LayoutDashboard size={18} strokeWidth={1.8} /><span>Back to public workspace</span></NavLink>
+            <NavLink to="/settings" onClick={onClose} title="Settings" className={({ isActive }) => `nav-link ${isActive ? "nav-link-active" : ""}`}><Settings size={18} strokeWidth={1.8} /><span>Settings</span></NavLink>
+          </>}
         </div>
       </aside>
     </>

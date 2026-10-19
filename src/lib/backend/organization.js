@@ -39,8 +39,18 @@ async function addSignedPhotoUrls(members) {
   }));
 }
 
-export async function loadRemoteRoster(canEdit) {
+export async function loadRemoteRoster(canEdit, { anonymous = false } = {}) {
   if (!supabase) return { members: getOrganizationMembers(), profiles: {} };
+
+  if (anonymous) {
+    const [directoryResult, definitionsResult] = await Promise.all([
+      supabase.rpc("get_public_workspace_employee_directory"),
+      supabase.rpc("get_public_agent_profile_field_definitions"),
+    ]);
+    throwIfErrors([directoryResult, definitionsResult]);
+    const members = await addSignedPhotoUrls((directoryResult.data ?? []).map((row) => normalizeEmployee(row, row.profile ?? {})));
+    return { members, profiles: Object.fromEntries(members.map((member) => [member.id, member.profile])), definitions: definitionsResult.data ?? [] };
+  }
 
   if (!canEdit) {
     const [directoryResult, definitionsResult] = await Promise.all([

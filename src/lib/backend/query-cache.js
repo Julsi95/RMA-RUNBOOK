@@ -20,6 +20,7 @@ export const queryKeys = {
   roster: (userId, canEdit) => ["organization-roster", userId, canEdit ? "editor" : "viewer"],
   branding: () => ["workspace-branding"],
   dashboard: () => ["dashboard-publication"],
+  publicDashboard: () => ["public-dashboard-publication"],
   dashboardDraft: (userId) => ["dashboard-draft", userId],
   seatPlans: (userId, canEdit) => ["seat-plans", userId, canEdit ? "editor" : "viewer"],
   projectCoverage: (userId, canEdit) => ["project-coverage", userId, canEdit ? "editor" : "viewer"],

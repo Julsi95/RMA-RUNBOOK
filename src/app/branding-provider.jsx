@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "@/app/auth-provider";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { subscribeToTables, throwIfError } from "@/lib/backend/shared";
 import { fetchCachedQuery, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
@@ -8,6 +9,7 @@ const DEFAULT_BRANDING = { sidebar_title: "RUNBOOK", logo_path: "" };
 const BRANDING_QUERY_KEY = queryKeys.branding();
 
 export function BrandingProvider({ children }) {
+  const { user } = useAuth();
   const cached = readCachedQuery(BRANDING_QUERY_KEY);
   const [branding, setBranding] = useState(cached ?? DEFAULT_BRANDING);
   const [logoUrl, setLogoUrl] = useState("");
@@ -20,6 +22,11 @@ export function BrandingProvider({ children }) {
     const requestId = ++requestRef.current;
     try {
       const next = await fetchCachedQuery(BRANDING_QUERY_KEY, async () => {
+        if (!user) {
+          const { data, error: queryError } = await supabase.rpc("get_public_workspace_branding");
+          throwIfError(queryError);
+          return { ...DEFAULT_BRANDING, ...(data ?? {}) };
+        }
         const { data, error: queryError } = await supabase.from("workspace_branding").select("sidebar_title,logo_path").eq("singleton", true).maybeSingle();
         throwIfError(queryError);
         return { ...DEFAULT_BRANDING, ...(data ?? {}) };
@@ -31,7 +38,7 @@ export function BrandingProvider({ children }) {
       setError("");
     } catch (cause) { if (requestId === requestRef.current) setError(cause.message || "Branding could not be loaded."); }
     finally { if (requestId === requestRef.current) setLoading(false); }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) { setLoading(false); return undefined; }

@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router";
 import { useAuth } from "@/app/auth-provider";
 import { ORGANIZATION_STORAGE_KEY, getOrganizationMembers } from "@/features/organization/organization-data";
 import { loadRemoteRoster, saveRemoteEmployeeProfile, saveRemoteMembers, saveRemoteProfileFieldDefinitions } from "@/lib/backend/organization";
@@ -9,6 +10,7 @@ const OrganizationContext = createContext(null);
 
 export function OrganizationProvider({ children }) {
   const { configured, canEdit, loading: authLoading, user } = useAuth();
+  const location = useLocation();
   const rosterKey = useMemo(() => queryKeys.roster(user?.id ?? "anonymous", canEdit), [canEdit, user?.id]);
   const cachedRoster = readCachedQuery(rosterKey);
   const [members, setMembers] = useState(() => configured ? cachedRoster?.members ?? [] : getOrganizationMembers());
@@ -34,7 +36,7 @@ export function OrganizationProvider({ children }) {
     // OrganizationProvider mounts before the route-level auth guard. Wait for
     // Supabase to restore the persisted session before calling authenticated RPCs.
     if (authLoading) return;
-    if (!user) {
+    if (!user && !["/organizational", "/agent-profiles"].includes(location.pathname)) {
       setMembers([]);
       setProfiles({});
       setCustomFieldDefinitions([]);
@@ -51,7 +53,7 @@ export function OrganizationProvider({ children }) {
       setLoading(false);
     } else setLoading(true);
     try {
-      const roster = await fetchCachedQuery(rosterKey, () => retryDataLoad(() => loadRemoteRoster(canEdit)), { force });
+      const roster = await fetchCachedQuery(rosterKey, () => retryDataLoad(() => loadRemoteRoster(canEdit, { anonymous: !user })), { force });
       if (requestId !== requestSequence.current) return;
       setMembers(roster.members);
       photoUrlsUpdatedAt.current = Date.now();
@@ -64,7 +66,7 @@ export function OrganizationProvider({ children }) {
     } finally {
       if (requestId === requestSequence.current) setLoading(false);
     }
-  }, [authLoading, canEdit, configured, rosterKey, user?.id]);
+  }, [authLoading, canEdit, configured, location.pathname, rosterKey, user?.id]);
 
   const refreshSignedPhotoUrls = useCallback(async () => {
     if (!configured || authLoading || !user) return;

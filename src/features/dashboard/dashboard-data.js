@@ -25,6 +25,7 @@ export function createDefaultDashboard() {
     containers: [
       {
         id: "welcome-announcement",
+        publicVisible: false,
         type: "announcement",
         title: "A home base for the whole team",
         description: "Keep important updates, useful links, and team highlights in one place.",
@@ -49,6 +50,7 @@ export function createDefaultDashboard() {
       },
       {
         id: "team-feature",
+        publicVisible: false,
         type: "feature",
         title: "Meet your people",
         description: "Keep birthdays, milestones, and team details close at hand.",
@@ -73,6 +75,7 @@ export function createDefaultDashboard() {
       },
       {
         id: "quick-access",
+        publicVisible: false,
         type: "quickLinks",
         title: "Quick access",
         description: "Jump straight into the tools you use every day.",
@@ -123,6 +126,7 @@ function normalizeDashboard(value) {
       buttonUrl: "",
       width: 12,
       height: 250,
+      publicVisible: false,
       showDate: false,
       imageLayout: "banner",
       imageFit: "cover",
@@ -142,6 +146,7 @@ function normalizeDashboard(value) {
       ...item,
       width: Math.min(24, Math.max(1, Number(item.width) || LEGACY_WIDTHS[item.size] || 12)),
       height: Math.min(800, Math.max(120, Number(item.height) || LEGACY_HEIGHTS[item.height] || 250)),
+      publicVisible: item.type === "topAgents" || item.type === "kpiResult" ? false : item.publicVisible === true,
       images: Array.isArray(item.images) ? item.images.map((entry, index) => ({ id: entry?.id || `image-${item.id}-${index}`, src: typeof entry?.src === "string" ? entry.src : "" })) : (typeof item.image === "string" && item.image ? [{ id: `image-${item.id}-0`, src: item.image }] : []),
       image: typeof item.image === "string" ? item.image : "",
       imageMode: item.imageMode === "single" ? "single" : (Array.isArray(item.images) && item.images.length > 1 ? "carousel" : "single"),
@@ -228,6 +233,7 @@ export function makeContainer(type = "feature") {
     buttonUrl: "",
     width: type === "announcement" ? 18 : 12,
     height: 270,
+    publicVisible: false,
     showDate: type === "announcement",
     imageLayout: "banner",
     imageFit: "cover",

@@ -11,6 +11,13 @@ export async function loadPublishedDashboard() {
   return data.content;
 }
 
+export async function loadPublicWorkspaceDashboard() {
+  assertBackendConfigured();
+  const { data, error } = await supabase.rpc("get_public_workspace_dashboard");
+  throwIfError(error);
+  return data;
+}
+
 export async function loadDashboardDraft(ownerId) {
   assertBackendConfigured();
   const { data, error } = await supabase.from("dashboard_drafts").select("content").eq("owner_id", ownerId).maybeSingle();

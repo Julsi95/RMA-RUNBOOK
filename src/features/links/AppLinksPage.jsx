@@ -58,7 +58,7 @@ export default function AppLinksPage() {
     const refresh = async ({ force = false } = {}) => {
       if (!readCachedQuery(resourceKey)) setRefreshing(true);
       try {
-        const items = await fetchCachedQuery(resourceKey, () => retryDataLoad(loadAppLinks), { force });
+        const items = await fetchCachedQuery(resourceKey, () => retryDataLoad(() => loadAppLinks({ publicOnly: !user })), { force });
         if (active) { setResources(items); setLoadError(""); setRemoteReady(true); }
       } catch (error) {
         if (active) setLoadError(error.message || "Could not load app links. Check your connection and retry.");
@@ -67,7 +67,7 @@ export default function AppLinksPage() {
     void refresh();
     const unsubscribe = subscribeToTables(["app_links"], () => { void refresh({ force: true }); }, "app-links");
     return () => { active = false; unsubscribe(); };
-  }, [retryCount, resourceKey]);
+  }, [retryCount, resourceKey, user?.id]);
   const groups = useMemo(() => [...new Set([...DEFAULT_GROUPS, ...resources.map((item) => item.group).filter(Boolean)])], [resources]);
   const counts = useMemo(() => resources.reduce((result, item) => {
     result[item.group] = (result[item.group] ?? 0) + 1;
@@ -94,7 +94,7 @@ export default function AppLinksPage() {
 
   function openEditor(item = null) {
     if (!canManage) return;
-    setEditor(item ? { ...item } : { id: "", name: "", url: "", application: "", group: activeGroup === "All" ? DEFAULT_GROUPS[0] : activeGroup, description: "" });
+    setEditor(item ? { ...item } : { id: "", name: "", url: "", application: "", group: activeGroup === "All" ? DEFAULT_GROUPS[0] : activeGroup, description: "", publicVisible: false });
   }
 
   async function saveResource(event) {
@@ -164,6 +164,7 @@ export default function AppLinksPage() {
         <label className="app-links-field app-links-field-wide"><span>Application or service <small>Optional</small></span><input value={editor.application} onChange={(event) => setEditor((current) => ({ ...current, application: event.target.value }))} placeholder="e.g. Microsoft Teams" /></label>
         <label className="app-links-field app-links-field-wide"><span>Short note <small>Optional</small></span><input value={editor.description} onChange={(event) => setEditor((current) => ({ ...current, description: event.target.value }))} placeholder="What this resource is for" /></label>
       </div>
+      <label className="app-links-public-toggle"><input type="checkbox" checked={Boolean(editor.publicVisible)} onChange={(event) => setEditor((current) => ({ ...current, publicVisible: event.target.checked }))} /><span><strong>Show on public workspace</strong><small>Anyone with the public workspace link can view and open this resource.</small></span></label>
       <div className="app-links-form-hint"><Link2 size={15} /><span>A site icon will appear when the linked website provides one. The URL remains visible on every card.</span></div>
       <div className="app-links-dialog-actions"><Button type="button" variant="outline" onClick={() => setEditor(null)}>Cancel</Button><Button type="submit" disabled={!editor.name.trim() || !editor.group.trim() || !editor.url.trim()}>{editor.id ? "Save changes" : "Add resource"}</Button></div>
     </form></div>}
