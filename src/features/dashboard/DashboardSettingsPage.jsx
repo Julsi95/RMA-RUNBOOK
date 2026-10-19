@@ -361,7 +361,7 @@ export default function DashboardSettingsPage() {
       <div className={"dashboard-builder-stage" + (previewMode ? " is-previewing" : "")}>
         <div className={"dashboard-preview-frame preview-" + viewport} style={{ "--dashboard-gap": `${draft.containerGap}px`, "--dashboard-canvas-padding": `${draft.canvasPadding}px`, "--dashboard-canvas-height": `${draft.canvasHeight ?? 560}px` }}>
           <header className="dashboard-preview-heading"><p className="eyebrow">YOUR WORKSPACE</p><h1>{draft.pageTitle || "Your dashboard"}</h1>{draft.pageDescription && <p className="page-description">{draft.pageDescription}</p>}</header>
-          {draft.containers.length ? <DashboardGrid containers={draft.containers} gap={draft.containerGap} viewport={viewport} editable={!previewMode} onLayoutChange={handleGridLayoutChange}>
+          {draft.containers.length ? <DashboardGrid containers={draft.containers} gap={draft.containerGap} viewport={viewport} editable={!previewMode} onLayoutCommit={handleGridLayoutChange}>
             {draft.containers.map((item, index) => previewMode
               ? <div className="dashboard-live-grid-item" key={item.id}><DashboardContainer item={item} containerGap={draft.containerGap} linksEnabled /></div>
               : <div className="dashboard-builder-item" key={item.id}>

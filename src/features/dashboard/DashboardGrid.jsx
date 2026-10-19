@@ -8,11 +8,11 @@ const RESIZE_HANDLES = ["n", "ne", "e", "se", "s", "sw", "w", "nw"];
 const GRID_ROW_HEIGHT = 10;
 
 export function heightToGridRows(height, gap = 14) {
-  return Math.max(1, Math.ceil((Math.max(120, Number(height) || 250) + gap) / (GRID_ROW_HEIGHT + gap)));
+  return Math.max(1, (Math.min(800, Math.max(120, Number(height) || 250)) + gap) / (GRID_ROW_HEIGHT + gap));
 }
 
 export function gridRowsToHeight(rows, gap = 14) {
-  return Math.max(120, Math.round(rows) * GRID_ROW_HEIGHT + (Math.round(rows) - 1) * gap);
+  return Math.min(800, Math.max(120, Math.round(Number(rows) * (GRID_ROW_HEIGHT + gap) - gap)));
 }
 
 export function createDashboardGridLayout(containers, columns = 24, gap = 14) {
@@ -55,11 +55,11 @@ export function createDashboardGridLayout(containers, columns = 24, gap = 14) {
   });
 }
 
-export function DashboardGrid({ containers, gap = 14, viewport = "desktop", editable = false, onLayoutChange, children }) {
+export function DashboardGrid({ containers, gap = 14, viewport = "desktop", editable = false, onLayoutCommit, children }) {
   const columns = viewport === "mobile" ? 1 : viewport === "tablet" ? 12 : 24;
   const layout = useMemo(() => createDashboardGridLayout(containers, columns, gap), [containers, columns, gap]);
   return <MeasuredGridLayout
-    className="dashboard-layout-grid dashboard-rgl-grid"
+    className={"dashboard-layout-grid dashboard-rgl-grid" + (editable ? " is-editable" : "")}
     layout={layout}
     cols={columns}
     rowHeight={GRID_ROW_HEIGHT}
@@ -73,6 +73,7 @@ export function DashboardGrid({ containers, gap = 14, viewport = "desktop", edit
     draggableHandle=".dashboard-drag-handle"
     draggableCancel="input, textarea, select, a, .dashboard-container-tools > div"
     resizeHandles={RESIZE_HANDLES}
-    onLayoutChange={editable && viewport === "desktop" ? onLayoutChange : undefined}
+    onDragStop={editable && viewport === "desktop" ? onLayoutCommit : undefined}
+    onResizeStop={editable && viewport === "desktop" ? onLayoutCommit : undefined}
   >{children}</MeasuredGridLayout>;
 }

@@ -4,6 +4,7 @@ import { ArrowLeft, KeyRound, LockKeyhole, Mail } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { useAuth } from "@/app/auth-provider";
+import { supabase } from "@/lib/supabase";
 
 function AuthFrame({ eyebrow, title, description, children }) {
   return <main className="auth-page"><section className="auth-card"><Link className="auth-brand" to="/">VF <span>RUNBOOK</span></Link><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p className="page-description">{description}</p>{children}</section></main>;
@@ -85,11 +86,27 @@ export function ResetPasswordPage() {
 export function InvitationPasswordSetupPage() {
   const { configured, loading, user, sessionStatus, updatePassword } = useAuth();
   const navigate = useNavigate();
+  const [invitationToken] = useState(() => new URLSearchParams(window.location.search).get("token_hash") || "");
+  const [invitationType] = useState(() => new URLSearchParams(window.location.search).get("type") || "");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [complete, setComplete] = useState(false);
+  const [invitationVerified, setInvitationVerified] = useState(false);
+
+  async function verifyInvitation() {
+    if (!configured || !supabase || invitationType !== "invite" || !invitationToken) return;
+    setBusy(true); setError("");
+    try {
+      const { error: verifyError } = await supabase.auth.verifyOtp({ token_hash: invitationToken, type: "invite" });
+      if (verifyError) throw verifyError;
+      setInvitationVerified(true);
+      window.history.replaceState({}, "", window.location.pathname);
+    } catch (cause) {
+      setError(cause.message || "This invitation link is invalid or expired. Ask an administrator to send a new invitation.");
+    } finally { setBusy(false); }
+  }
 
   async function submit(event) {
     event.preventDefault(); setError("");
@@ -103,11 +120,13 @@ export function InvitationPasswordSetupPage() {
     finally { setBusy(false); }
   }
 
-  const verifiedInvitationSession = Boolean(user && sessionStatus?.active);
+  const verifiedInvitationSession = Boolean(user && sessionStatus?.active && (!invitationToken || invitationVerified));
   return <AuthFrame eyebrow="COMPLETE YOUR INVITATION" title="Set your password" description="Choose a password for your RUNBOOK account.">
     {!configured ? <p className="auth-notice">Password setup is unavailable until Supabase is configured.</p>
       : loading || (user && !sessionStatus) ? <p className="auth-notice" role="status">Verifying your invitation…</p>
       : complete ? <><p className="auth-success" role="status">Your password is set. You can now use your RUNBOOK account.</p><Button type="button" onClick={() => navigate("/", { replace: true })}>Continue to RUNBOOK</Button></>
+      : invitationToken && invitationType === "invite" && !invitationVerified ? <><p className="auth-notice">Confirm this invitation to open the password setup form. The link is only used after you press the button.</p>{error && <p className="auth-error" role="alert">{error}</p>}<Button type="button" disabled={busy} onClick={() => void verifyInvitation()}>{busy ? "Verifying invitation…" : "Continue to password setup"}</Button></>
+      : invitationVerified && (!user || !sessionStatus?.active) ? <p className="auth-notice" role="status">Invitation confirmed. Preparing your password form…</p>
       : !verifiedInvitationSession ? <><p className="auth-error" role="alert">This invitation link is invalid, expired, or already used. Ask an administrator to send a new invitation.</p><Link className="auth-back-link" to="/login"><ArrowLeft size={15} /> Back to sign in</Link></>
       : <form className="auth-form" onSubmit={submit}>
         <p className="auth-notice">Setting a password for <strong>{user.email}</strong></p>
