@@ -15,8 +15,7 @@ import "@/features/dashboard/dashboard.css";
 
 export default function DashboardPage() {
   const { canEdit, user } = useAuth();
-  if (canEdit) return <DashboardKpiProvider><DashboardContent canEdit user={user} /></DashboardKpiProvider>;
-  return <DashboardContent canEdit={false} user={user} />;
+  return <DashboardKpiProvider publicOnly={!canEdit}><DashboardContent canEdit={canEdit} user={user} /></DashboardKpiProvider>;
 }
 
 function DashboardContent({ canEdit, user }) {
@@ -28,7 +27,7 @@ function DashboardContent({ canEdit, user }) {
   const [loadError, setLoadError] = useState("");
   const visibleContainers = canEdit
     ? dashboard.containers
-    : dashboard.containers.filter((item) => item.publicVisible === true && !["topAgents", "kpiResult"].includes(item.type));
+    : dashboard.containers;
 
   const refreshDashboard = useCallback(async ({ initial = false, force = false, quiet = false, isActive = () => true } = {}) => {
     if (!isSupabaseConfigured) return;
