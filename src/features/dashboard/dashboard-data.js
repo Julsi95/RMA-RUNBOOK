@@ -146,7 +146,7 @@ function normalizeDashboard(value) {
       ...item,
       width: Math.min(24, Math.max(1, Number(item.width) || LEGACY_WIDTHS[item.size] || 12)),
       height: Math.min(800, Math.max(120, Number(item.height) || LEGACY_HEIGHTS[item.height] || 250)),
-      publicVisible: item.type === "topAgents" || item.type === "kpiResult" ? false : true,
+      publicVisible: true,
       images: Array.isArray(item.images) ? item.images.map((entry, index) => ({ id: entry?.id || `image-${item.id}-${index}`, src: typeof entry?.src === "string" ? entry.src : "" })) : (typeof item.image === "string" && item.image ? [{ id: `image-${item.id}-0`, src: item.image }] : []),
       image: typeof item.image === "string" ? item.image : "",
       imageMode: item.imageMode === "single" ? "single" : (Array.isArray(item.images) && item.images.length > 1 ? "carousel" : "single"),

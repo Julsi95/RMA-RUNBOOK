@@ -48,6 +48,21 @@ export async function loadKpiMonthData() {
   return months;
 }
 
+export async function loadPublicDashboardKpiWidget() {
+  assertBackendConfigured();
+  const { data, error } = await supabase.rpc("get_public_dashboard_kpi_widget");
+  throwIfError(error);
+  if (!data?.monthKey) return {};
+  return {
+    [data.monthKey]: {
+      demo: false,
+      scoringVersionId: null,
+      scoringSettings: data.scoringSettings ?? null,
+      records: data.records ?? {},
+    },
+  };
+}
+
 export async function createKpiMonth(month) {
   assertBackendConfigured();
   const { data, error } = await supabase.rpc("create_kpi_month", { p_month: month });
