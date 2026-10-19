@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Clock3, Dices, ImagePlus, KeyRound, LogOut, Shield, Trash2, UserPlus, X } from "lucide-react";
+import { AlertTriangle, Clock3, Dices, ImagePlus, KeyRound, LogOut, RefreshCw, Shield, Trash2, UserPlus, UsersRound, X } from "lucide-react";
 import { useTheme } from "@/app/theme-provider";
 import { useAuth } from "@/app/auth-provider";
 import { useOrganizationRoster } from "@/app/organization-provider";
@@ -16,6 +16,7 @@ import { generateStrongPassword } from "@/lib/strong-password";
 export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
   const { configured, user, account, accountProfile, canEdit, updateAccountProfile, updateEmail, updatePassword, signOut, refreshSessionStatus } = useAuth();
+  const canManageAccounts = configured && ["admin", "super_admin"].includes(account?.role);
   const { members: rosterMembers } = useOrganizationRoster();
   const members = useMemo(() => getOperationalRoster(rosterMembers), [rosterMembers]);
   const { branding, logoUrl, save: saveBranding } = useBranding();
@@ -41,7 +42,7 @@ export default function SettingsPage() {
   const [passwordError, setPasswordError] = useState("");
   const [savingPassword, setSavingPassword] = useState(false);
   const [accounts, setAccounts] = useState(cachedAccounts ?? []);
-  const [accountListLoading, setAccountListLoading] = useState(Boolean(canEdit && configured && !cachedAccounts));
+  const [accountListLoading, setAccountListLoading] = useState(Boolean(canManageAccounts && !cachedAccounts));
   const [accountListError, setAccountListError] = useState("");
   const accountLoadSequence = useRef(0);
   const [accountBusy, setAccountBusy] = useState(false);
@@ -93,24 +94,24 @@ export default function SettingsPage() {
   }, [photoFile]);
 
   useEffect(() => {
-    if (!canEdit || !configured) return undefined;
+    if (!canManageAccounts) return undefined;
     void refreshAccounts("", { force: false }).catch(() => {});
     return () => { accountLoadSequence.current += 1; };
-  }, [canEdit, configured]);
+  }, [accountsKey, canManageAccounts, user?.id]);
 
   useEffect(() => {
     let active = true;
-    if (!canEdit || !configured) return undefined;
+    if (!canManageAccounts) return undefined;
     void fetchCachedQuery(sessionSettingsKey, loadRunbookSessionSettings).then((settings) => {
       if (active && settings) setSessionPolicy(settings);
     }).catch((error) => {
       if (active) setSessionPolicyError(error.message || "Could not load session settings.");
     });
     return () => { active = false; };
-  }, [canEdit, configured, sessionSettingsKey]);
+  }, [canManageAccounts, sessionSettingsKey]);
 
   useEffect(() => {
-    if (!canEdit || !configured) return undefined;
+    if (!canManageAccounts) return undefined;
     let active = true;
     let timer;
     const unsubscribe = subscribeToTables([{ table: "realtime_sync_signals", filter: "source_table=eq.app_accounts" }], () => {
@@ -121,7 +122,7 @@ export default function SettingsPage() {
       }, 160);
     }, "settings-accounts");
     return () => { active = false; window.clearTimeout(timer); accountLoadSequence.current += 1; unsubscribe(); };
-  }, [canEdit, configured]);
+  }, [canManageAccounts, user?.id]);
 
   async function saveProfile(event) {
     event.preventDefault(); setProfileError(""); setProfileMessage(""); setSavingProfile(true);
@@ -280,7 +281,8 @@ export default function SettingsPage() {
       <nav className="settings-quick-nav" aria-label="Settings sections">
         <a href="#appearance">Appearance</a>
         {configured && user && <><a href="#profile">My profile</a><a href="#login-email">Login email</a><a href="#password">Password</a></>}
-        {configured && canEdit && <><a href="#branding">Branding</a><a href="#account-access">Account access</a><a href="#session-security">Session security</a></>}
+        {configured && canEdit && <><a href="#branding">Branding</a><a href="#session-security">Session security</a></>}
+        {canManageAccounts && <a href="#account-access">User management</a>}
       </nav>
       <div id="appearance" className="settings-card settings-appearance-card">
         <div><h2>Appearance</h2><p>Choose a theme or follow your device setting.</p></div>
@@ -325,8 +327,8 @@ export default function SettingsPage() {
           <Button type="submit" disabled={brandingBusy}>{brandingBusy ? "Saving…" : "Save sidebar branding"}</Button>
         </form>
       </section>}
-      {configured && canEdit && <section id="account-access" className="settings-card settings-admin-section">
-        <div><h2><Shield size={19} /> Account access</h2><p>Invite employees and control who can edit RUNBOOK.</p></div>
+      {canManageAccounts && <section id="account-access" className="settings-card settings-admin-section">
+        <div><h2><Shield size={19} /> Account access</h2><p>Invite employees, manage user access, and control who can edit RUNBOOK.</p></div>
         {accountError && <p className="auth-error" role="alert">{accountError}</p>}{accountMessage && <p className="auth-success" role="status">{accountMessage}</p>}
         <form className="settings-invite-form" onSubmit={sendInvite}>
           <label className="form-field"><span>Employee name</span><input required maxLength={80} value={invite.displayName} onChange={(event) => setInvite((value) => ({ ...value, displayName: event.target.value }))} /></label>
@@ -351,7 +353,7 @@ export default function SettingsPage() {
           </form>
         </div>}
         <div className="settings-account-list">
-          <h3>Existing accounts</h3>
+          <div className="settings-account-list-heading"><div><h3><UsersRound size={17} /> User management</h3><p>Review accounts, change access, suspend sign-in, or manage passwords.</p></div><Button type="button" variant="outline" disabled={accountListLoading} onClick={() => void refreshAccounts().catch(() => {})}><RefreshCw size={14} className={accountListLoading ? "settings-refresh-spinning" : ""} />{accountListLoading ? "Refreshing…" : "Refresh users"}</Button></div>
           {accountListLoading && <p className="page-description" role="status">Loading saved accounts…</p>}
           {accountListError && <div className="settings-account-list-error"><p className="auth-error" role="alert">{accountListError}</p><Button type="button" variant="outline" onClick={() => void refreshAccounts().catch(() => {})}>Retry account list</Button></div>}
           {!accountListLoading && !accountListError && accounts.length === 0 && <p className="page-description">No editable accounts to show.</p>}
