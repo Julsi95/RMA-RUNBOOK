@@ -127,9 +127,10 @@ export async function createPrivateSignedUrlMap(paths, expiresIn = 3600) {
   const client = assertBackendConfigured();
   const { data, error } = await client.storage.from("runbook-private").createSignedUrls(uniquePaths, expiresIn);
   throwIfError(error);
-  const failed = (data ?? []).find((item) => item.error);
-  if (failed) throw new Error(`Could not create a signed profile photo URL: ${failed.error}`);
-  return new Map((data ?? []).filter((item) => item.path).map(({ path, signedUrl }) => [path, signedUrl ?? ""]));
+  // A stale path or a photo made private by its owner should not prevent the
+  // rest of the employee directory from rendering. Callers keep their existing
+  // safe fallback image when Storage declines an individual signed URL.
+  return new Map((data ?? []).filter((item) => item.path && item.signedUrl && !item.error).map(({ path, signedUrl }) => [path, signedUrl]));
 }
 
 export function subscribeToTables(tables, onChange, label = "data") {

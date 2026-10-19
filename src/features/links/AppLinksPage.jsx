@@ -55,18 +55,27 @@ export default function AppLinksPage() {
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     let active = true;
+    let inFlight = false;
     const refresh = async ({ force = false } = {}) => {
+      if (inFlight) return;
+      inFlight = true;
       if (!readCachedQuery(resourceKey)) setRefreshing(true);
       try {
         const items = await fetchCachedQuery(resourceKey, () => retryDataLoad(() => loadAppLinks({ publicOnly: !user })), { force });
         if (active) { setResources(items); setLoadError(""); setRemoteReady(true); }
       } catch (error) {
         if (active) setLoadError(error.message || "Could not load app links. Check your connection and retry.");
-      } finally { if (active) setRefreshing(false); }
+      } finally { inFlight = false; if (active) setRefreshing(false); }
     };
     void refresh();
     const unsubscribe = subscribeToTables(["app_links"], () => { void refresh({ force: true }); }, "app-links");
-    return () => { active = false; unsubscribe(); };
+    // Anonymous visitors read links through a security-definer RPC, so table
+    // Realtime events are intentionally unavailable to them. Poll the safe RPC
+    // while the page is visible so newly published links appear without reload.
+    const pollTimer = user ? null : window.setInterval(() => {
+      if (active && document.visibilityState === "visible") void refresh({ force: true });
+    }, 15_000);
+    return () => { active = false; unsubscribe(); if (pollTimer) window.clearInterval(pollTimer); };
   }, [retryCount, resourceKey, user?.id]);
   const groups = useMemo(() => [...new Set([...DEFAULT_GROUPS, ...resources.map((item) => item.group).filter(Boolean)])], [resources]);
   const counts = useMemo(() => resources.reduce((result, item) => {
