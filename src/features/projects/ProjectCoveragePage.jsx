@@ -6,10 +6,12 @@ import {
 import { Button } from "@/components/ui/Button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
 import { useOrganizationRoster } from "@/app/organization-provider";
+import { getOperationalRoster } from "@/features/organization/organization-data";
 import { useAuth } from "@/app/auth-provider";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { loadProjectCoverage, saveProjectCoverage } from "@/lib/backend-repositories";
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
+import { fetchCachedQuery, queryClient, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
 import {
   createProjectId, getSavedProjects, PROJECT_COVERAGE_STORAGE_KEY, PROJECT_STATUSES,
 } from "@/features/projects/project-data";
@@ -110,12 +112,15 @@ function StatusCell({ status, onClick, disabled }) {
 }
 
 export default function ProjectCoveragePage() {
-  const { canEdit } = useAuth();
-  const [projects, setProjects] = useState(() => isSupabaseConfigured ? [] : getSavedProjects());
-  const [remoteReady, setRemoteReady] = useState(false);
+  const { canEdit, user } = useAuth();
+  const resourceKey = useMemo(() => queryKeys.projectCoverage(user?.id ?? "anonymous", canEdit), [canEdit, user?.id]);
+  const cachedProjects = readCachedQuery(resourceKey);
+  const [projects, setProjects] = useState(() => isSupabaseConfigured ? cachedProjects ?? [] : getSavedProjects());
+  const [remoteReady, setRemoteReady] = useState(Boolean(cachedProjects));
   const [syncError, setSyncError] = useState("");
-  const remoteSnapshotRef = useRef(null);
-  const { members } = useOrganizationRoster();
+  const remoteSnapshotRef = useRef(cachedProjects ? structuredClone(cachedProjects) : null);
+  const { members: rosterMembers } = useOrganizationRoster();
+  const members = useMemo(() => getOperationalRoster(rosterMembers), [rosterMembers]);
   const canManage = canEdit && (!isSupabaseConfigured || Boolean(remoteSnapshotRef.current));
   const [view, setView] = useState("matrix");
   const [search, setSearch] = useState("");
@@ -128,7 +133,7 @@ export default function ProjectCoveragePage() {
   useEffect(() => {
     if (!isSupabaseConfigured) return undefined;
     let active = true;
-    void retryDataLoad(loadProjectCoverage).then((saved) => {
+    void fetchCachedQuery(resourceKey, () => retryDataLoad(loadProjectCoverage)).then((saved) => {
       if (!active) return;
       remoteSnapshotRef.current = structuredClone(saved);
       setProjects(saved);
@@ -136,7 +141,7 @@ export default function ProjectCoveragePage() {
       setSyncError("");
     }).catch((error) => { if (active) { setSyncError(error.message || "Could not load project coverage."); setRemoteReady(true); } });
     return () => { active = false; };
-  }, []);
+  }, [resourceKey]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return undefined;
@@ -144,13 +149,13 @@ export default function ProjectCoveragePage() {
     let timer;
     const unsubscribe = subscribeToTables(["projects", "project_trainers", "project_assignments"], () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => { void retryDataLoad(loadProjectCoverage).then((saved) => {
+      timer = window.setTimeout(() => { void fetchCachedQuery(resourceKey, () => retryDataLoad(loadProjectCoverage), { force: true }).then((saved) => {
         if (!active) return;
         remoteSnapshotRef.current = structuredClone(saved); setProjects(saved); setSyncError("");
       }).catch((error) => { if (active) setSyncError(error.message || "Could not sync project coverage."); }); }, 180);
     }, "project-coverage");
     return () => { active = false; window.clearTimeout(timer); unsubscribe(); };
-  }, []);
+  }, [resourceKey]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -163,11 +168,12 @@ export default function ProjectCoveragePage() {
       try {
         await saveProjectCoverage(next);
         remoteSnapshotRef.current = next;
+        queryClient.setQueryData(resourceKey, next);
         setSyncError("");
       } catch (error) { setSyncError(error.message || "Could not save project coverage."); }
     }, 500);
     return () => window.clearTimeout(timeout);
-  }, [projects, remoteReady, canEdit]);
+  }, [projects, remoteReady, canEdit, resourceKey]);
 
   const visibleProjects = useMemo(() => projects.filter((project) => {
     const matchesArchive = showArchived || project.isActive;

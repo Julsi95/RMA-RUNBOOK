@@ -6,6 +6,7 @@ import { useAuth } from "@/app/auth-provider";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { loadQaCriteria, saveQaCriteria } from "@/lib/backend-repositories";
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
+import { fetchCachedQuery, queryClient, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
 import "@/features/qa/qa-parameters.css";
 
 const STORAGE_KEY = "starter-app-qa-parameters-v1";
@@ -54,13 +55,15 @@ function percentLabel(value) {
 }
 
 export default function QaParametersPage() {
-  const { canEdit, configured } = useAuth();
-  const [criteria, setCriteria] = useState(() => configured ? [] : readCriteria());
+  const { canEdit, configured, user } = useAuth();
+  const resourceKey = useMemo(() => queryKeys.qaCriteria(user?.id ?? "anonymous", canEdit), [canEdit, user?.id]);
+  const cachedCriteria = readCachedQuery(resourceKey);
+  const [criteria, setCriteria] = useState(() => configured ? cachedCriteria ?? [] : readCriteria());
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
   const [sort, setSort] = useState("custom");
   const [editor, setEditor] = useState(null);
-  const [remoteReady, setRemoteReady] = useState(!configured);
+  const [remoteReady, setRemoteReady] = useState(!configured || Boolean(cachedCriteria));
   const [refreshing, setRefreshing] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [loadError, setLoadError] = useState("");
@@ -69,19 +72,19 @@ export default function QaParametersPage() {
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     let active = true;
-    const refresh = async () => {
-      setRefreshing(true);
+    const refresh = async ({ force = false } = {}) => {
+      if (!readCachedQuery(resourceKey)) setRefreshing(true);
       try {
-        const items = await retryDataLoad(loadQaCriteria);
+        const items = await fetchCachedQuery(resourceKey, () => retryDataLoad(loadQaCriteria), { force });
         if (active) { setCriteria(items); setLoadError(""); setRemoteReady(true); }
       } catch (error) {
         if (active) setLoadError(error.message || "Could not load QA criteria. Check your connection and retry.");
       } finally { if (active) setRefreshing(false); }
     };
     void refresh();
-    const unsubscribe = subscribeToTables(["qa_criteria"], refresh, "qa-criteria");
+    const unsubscribe = subscribeToTables(["qa_criteria"], () => { void refresh({ force: true }); }, "qa-criteria");
     return () => { active = false; unsubscribe(); };
-  }, [retryCount]);
+  }, [retryCount, resourceKey]);
   const categories = useMemo(() => [...new Set(criteria.map((item) => item.category).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [criteria]);
   const totals = useMemo(() => criteria.reduce((sum, item) => ({ tcr: sum.tcr + Number(item.tcr), tcp: sum.tcp + Number(item.tcp) }), { tcr: 0, tcp: 0 }), [criteria]);
   const overall = totals.tcr > 0 ? Math.round((totals.tcp / totals.tcr) * 10000) / 100 : null;
@@ -100,6 +103,7 @@ export default function QaParametersPage() {
     if (configured) {
       if (!canManage) return;
       await saveQaCriteria(next);
+      queryClient.setQueryData(resourceKey, next);
     }
     setCriteria(next);
     if (!configured) try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* keep edits in the current session */ }

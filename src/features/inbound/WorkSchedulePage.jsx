@@ -3,10 +3,12 @@ import { CalendarDays, CalendarPlus, Check, Clock3, History, Plus, RotateCcw, Tr
 import { Button } from "@/components/ui/Button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
 import { useOrganizationRoster } from "@/app/organization-provider";
+import { getOperationalRoster } from "@/features/organization/organization-data";
 import { useAuth } from "@/app/auth-provider";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { loadWorkScheduleDocument, saveWorkScheduleDocument } from "@/lib/backend-repositories";
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
+import { fetchCachedQuery, queryClient, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
 import "@/features/inbound/work-schedule.css";
 
 const STORAGE_KEY = "starter-app-inbound-schedule-v1";
@@ -211,16 +213,19 @@ function Avatar({ member }) {
 }
 
 export default function WorkSchedulePage() {
-  const { members } = useOrganizationRoster();
-  const { canEdit } = useAuth();
+  const { members: rosterMembers } = useOrganizationRoster();
+  const members = useMemo(() => getOperationalRoster(rosterMembers), [rosterMembers]);
+  const { canEdit, user } = useAuth();
+  const resourceKey = useMemo(() => queryKeys.workSchedule(user?.id ?? "anonymous", canEdit), [canEdit, user?.id]);
+  const cachedDocument = readCachedQuery(resourceKey);
   const [month, setMonth] = useState(currentMonth);
   const [selectedDate, setSelectedDate] = useState(today);
-  const [savedSchedules, setSavedSchedules] = useState(() => isSupabaseConfigured ? {} : readSchedules());
-  const [datePeriods, setDatePeriods] = useState(() => isSupabaseConfigured ? [] : readDatePeriods());
-  const [scheduleHistory, setScheduleHistory] = useState(() => isSupabaseConfigured ? [] : readScheduleHistory());
-  const [remoteReady, setRemoteReady] = useState(false);
+  const [savedSchedules, setSavedSchedules] = useState(() => isSupabaseConfigured ? cachedDocument?.months ?? {} : readSchedules());
+  const [datePeriods, setDatePeriods] = useState(() => isSupabaseConfigured ? cachedDocument?.periods ?? [] : readDatePeriods());
+  const [scheduleHistory, setScheduleHistory] = useState(() => isSupabaseConfigured ? cachedDocument?.history ?? [] : readScheduleHistory());
+  const [remoteReady, setRemoteReady] = useState(Boolean(cachedDocument));
   const [syncError, setSyncError] = useState("");
-  const remoteSnapshotRef = useRef(null);
+  const remoteSnapshotRef = useRef(cachedDocument ? structuredClone(cachedDocument) : null);
   const [draftSchedules, setDraftSchedules] = useState([]);
   const [rangeStart, setRangeStart] = useState(today);
   const [rangeEnd, setRangeEnd] = useState(today);
@@ -269,7 +274,7 @@ export default function WorkSchedulePage() {
   useEffect(() => {
     if (!isSupabaseConfigured) return undefined;
     let active = true;
-    void retryDataLoad(loadWorkScheduleDocument).then((document) => {
+    void fetchCachedQuery(resourceKey, () => retryDataLoad(loadWorkScheduleDocument)).then((document) => {
       if (!active) return;
       const normalized = toRemoteDocument(document.months, document.periods, document.history);
       remoteSnapshotRef.current = structuredClone(normalized);
@@ -280,7 +285,7 @@ export default function WorkSchedulePage() {
       setSyncError("");
     }).catch((error) => { if (active) { setSyncError(error.message || "Could not load work schedules."); setRemoteReady(true); } });
     return () => { active = false; };
-  }, []);
+  }, [resourceKey]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return undefined;
@@ -288,7 +293,7 @@ export default function WorkSchedulePage() {
     let timer;
     const unsubscribe = subscribeToTables(["work_schedule_months", "work_schedule_month_assignments", "work_schedule_periods", "work_schedule_period_assignments", "work_schedule_revisions"], () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => { void retryDataLoad(loadWorkScheduleDocument).then((document) => {
+      timer = window.setTimeout(() => { void fetchCachedQuery(resourceKey, () => retryDataLoad(loadWorkScheduleDocument), { force: true }).then((document) => {
         if (!active) return;
         const normalized = toRemoteDocument(document.months, document.periods, document.history);
         remoteSnapshotRef.current = structuredClone(normalized);
@@ -298,7 +303,7 @@ export default function WorkSchedulePage() {
       }).catch((error) => { if (active) setSyncError(error.message || "Could not sync work schedules."); }); }, 180);
     }, "work-schedule");
     return () => { active = false; window.clearTimeout(timer); unsubscribe(); };
-  }, [month, selectedDate, isDirty, viewingHistoryEntry, editingHistoryEntry]);
+  }, [month, selectedDate, isDirty, viewingHistoryEntry, editingHistoryEntry, resourceKey]);
 
   useEffect(() => {
     if (isSupabaseConfigured) return undefined;
@@ -323,11 +328,12 @@ export default function WorkSchedulePage() {
       try {
         await saveWorkScheduleDocument(next);
         remoteSnapshotRef.current = next;
+        queryClient.setQueryData(resourceKey, next);
         setSyncError("");
       } catch (error) { setSyncError(error.message || "Could not save work schedules."); }
     }, 500);
     return () => window.clearTimeout(timeout);
-  }, [savedSchedules, datePeriods, scheduleHistory, remoteReady, canEdit]);
+  }, [savedSchedules, datePeriods, scheduleHistory, remoteReady, canEdit, resourceKey]);
 
   useEffect(() => {
     if (viewingHistoryEntry || editingHistoryEntry) return;

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
 import { useOrganizationRoster } from "@/app/organization-provider";
 import { useAuth } from "@/app/auth-provider";
+import { getOperationalRoster } from "@/features/organization/organization-data";
 import "@/features/agents/agent-profiles.css";
 
 const PROFILES_KEY = "starter-app-agent-profiles-v1";
@@ -118,7 +119,8 @@ function PersonAvatar({ member, large = false }) {
 }
 
 export default function AgentProfilesPage() {
-  const { members, profiles: sharedProfiles, customFieldDefinitions, loading: rosterLoading, error: rosterError, saveEmployeeProfile, saveFieldDefinitions } = useOrganizationRoster();
+  const { members: rosterMembers, profiles: sharedProfiles, customFieldDefinitions, loading: rosterLoading, error: rosterError, saveEmployeeProfile, saveFieldDefinitions } = useOrganizationRoster();
+  const members = useMemo(() => getOperationalRoster(rosterMembers), [rosterMembers]);
   const { canEdit, configured } = useAuth();
   const canManage = canEdit && !rosterLoading && !rosterError;
   const [localProfiles, setLocalProfiles] = useState(() => configured ? {} : readObject(PROFILES_KEY));

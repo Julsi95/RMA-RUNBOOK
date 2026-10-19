@@ -8,6 +8,7 @@ import {
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { loadCurrentKpiScoring, saveCurrentKpiScoring } from "@/lib/backend-repositories";
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
+import { fetchCachedQuery, queryClient, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
 import "@/features/kpi/kpi-qa.css";
 
 const BAND_HINTS = {
@@ -16,6 +17,7 @@ const BAND_HINTS = {
   "On Track": "Meets expectations",
   "Needs Focus": "Below expectations",
 };
+const SCORING_QUERY_KEY = queryKeys.kpiScoring();
 
 function numberValue(value) {
   if (value === "" || value == null) return 0;
@@ -24,10 +26,11 @@ function numberValue(value) {
 }
 
 export default function KpiScoringSettingsPage() {
-  const [draft, setDraft] = useState(() => structuredClone(getKpiScoringSettings()));
+  const cachedScoring = readCachedQuery(SCORING_QUERY_KEY);
+  const [draft, setDraft] = useState(() => structuredClone(cachedScoring?.settings ?? getKpiScoringSettings()));
   const [message, setMessage] = useState("");
-  const [remoteReady, setRemoteReady] = useState(!isSupabaseConfigured);
-  const [remoteLoading, setRemoteLoading] = useState(isSupabaseConfigured);
+  const [remoteReady, setRemoteReady] = useState(!isSupabaseConfigured || Boolean(cachedScoring));
+  const [remoteLoading, setRemoteLoading] = useState(isSupabaseConfigured && !cachedScoring);
   const [saving, setSaving] = useState(false);
   const draftRef = useRef(draft);
   const savedSnapshotRef = useRef(JSON.stringify(draft));
@@ -37,10 +40,10 @@ export default function KpiScoringSettingsPage() {
   useEffect(() => {
     if (!isSupabaseConfigured) return undefined;
     let active = true;
-    const refresh = async () => {
-      setRemoteLoading(true);
+    const refresh = async ({ force = false } = {}) => {
+      if (!readCachedQuery(SCORING_QUERY_KEY)) setRemoteLoading(true);
       try {
-        const current = await retryDataLoad(loadCurrentKpiScoring);
+        const current = await fetchCachedQuery(SCORING_QUERY_KEY, () => retryDataLoad(loadCurrentKpiScoring), { force });
         if (!active) return;
         if (current?.settings) {
           const remoteSnapshot = JSON.stringify(current.settings);
@@ -60,7 +63,7 @@ export default function KpiScoringSettingsPage() {
       } finally { if (active) setRemoteLoading(false); }
     };
     void refresh();
-    const unsubscribe = subscribeToTables(["current_kpi_scoring", "kpi_scoring_versions"], refresh, "kpi-scoring-settings");
+    const unsubscribe = subscribeToTables(["current_kpi_scoring", "kpi_scoring_versions"], () => { void refresh({ force: true }); }, "kpi-scoring-settings");
     return () => { active = false; unsubscribe(); };
   }, []);
   const totalWeight = useMemo(() => KPI_METRICS.reduce((sum, metric) => sum + numberValue(draft.metrics[metric.id].weightPercent), 0), [draft]);
@@ -123,6 +126,7 @@ export default function KpiScoringSettingsPage() {
     setSaving(true);
     try {
       const versionId = isSupabaseConfigured ? await saveCurrentKpiScoring(savedSettings) : null;
+      if (isSupabaseConfigured) queryClient.setQueryData(SCORING_QUERY_KEY, (current) => ({ ...(current ?? {}), settings: savedSettings }));
       localStorage.setItem(KPI_SCORING_SETTINGS_KEY, JSON.stringify(savedSettings));
       savedSnapshotRef.current = JSON.stringify(savedSettings);
       setDraft(savedSettings);

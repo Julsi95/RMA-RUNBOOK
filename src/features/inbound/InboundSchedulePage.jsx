@@ -3,10 +3,12 @@ import { ArrowLeftRight, CalendarDays, Clock3, Plus, Trash2, UsersRound } from "
 import { Button } from "@/components/ui/Button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
 import { useOrganizationRoster } from "@/app/organization-provider";
+import { getOperationalRoster } from "@/features/organization/organization-data";
 import { useAuth } from "@/app/auth-provider";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { loadCallSchedules, saveCallScheduleMonth } from "@/lib/backend-repositories";
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
+import { fetchCachedQuery, queryClient, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
 import "@/features/inbound/inbound-schedule.css";
 
 const STORAGE_KEY = "starter-app-inbound-schedule-v1";
@@ -147,14 +149,17 @@ function Avatar({ name, photo }) {
 }
 
 export default function InboundSchedulePage() {
-  const { members } = useOrganizationRoster();
-  const { canEdit } = useAuth();
+  const { members: rosterMembers } = useOrganizationRoster();
+  const members = useMemo(() => getOperationalRoster(rosterMembers), [rosterMembers]);
+  const { canEdit, user } = useAuth();
+  const resourceKey = useMemo(() => queryKeys.callSchedules(user?.id ?? "anonymous", canEdit), [canEdit, user?.id]);
+  const cachedSchedules = readCachedQuery(resourceKey);
   const memberById = useMemo(() => new Map(members.map((member) => [member.id, member])), [members]);
   const [month, setMonth] = useState(currentMonth);
-  const [savedSchedules, setSavedSchedules] = useState(() => isSupabaseConfigured ? {} : readSavedSchedules());
-  const [remoteReady, setRemoteReady] = useState(false);
+  const [savedSchedules, setSavedSchedules] = useState(() => isSupabaseConfigured ? cachedSchedules ?? {} : readSavedSchedules());
+  const [remoteReady, setRemoteReady] = useState(Boolean(cachedSchedules));
   const [syncError, setSyncError] = useState("");
-  const remoteSnapshotRef = useRef(null);
+  const remoteSnapshotRef = useRef(cachedSchedules ? structuredClone(cachedSchedules) : null);
   const canManage = canEdit && (!isSupabaseConfigured || Boolean(remoteSnapshotRef.current));
   const [northAmericaZone, setNorthAmericaZone] = useState("America/New_York");
   const [timeView, setTimeView] = useState("ph");
@@ -176,7 +181,7 @@ export default function InboundSchedulePage() {
   useEffect(() => {
     if (!isSupabaseConfigured) return undefined;
     let active = true;
-    void retryDataLoad(loadCallSchedules).then((saved) => {
+    void fetchCachedQuery(resourceKey, () => retryDataLoad(loadCallSchedules)).then((saved) => {
       if (!active) return;
       remoteSnapshotRef.current = structuredClone(saved);
       setSavedSchedules(saved);
@@ -184,7 +189,7 @@ export default function InboundSchedulePage() {
       setSyncError("");
     }).catch((error) => { if (active) { setSyncError(error.message || "Could not load inbound call schedules."); setRemoteReady(true); } });
     return () => { active = false; };
-  }, []);
+  }, [resourceKey]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return undefined;
@@ -192,13 +197,13 @@ export default function InboundSchedulePage() {
     let timer;
     const unsubscribe = subscribeToTables(["call_schedule_months", "call_assignments"], () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => { void retryDataLoad(loadCallSchedules).then((saved) => {
+      timer = window.setTimeout(() => { void fetchCachedQuery(resourceKey, () => retryDataLoad(loadCallSchedules), { force: true }).then((saved) => {
         if (!active) return;
         remoteSnapshotRef.current = structuredClone(saved); setSavedSchedules(saved); setSyncError("");
       }).catch((error) => { if (active) setSyncError(error.message || "Could not sync inbound call schedules."); }); }, 180);
     }, "inbound-call");
     return () => { active = false; window.clearTimeout(timer); unsubscribe(); };
-  }, []);
+  }, [resourceKey]);
 
   useEffect(() => {
     if (!isSupabaseConfigured && !savedSchedules[month]) {
@@ -223,11 +228,12 @@ export default function InboundSchedulePage() {
       try {
         await Promise.all(changed.map(([key, schedule]) => saveCallScheduleMonth(key, callOnly(schedule))));
         remoteSnapshotRef.current = { ...remoteSnapshotRef.current, ...Object.fromEntries(changed.map(([key, schedule]) => [key, callOnly(schedule)])) };
+        queryClient.setQueryData(resourceKey, remoteSnapshotRef.current);
         setSyncError("");
       } catch (error) { setSyncError(error.message || "Could not save inbound call schedules."); }
     }, 450);
     return () => window.clearTimeout(timeout);
-  }, [savedSchedules, remoteReady, canEdit]);
+  }, [savedSchedules, remoteReady, canEdit, resourceKey]);
 
   useEffect(() => {
     if (!availableCallMembers.some((member) => member.id === newCallMemberId)) {

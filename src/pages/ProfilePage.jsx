@@ -3,6 +3,7 @@ import { ArrowRight, BriefcaseBusiness, CalendarDays, Clock3, Mail, MapPin, Shie
 import { Link } from "react-router";
 import { useAuth } from "@/app/auth-provider";
 import { useOrganizationRoster } from "@/app/organization-provider";
+import { isOrganizationOnlyLeader } from "@/features/organization/organization-data";
 import { signedOwnProfilePhoto } from "@/lib/backend-repositories";
 
 function formatDate(value) {
@@ -36,6 +37,7 @@ export default function ProfilePage() {
   const employeeProfile = member ? profiles[member.id] ?? member.profile ?? {} : {};
   const name = account?.display_name || member?.name || user?.email?.split("@")[0] || "RUNBOOK member";
   const role = account?.role === "super_admin" ? "Super Admin" : account?.role === "admin" || account?.can_edit ? "Admin" : "Member";
+  const teamRole = isOrganizationOnlyLeader(member) ? "RUNBOOK member" : member?.role || "Not linked";
   const summary = accountProfile?.summary || employeeProfile.summary || "Add a short introduction in account settings to help your team get to know you.";
   const profilePhoto = photoUrl || member?.photo || "";
   const customValues = employeeProfile.fields ?? {};
@@ -70,7 +72,7 @@ export default function ProfilePage() {
           <InfoItem icon={Mail} label="Login email" value={user?.email} />
           <InfoItem icon={ShieldCheck} label="Access level" value={role} />
           <InfoItem icon={UsersRound} label="Linked employee" value={member?.name || "No employee record linked"} />
-          <InfoItem icon={BriefcaseBusiness} label="Team role" value={member?.role || "Not linked"} />
+          <InfoItem icon={BriefcaseBusiness} label="Team role" value={teamRole} />
         </div>
       </section>
 

@@ -1,34 +1,37 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Activity, Clock3, RotateCcw } from "lucide-react";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { isHistoryEventRestorable, loadHistoryEvents, restoreHistoryEvent } from "@/lib/backend/history";
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 import { useAuth } from "@/app/auth-provider";
 import { Button } from "@/components/ui/Button";
+import { fetchCachedQuery, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
 
 function when(value) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
 export default function HistoryPage() {
-  const { canEdit } = useAuth();
-  const [events, setEvents] = useState([]);
-  const [loading, setLoading] = useState(isSupabaseConfigured);
+  const { canEdit, user } = useAuth();
+  const resourceKey = useMemo(() => queryKeys.history(user?.id ?? "anonymous", canEdit), [canEdit, user?.id]);
+  const cachedEvents = readCachedQuery(resourceKey);
+  const [events, setEvents] = useState(cachedEvents ?? []);
+  const [loading, setLoading] = useState(isSupabaseConfigured && !cachedEvents);
   const [error, setError] = useState("");
 
-  const loadEvents = useCallback(async () => {
-    const history = await retryDataLoad(() => loadHistoryEvents(canEdit));
+  const loadEvents = useCallback(async ({ force = false } = {}) => {
+    const history = await fetchCachedQuery(resourceKey, () => retryDataLoad(() => loadHistoryEvents(canEdit)), { force });
     setEvents(history);
     setError("");
     setLoading(false);
-  }, [canEdit]);
+  }, [canEdit, resourceKey]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return undefined;
     let active = true;
     void loadEvents().catch((queryError) => { if (active) { setError(queryError.message || "Could not load history."); setLoading(false); } });
     const unsubscribe = subscribeToTables(["history_events", "history_recovery"], () => {
-      if (active) void loadEvents().catch((queryError) => setError(queryError.message || "Could not refresh history."));
+      if (active) void loadEvents({ force: true }).catch((queryError) => setError(queryError.message || "Could not refresh history."));
     }, "history");
     return () => { active = false; unsubscribe(); };
   }, [loadEvents]);
@@ -38,7 +41,7 @@ export default function HistoryPage() {
     setLoading(true); setError("");
     try {
       await restoreHistoryEvent(event.id);
-      await loadEvents();
+      await loadEvents({ force: true });
     }
     catch (queryError) { setError(queryError.message || "The change was restored, but history could not refresh."); setLoading(false); }
   }

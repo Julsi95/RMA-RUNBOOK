@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router";
 import { ArrowLeft, KeyRound, LockKeyhole, Mail } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { useAuth } from "@/app/auth-provider";
 
 function AuthFrame({ eyebrow, title, description, children }) {
@@ -32,7 +33,7 @@ export function LoginPage() {
     <form className="auth-form" onSubmit={submit}>
       {sessionNotice && <p className="auth-notice" role="status">{sessionNotice}</p>}
       <label>Email address<span className="auth-input"><Mail size={16} /><input type="email" autoComplete="username" required value={email} onChange={(event) => setEmail(event.target.value)} /></span></label>
-      <label>Password<span className="auth-input"><LockKeyhole size={16} /><input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} /></span></label>
+      <label>Password<span className="auth-input"><LockKeyhole size={16} /><PasswordInput autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} /></span></label>
       {error && <p className="auth-error" role="alert">{error}</p>}
       <Button type="submit" disabled={busy || loading}>{busy ? "Signing in…" : "Sign in"}</Button>
     </form>
@@ -76,7 +77,7 @@ export function ResetPasswordPage() {
     finally { setBusy(false); }
   }
   return <AuthFrame eyebrow="ACCOUNT RECOVERY" title="Choose a new password" description="Set a new password for your editor account.">
-    {!configured ? <p className="auth-notice">Password recovery becomes available after Supabase is configured.</p> : <form className="auth-form" onSubmit={submit}><label>New password<span className="auth-input"><KeyRound size={16} /><input type="password" autoComplete="new-password" minLength={8} required value={password} onChange={(event) => setPassword(event.target.value)} /></span></label><label>Confirm password<span className="auth-input"><KeyRound size={16} /><input type="password" autoComplete="new-password" minLength={8} required value={confirm} onChange={(event) => setConfirm(event.target.value)} /></span></label>{error && <p className="auth-error" role="alert">{error}</p>}<Button type="submit" disabled={busy}>{busy ? "Saving…" : "Update password"}</Button></form>}
+    {!configured ? <p className="auth-notice">Password recovery becomes available after Supabase is configured.</p> : <form className="auth-form" onSubmit={submit}><label>New password<span className="auth-input"><KeyRound size={16} /><PasswordInput autoComplete="new-password" minLength={8} required value={password} onChange={(event) => setPassword(event.target.value)} /></span></label><label>Confirm password<span className="auth-input"><KeyRound size={16} /><PasswordInput autoComplete="new-password" minLength={8} required value={confirm} onChange={(event) => setConfirm(event.target.value)} /></span></label>{error && <p className="auth-error" role="alert">{error}</p>}<Button type="submit" disabled={busy}>{busy ? "Saving…" : "Update password"}</Button></form>}
     <Link className="auth-back-link" to="/login"><ArrowLeft size={15} /> Back to sign in</Link>
   </AuthFrame>;
 }
@@ -110,8 +111,8 @@ export function InvitationPasswordSetupPage() {
       : !verifiedInvitationSession ? <><p className="auth-error" role="alert">This invitation link is invalid, expired, or already used. Ask an administrator to send a new invitation.</p><Link className="auth-back-link" to="/login"><ArrowLeft size={15} /> Back to sign in</Link></>
       : <form className="auth-form" onSubmit={submit}>
         <p className="auth-notice">Setting a password for <strong>{user.email}</strong></p>
-        <label>New password<span className="auth-input"><KeyRound size={16} /><input type="password" autoComplete="new-password" minLength={8} required value={password} onChange={(event) => setPassword(event.target.value)} /></span></label>
-        <label>Confirm password<span className="auth-input"><KeyRound size={16} /><input type="password" autoComplete="new-password" minLength={8} required value={confirm} onChange={(event) => setConfirm(event.target.value)} /></span></label>
+        <label>New password<span className="auth-input"><KeyRound size={16} /><PasswordInput autoComplete="new-password" minLength={8} required value={password} onChange={(event) => setPassword(event.target.value)} /></span></label>
+        <label>Confirm password<span className="auth-input"><KeyRound size={16} /><PasswordInput autoComplete="new-password" minLength={8} required value={confirm} onChange={(event) => setConfirm(event.target.value)} /></span></label>
         {error && <p className="auth-error" role="alert">{error}</p>}
         <Button type="submit" disabled={busy}>{busy ? "Saving…" : "Set password"}</Button>
       </form>}

@@ -26,6 +26,15 @@ function safeImageSource(value) {
   }
 }
 
+function gridColumnStyles(item, width) {
+  if (!item.columnStart) return {};
+  const start = Math.min(25 - width, Math.max(1, Number(item.columnStart) || 1));
+  return {
+    "--dashboard-column-start": start,
+    "--dashboard-column-start-tablet": Math.ceil(start / 2),
+  };
+}
+
 function DashboardLink({ url, children, className = "", enabled = true }) {
   const href = safeHref(url);
   if (!href) return null;
@@ -47,7 +56,7 @@ function colorWithOpacity(color, opacity) {
   return `rgb(${parseInt(hex.slice(0, 2), 16)} ${parseInt(hex.slice(2, 4), 16)} ${parseInt(hex.slice(4, 6), 16)} / ${Math.max(0, Math.min(100, opacity ?? 74))}%)`;
 }
 
-export default function DashboardContainer({ item, linksEnabled = true }) {
+export default function DashboardContainer({ item, linksEnabled = true, containerGap = 14 }) {
   const kpiData = useDashboardKpi();
   const imageList = Array.isArray(item.images) && item.images.length ? item.images : item.image ? [{ id: "legacy-image", src: item.image }] : [];
   const images = imageList.map((image) => ({ ...image, src: safeImageSource(image.src) })).filter((image) => image.src);
@@ -83,7 +92,8 @@ export default function DashboardContainer({ item, linksEnabled = true }) {
     const scoreLabel = (value) => `${Number(value).toFixed(2)} / 5`;
     const monthLabel = monthKey ? new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${monthKey}-01T00:00:00Z`)) : "No published month";
     const width = Math.min(24, Math.max(1, Number(item.width) || 12));
-    return <article className={`dashboard-content-card dashboard-kpi-widget dashboard-kpi-${item.type}`} style={{ "--dashboard-span-desktop": width, "--dashboard-span-tablet": Math.min(12, Math.ceil(width / 2)), "--dashboard-height": `${Math.max(120, Number(item.height) || 250)}px` }} data-dashboard-container={item.id}>
+    const height = Math.max(120, Number(item.height) || 250);
+    return <article className={`dashboard-content-card dashboard-kpi-widget dashboard-kpi-${item.type}`} style={{ "--dashboard-span-desktop": width, "--dashboard-span-tablet": Math.min(12, Math.ceil(width / 2)), ...gridColumnStyles(item, width), "--dashboard-height": `${height}px`, "--dashboard-row-span": Math.ceil(height + Math.max(0, Number(containerGap) || 0)) }} data-dashboard-container={item.id}>
       <div className="dashboard-kpi-widget-head"><div><span className="dashboard-card-kicker">{item.type === "topAgents" ? "MONTHLY LEADERS" : "MONTHLY KPI"}</span><h2>{item.title || (item.type === "topAgents" ? "Top Agents" : "KPI Result")}</h2><p>{monthLabel}</p></div><span className="dashboard-kpi-widget-mark">{item.type === "topAgents" ? "TOP" : "KPI"}</span></div>
       {(kpiData.loading || kpiData.rosterLoading) && !ranked.length ? <p className="dashboard-kpi-widget-state">Loading actual KPI results…</p>
         : !ranked.length ? <p className="dashboard-kpi-widget-state">No KPI results have been published yet.</p>
@@ -99,10 +109,13 @@ export default function DashboardContainer({ item, linksEnabled = true }) {
   const imageFillsCard = hasImage && (overlay || !hasText);
   const typeLabel = item.type === "quickLinks" ? "QUICK ACCESS" : item.type === "announcement" ? "ANNOUNCEMENT" : item.type === "content" ? "NOTE" : "FEATURED";
   const width = Math.min(24, Math.max(1, Number(item.width) || 12));
+  const height = Math.max(120, Number(item.height) || 250);
   const style = {
     "--dashboard-span-desktop": width,
     "--dashboard-span-tablet": Math.min(12, Math.max(1, Math.ceil(width / 2))),
-    "--dashboard-height": `${Math.max(120, Number(item.height) || 250)}px`,
+    ...gridColumnStyles(item, width),
+    "--dashboard-height": `${height}px`,
+    "--dashboard-row-span": Math.ceil(height + Math.max(0, Number(containerGap) || 0)),
     "--dashboard-image-fit": item.imageFit === "contain" ? "contain" : "cover",
     "--dashboard-text-color": item.textColor || "#ffffff",
     "--dashboard-overlay-bg": item.textBackground === "none" ? "transparent" : item.textBackground === "solid" ? item.textBackgroundColor || "#17171b" : colorWithOpacity(item.textBackgroundColor, item.textBackgroundOpacity),

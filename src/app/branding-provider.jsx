@@ -1,24 +1,29 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
-import { retryDataLoad, subscribeToTables, throwIfError } from "@/lib/backend/shared";
+import { subscribeToTables, throwIfError } from "@/lib/backend/shared";
+import { fetchCachedQuery, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
 
 const BrandingContext = createContext(null);
 const DEFAULT_BRANDING = { sidebar_title: "RUNBOOK", logo_path: "" };
+const BRANDING_QUERY_KEY = queryKeys.branding();
 
 export function BrandingProvider({ children }) {
-  const [branding, setBranding] = useState(DEFAULT_BRANDING);
+  const cached = readCachedQuery(BRANDING_QUERY_KEY);
+  const [branding, setBranding] = useState(cached ?? DEFAULT_BRANDING);
   const [logoUrl, setLogoUrl] = useState("");
-  const [loading, setLoading] = useState(isSupabaseConfigured);
+  const [loading, setLoading] = useState(isSupabaseConfigured && !cached);
   const [error, setError] = useState("");
   const requestRef = useRef(0);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async ({ force = false } = {}) => {
     if (!supabase) { setLoading(false); return; }
     const requestId = ++requestRef.current;
     try {
-      const { data, error: queryError } = await supabase.from("workspace_branding").select("sidebar_title,logo_path").eq("singleton", true).maybeSingle();
-      throwIfError(queryError);
-      const next = { ...DEFAULT_BRANDING, ...(data ?? {}) };
+      const next = await fetchCachedQuery(BRANDING_QUERY_KEY, async () => {
+        const { data, error: queryError } = await supabase.from("workspace_branding").select("sidebar_title,logo_path").eq("singleton", true).maybeSingle();
+        throwIfError(queryError);
+        return { ...DEFAULT_BRANDING, ...(data ?? {}) };
+      }, { force });
       if (requestId !== requestRef.current) return;
       setBranding(next);
       const { data: urlData } = next.logo_path ? supabase.storage.from("runbook-public").getPublicUrl(next.logo_path) : { data: { publicUrl: "" } };
@@ -31,8 +36,8 @@ export function BrandingProvider({ children }) {
   useEffect(() => {
     if (!isSupabaseConfigured) { setLoading(false); return undefined; }
     let active = true;
-    void retryDataLoad(refresh);
-    const unsubscribe = subscribeToTables(["workspace_branding"], () => { if (active) void retryDataLoad(refresh); }, "workspace-branding");
+    void refresh().catch(() => {});
+    const unsubscribe = subscribeToTables(["workspace_branding"], () => { if (active) void refresh({ force: true }); }, "workspace-branding");
     return () => { active = false; unsubscribe(); };
   }, [refresh]);
 
@@ -49,7 +54,7 @@ export function BrandingProvider({ children }) {
       }
       const { error: saveError } = await supabase.from("workspace_branding").upsert({ singleton: true, sidebar_title: title.trim(), logo_path: logoPath, updated_at: new Date().toISOString(), updated_by: actorId || null });
       throwIfError(saveError);
-      await refresh();
+      await refresh({ force: true });
     },
   }), [branding, error, loading, logoUrl, refresh]);
 
