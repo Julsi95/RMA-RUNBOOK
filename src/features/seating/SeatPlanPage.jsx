@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Armchair, BriefcaseBusiness, CalendarDays, Grip, Plus, Printer, Search, Trash2, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { starterMembers } from "@/features/organization/organization-data";
@@ -367,11 +368,11 @@ export default function SeatPlanPage() {
       {draggingMemberId && dragPreviewPosition && (() => {
         const member = membersById.get(draggingMemberId);
         if (!member) return null;
-        return <div className="seat-drag-preview" style={{ left: dragPreviewPosition.x + 14, top: dragPreviewPosition.y + 14 }} aria-hidden="true">
+        return createPortal(<div className="seat-drag-preview" style={{ left: dragPreviewPosition.x + 14, top: dragPreviewPosition.y + 14 }} aria-hidden="true">
           <span className="pool-avatar">{member.photo ? <img src={member.photo} alt="" /> : getInitials(member.name)}</span>
           <span className="available-person-copy"><strong>{member.name}</strong><small>{getOrganizationRoleLabels(member).join(" · ")}</small></span>
           <Grip className="pool-grip" size={15} />
-        </div>;
+        </div>, document.body);
       })()}
       <div className="page-heading seat-page-heading">
         <div>
