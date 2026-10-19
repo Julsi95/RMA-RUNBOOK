@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { subscribeToTables } from "@/lib/backend/shared";
+import { clearMemoryQueryCache } from "@/lib/backend/query-cache";
 import {
   checkRunbookSession,
   claimRunbookSession,
@@ -53,6 +54,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const clearLocalSession = useCallback((message = "", release = true, revokeAuthSessions = false) => {
+    clearMemoryQueryCache();
     sessionCheckSequence.current += 1;
     currentSessionRef.current = null;
     setSessionNotice(message);
@@ -74,6 +76,7 @@ export function AuthProvider({ children }) {
       return false;
     }
     const previousId = getSessionId(currentSessionRef.current);
+    if (currentSessionRef.current?.user?.id && currentSessionRef.current.user.id !== nextSession.user.id) clearMemoryQueryCache();
     currentSessionRef.current = nextSession;
     setSession(nextSession);
     if (updateLoading || !previousId || previousId !== sessionId) {
@@ -153,6 +156,7 @@ export function AuthProvider({ children }) {
     const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!active) return;
       if (!nextSession?.user) {
+        clearMemoryQueryCache();
         currentSessionRef.current = null;
         setSession(null);
         setAccount(null);

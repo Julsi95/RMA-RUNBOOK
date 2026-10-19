@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ImagePlus, X } from "lucide-react";
-import { organizationRoles, getDescendantIds } from "@/features/organization/organization-data";
+import { getDescendantIds, getHierarchyRoles, getOrganizationRoleLabels, organizationHierarchyRoles, organizationRoles } from "@/features/organization/organization-data";
 import { Button } from "@/components/ui/Button";
 
 function getInitials(name) {
@@ -40,6 +40,7 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
   const defaultManagerId = member?.managerId ?? (defaultRole === "Customer Rep" ? members.find((person) => person.role === "Senior Agent")?.id ?? "" : "");
   const [name, setName] = useState(member?.name ?? "");
   const [role, setRole] = useState(defaultRole);
+  const [hierarchyRoles, setHierarchyRoles] = useState(() => getHierarchyRoles(member));
   const [managerId, setManagerId] = useState(defaultManagerId);
   const campaignSpecialists = members.filter((person) => person.role === "Campaign Specialist" && person.id !== member?.id);
   const [mentorId, setMentorId] = useState(member?.mentorId ?? "");
@@ -48,10 +49,11 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
   const [saveError, setSaveError] = useState("");
   const [saving, setSaving] = useState(false);
   const excludedManagerIds = member ? getDescendantIds(members, member.id) : new Set();
-  const roleLevels = { "Team Lead": 0, "Campaign Specialist": 1, "Senior Agent": 2, "Customer Rep": 3 };
+  const roleLevels = { "Operational Manager (OM)": 0, "Team Manager (TM)": 1, "Senior Team Lead (STL)": 2, "Team Lead (TL)": 3, "Team Lead": 3, "Campaign Specialist": 1, "Senior Agent": 2, "Customer Rep": 3 };
+  const selectedRank = Math.min(...hierarchyRoles.map((item) => roleLevels[item] ?? 4), roleLevels[role] ?? 4);
   const managerOptions = members.filter((person) => person.id !== member?.id
     && !excludedManagerIds.has(person.id)
-    && (person.id === member?.managerId || roleLevels[person.role] < roleLevels[role]));
+    && (person.id === member?.managerId || Math.min(...getHierarchyRoles(person).map((item) => roleLevels[item] ?? 4), roleLevels[person.role] ?? 4) < selectedRank));
 
   useEffect(() => {
     function closeOnEscape(event) {
@@ -93,6 +95,7 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
         ...(member?.id ? { id: member.id } : {}),
         name: cleanedName,
         role,
+        hierarchyRoles,
         managerId: managerId || null,
         mentorId: role === "Customer Rep" ? (mentorId || null) : null,
         photo,
@@ -136,16 +139,27 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
             <input autoFocus required maxLength={80} value={name} onChange={(event) => setName(event.target.value)} placeholder="Enter full name" />
           </label>
           <label className="form-field">
-            <span>Role</span>
+            <span>Operational role <small>(optional for OM/TM)</small></span>
             <select value={role} onChange={handleRoleChange}>
+              <option value="">No operational role</option>
               {organizationRoles.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
           </label>
+          <fieldset className="org-hierarchy-fieldset">
+            <legend>Leadership hierarchy</legend>
+            <p>These are the person’s organizational roles. OM/TM-only members can leave operational role blank; an STL can also hold TL.</p>
+            <div className="org-hierarchy-options">
+              {organizationHierarchyRoles.map((option, index) => <label className="org-hierarchy-option" key={option}>
+                <input type="checkbox" checked={hierarchyRoles.includes(option)} onChange={(event) => setHierarchyRoles((current) => event.target.checked ? [...new Set([...current, option])] : current.filter((item) => item !== option))} />
+                <span className="org-hierarchy-option-rank">0{index + 1}</span><span>{option}</span>
+              </label>)}
+            </div>
+          </fieldset>
           <label className="form-field">
             <span>Reports to</span>
             <select value={managerId} onChange={(event) => setManagerId(event.target.value)}>
               <option value="">No manager</option>
-              {managerOptions.map((person) => <option key={person.id} value={person.id}>{person.name} · {person.role}</option>)}
+              {managerOptions.map((person) => <option key={person.id} value={person.id}>{person.name} · {getOrganizationRoleLabels(person).join(" / ")}</option>)}
             </select>
           </label>
           {role === "Customer Rep" && (

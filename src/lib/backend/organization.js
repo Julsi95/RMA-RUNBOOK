@@ -7,6 +7,7 @@ function normalizeEmployee(row, profile = {}) {
     id: row.id,
     name: row.name,
     role: row.role,
+    hierarchyRoles: row.hierarchy_roles ?? row.profile?.hierarchy_roles ?? [],
     managerId: row.manager_id ?? row.managerId ?? null,
     mentorId: row.mentor_id ?? row.mentorId ?? null,
     sortOrder: Number(row.sort_order ?? row.sortOrder ?? 0),
@@ -52,7 +53,7 @@ export async function loadRemoteRoster(canEdit) {
   }
 
   const [employeesResult, profilesResult, definitionsResult] = await Promise.all([
-    supabase.from("employees").select("id,name,role,manager_id,mentor_id,photo_url,photo_path,sort_order").is("deleted_at", null).order("sort_order").order("name"),
+    supabase.from("employees").select("id,name,role,hierarchy_roles,manager_id,mentor_id,photo_url,photo_path,sort_order").is("deleted_at", null).order("sort_order").order("name"),
     supabase.from("employee_profiles").select("employee_id,birthday,hire_date,personality,summary,photo_public,custom_fields,birthday_public,hire_date_public,personality_public,summary_public,custom_field_visibility"),
     supabase.from("agent_profile_field_definitions").select("id,label,field_type,sort_order").order("sort_order"),
   ]);
@@ -94,6 +95,7 @@ export async function saveRemoteMembers(currentMembers, nextMembers, deletedId) 
     const photo = await storeEmployeePhoto(member.photo, member.photoPath ?? previous?.photoPath, member.id);
     const row = {
       id: member.id, name: member.name, role: member.role,
+      hierarchy_roles: [...new Set(member.hierarchyRoles ?? [])],
       manager_id: member.managerId || null, mentor_id: member.mentorId || null,
       photo_url: photo.photoUrl, photo_path: photo.photoPath,
       sort_order: currentOrder.get(member.id) ?? nextSortOrder,
@@ -101,6 +103,7 @@ export async function saveRemoteMembers(currentMembers, nextMembers, deletedId) 
     const unchanged = previous
       && previous.name === row.name
       && previous.role === row.role
+      && JSON.stringify([...new Set(previous.hierarchyRoles ?? [])].sort()) === JSON.stringify([...row.hierarchy_roles].sort())
       && (previous.managerId || null) === row.manager_id
       && (previous.mentorId || null) === row.mentor_id
       && (photo.photoPath ? previous.photoPath === photo.photoPath : (previous.photo ?? "") === row.photo_url)

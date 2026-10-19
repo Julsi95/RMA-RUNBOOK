@@ -5,6 +5,7 @@ import { useAuth } from "@/app/auth-provider";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { loadAppLinks, saveAppLinks } from "@/lib/backend-repositories";
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
+import { fetchCachedQuery, queryClient, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
 import "@/features/links/app-links.css";
 
 const STORAGE_KEY = "starter-app-app-links-v1";
@@ -38,12 +39,14 @@ function ResourceIcon({ item }) {
 }
 
 export default function AppLinksPage() {
-  const { canEdit, configured } = useAuth();
-  const [resources, setResources] = useState(() => configured ? [] : readResources());
+  const { canEdit, configured, user } = useAuth();
+  const resourceKey = useMemo(() => queryKeys.appLinks(user?.id ?? "anonymous", canEdit), [canEdit, user?.id]);
+  const cachedResources = readCachedQuery(resourceKey);
+  const [resources, setResources] = useState(() => configured ? cachedResources ?? [] : readResources());
   const [activeGroup, setActiveGroup] = useState("All");
   const [search, setSearch] = useState("");
   const [editor, setEditor] = useState(null);
-  const [remoteReady, setRemoteReady] = useState(!configured);
+  const [remoteReady, setRemoteReady] = useState(!configured || Boolean(cachedResources));
   const [refreshing, setRefreshing] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [loadError, setLoadError] = useState("");
@@ -52,19 +55,19 @@ export default function AppLinksPage() {
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     let active = true;
-    const refresh = async () => {
-      setRefreshing(true);
+    const refresh = async ({ force = false } = {}) => {
+      if (!readCachedQuery(resourceKey)) setRefreshing(true);
       try {
-        const items = await retryDataLoad(loadAppLinks);
+        const items = await fetchCachedQuery(resourceKey, () => retryDataLoad(loadAppLinks), { force });
         if (active) { setResources(items); setLoadError(""); setRemoteReady(true); }
       } catch (error) {
         if (active) setLoadError(error.message || "Could not load app links. Check your connection and retry.");
       } finally { if (active) setRefreshing(false); }
     };
     void refresh();
-    const unsubscribe = subscribeToTables(["app_links"], refresh, "app-links");
+    const unsubscribe = subscribeToTables(["app_links"], () => { void refresh({ force: true }); }, "app-links");
     return () => { active = false; unsubscribe(); };
-  }, [retryCount]);
+  }, [retryCount, resourceKey]);
   const groups = useMemo(() => [...new Set([...DEFAULT_GROUPS, ...resources.map((item) => item.group).filter(Boolean)])], [resources]);
   const counts = useMemo(() => resources.reduce((result, item) => {
     result[item.group] = (result[item.group] ?? 0) + 1;
@@ -82,6 +85,7 @@ export default function AppLinksPage() {
     if (configured) {
       if (!canManage) return;
       await saveAppLinks(next);
+      queryClient.setQueryData(resourceKey, next);
     }
     setResources(next);
     if (!configured) try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* keep changes for this session */ }

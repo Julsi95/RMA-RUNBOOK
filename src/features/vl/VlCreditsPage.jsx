@@ -3,10 +3,12 @@ import { ArrowDownRight, ArrowUpRight, CalendarDays, CirclePlus, Coins, Pencil, 
 import { Button } from "@/components/ui/Button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
 import { useOrganizationRoster } from "@/app/organization-provider";
+import { getOperationalRoster, isOrganizationOnlyLeader } from "@/features/organization/organization-data";
 import { useAuth } from "@/app/auth-provider";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { deleteVlCreditEntry, loadVlCreditRecords, saveVlCreditEntry } from "@/lib/backend-repositories";
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
+import { fetchCachedQuery, queryClient, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
 import "@/features/vl/vl-credits.css";
 
 const STORAGE_KEY = "starter-app-vl-credit-records-v2";
@@ -62,11 +64,14 @@ function validValue(value) {
 }
 
 export default function VlCreditsPage() {
-  const { members } = useOrganizationRoster();
-  const { canEdit } = useAuth();
+  const { members: rosterMembers } = useOrganizationRoster();
+  const members = useMemo(() => getOperationalRoster(rosterMembers), [rosterMembers]);
+  const { canEdit, user } = useAuth();
+  const resourceKey = useMemo(() => queryKeys.vlCredits(user?.id ?? "anonymous", canEdit), [canEdit, user?.id]);
+  const cachedRecords = readCachedQuery(resourceKey);
   const [month, setMonth] = useState(thisMonth);
-  const [records, setRecords] = useState(() => isSupabaseConfigured ? [] : readLocalRecords());
-  const [remoteReady, setRemoteReady] = useState(!isSupabaseConfigured);
+  const [records, setRecords] = useState(() => isSupabaseConfigured ? cachedRecords ?? [] : readLocalRecords());
+  const [remoteReady, setRemoteReady] = useState(!isSupabaseConfigured || Boolean(cachedRecords));
   const [syncError, setSyncError] = useState("");
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
@@ -81,21 +86,22 @@ export default function VlCreditsPage() {
   const statusCount = entries.length - numericCount;
   const updatedOn = entries.map((entry) => entry.updatedAt?.slice(0, 10)).filter(Boolean).sort().at(-1) ?? "";
 
-  async function refreshRemote() {
-    const saved = await retryDataLoad(loadVlCreditRecords);
+  async function refreshRemote(force = true) {
+    const saved = await fetchCachedQuery(resourceKey, () => retryDataLoad(loadVlCreditRecords), { force });
     setRecords(saved);
     setSyncError("");
+    return saved;
   }
 
   useEffect(() => {
     if (!isSupabaseConfigured) return undefined;
     let active = true;
-    void retryDataLoad(loadVlCreditRecords).then((saved) => {
+    void fetchCachedQuery(resourceKey, () => retryDataLoad(loadVlCreditRecords)).then((saved) => {
       if (!active) return;
       setRecords(saved); setRemoteReady(true); setSyncError("");
     }).catch((error) => { if (active) { setSyncError(error.message || "Could not load VL credits."); setRemoteReady(true); } });
     return () => { active = false; };
-  }, []);
+  }, [resourceKey]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -112,10 +118,10 @@ export default function VlCreditsPage() {
       { table: "realtime_sync_signals", filter: "source_table=eq.vl_credit_entries" },
     ], () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => { if (active) void refreshRemote().catch((error) => setSyncError(error.message || "Could not sync VL credits.")); }, 160);
+      timer = window.setTimeout(() => { if (active) void refreshRemote(true).catch((error) => setSyncError(error.message || "Could not sync VL credits.")); }, 160);
     }, "vl-credits");
     return () => { active = false; window.clearTimeout(timer); unsubscribe(); };
-  }, []);
+  }, [resourceKey]);
 
   function openEditor(entry = null) {
     if (!canEdit || (isSupabaseConfigured && !remoteReady)) return;
@@ -145,7 +151,8 @@ export default function VlCreditsPage() {
     try {
       if (isSupabaseConfigured) {
         await saveVlCreditEntry(next);
-        await refreshRemote();
+        const refreshed = await refreshRemote(true);
+        queryClient.setQueryData(resourceKey, refreshed);
       } else {
         setRecords((current) => current.some((record) => record.id === next.id) ? current.map((record) => record.id === next.id ? next : record) : [...current, next]);
       }
@@ -158,7 +165,7 @@ export default function VlCreditsPage() {
     if (!canEdit || !window.confirm("Delete the VL record for " + entry.name + " (" + displayRange(entry.validFrom, entry.validTo) + ")?")) return;
     setBusy(true); setSyncError("");
     try {
-      if (isSupabaseConfigured) { await deleteVlCreditEntry(entry.id); await refreshRemote(); }
+      if (isSupabaseConfigured) { await deleteVlCreditEntry(entry.id); const refreshed = await refreshRemote(true); queryClient.setQueryData(resourceKey, refreshed); }
       else setRecords((current) => current.filter((record) => record.id !== entry.id));
     } catch (error) { setSyncError(error.message || "VL record could not be deleted."); }
     finally { setBusy(false); }
@@ -193,7 +200,7 @@ export default function VlCreditsPage() {
         const numeric = entry.value.trim() !== "" && Number.isFinite(Number(entry.value));
         return <article className={"vl-credit-card vl-card-tone-" + (index % 4)} key={entry.id}>
           <div className="vl-card-top"><span className="vl-card-index">{String(index + 1).padStart(2, "0")}</span>{canEdit && <div className="vl-card-actions"><Button type="button" variant="ghost" size="icon" aria-label={"Edit VL record for " + entry.name} title="Edit record" onClick={() => openEditor(entry)}><Pencil size={15} /></Button><Button type="button" variant="ghost" size="icon" className="vl-delete-button" aria-label={"Delete VL record for " + entry.name} title="Delete record" onClick={() => void removeEntry(entry)} disabled={busy}><Trash2 size={15} /></Button></div>}</div>
-          <div className="vl-person-line"><span className="vl-person-avatar">{entry.photo ? <img src={entry.photo} alt="" /> : initials(entry.name)}</span><div><strong>{entry.name}</strong><small>{entry.role || "Team member"}</small></div></div>
+          <div className="vl-person-line"><span className="vl-person-avatar">{entry.photo ? <img src={entry.photo} alt="" /> : initials(entry.name)}</span><div><strong>{entry.name}</strong><small>{isOrganizationOnlyLeader({ role: entry.role }) ? "Team member" : entry.role || "Team member"}</small></div></div>
           <div className="vl-balance-row"><div><span className="vl-balance-caption">VL CREDIT</span><strong className={numeric ? "vl-credit-number" : "vl-credit-status"}>{numeric ? Number(entry.value).toLocaleString(undefined, { maximumFractionDigits: 2 }) : entry.value || "—"}</strong></div><span className={"vl-value-kind " + (numeric ? "is-number" : "is-status")}>{numeric ? "DAYS" : "STATUS"}</span></div>
           <div className="vl-validity"><CalendarDays size={13} /><span>Valid {displayRange(entry.validFrom, entry.validTo)}</span></div>
           <div className="vl-card-footer"><span>Updated {prettyDate(entry.updatedAt?.slice(0, 10))}</span><span className="vl-card-spark" aria-hidden="true"><i /><i /><i /><i /><i /></span></div>

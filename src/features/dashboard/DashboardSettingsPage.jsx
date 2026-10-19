@@ -1,18 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Copy, Eye, GripVertical, ImagePlus, LoaderCircle, Monitor, Pencil, Plus, RotateCcw, Smartphone, Tablet, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Copy, Eye, GripHorizontal, GripVertical, ImagePlus, LoaderCircle, Monitor, Pencil, Plus, RotateCcw, Smartphone, Tablet, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
 import DashboardContainer from "@/features/dashboard/DashboardContainer";
+import { createDashboardGridLayout, DashboardGrid, gridRowsToHeight, heightToGridRows } from "@/features/dashboard/DashboardGrid";
 import { CONTAINER_TYPES, CONTAINER_TYPE_LABELS, clearDashboardDraft, createDefaultDashboard, makeContainer, persistDashboardDraft, publishDashboard, readDashboardDraft, readPublishedDashboard } from "@/features/dashboard/dashboard-data";
 import { useAuth } from "@/app/auth-provider";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { retryDataLoad } from "@/lib/backend/shared";
+import { fetchCachedQuery, queryClient, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
 import { discardDashboardDraft, loadDashboardDraft, loadPublishedDashboard, publishDashboardDocument, saveDashboardDraft } from "@/lib/backend-repositories";
 import "@/features/dashboard/dashboard.css";
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
+
 
 function safeUrl(value) {
   if (!value) return true;
@@ -62,27 +65,34 @@ const TEXT_POSITIONS = {
 
 export default function DashboardSettingsPage() {
   const { configured, user } = useAuth();
-  const [draft, setDraft] = useState(() => configured ? createDefaultDashboard() : readDashboardDraft() ?? readPublishedDashboard());
-  const [published, setPublished] = useState(() => configured ? createDefaultDashboard() : readPublishedDashboard());
-  const [remoteReady, setRemoteReady] = useState(!configured);
-  const [hasChanges, setHasChanges] = useState(() => configured ? false : Boolean(readDashboardDraft()));
-  const [message, setMessage] = useState(() => configured ? "Loading saved dashboard" : readDashboardDraft() ? "Draft restored" : "Live dashboard");
+  const publishedKey = queryKeys.dashboard();
+  const draftKey = queryKeys.dashboardDraft(user?.id ?? "anonymous");
+  const cachedPublished = readCachedQuery(publishedKey);
+  const cachedDraft = readCachedQuery(draftKey);
+  const [draft, setDraft] = useState(() => configured ? cachedDraft ?? cachedPublished ?? createDefaultDashboard() : readDashboardDraft() ?? readPublishedDashboard());
+  const [published, setPublished] = useState(() => configured ? cachedPublished ?? createDefaultDashboard() : readPublishedDashboard());
+  const [remoteReady, setRemoteReady] = useState(!configured || Boolean(cachedPublished));
+  const [hasChanges, setHasChanges] = useState(() => configured ? Boolean(cachedDraft) : Boolean(readDashboardDraft()));
+  const [message, setMessage] = useState(() => configured ? cachedDraft ? "Draft restored" : cachedPublished ? "Live dashboard" : "Loading saved dashboard" : readDashboardDraft() ? "Draft restored" : "Live dashboard");
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [previewMode, setPreviewMode] = useState(false);
   const [viewport, setViewport] = useState("desktop");
   const [newType, setNewType] = useState("feature");
   const [editor, setEditor] = useState(null);
-  const [draggedId, setDraggedId] = useState("");
+
   const [imageBusy, setImageBusy] = useState(false);
   const [imageError, setImageError] = useState("");
   const draftRef = useRef(draft);
-  const resizeSession = useRef(null);
+
   const draftItemCount = useMemo(() => draft.containers.length, [draft.containers.length]);
 
   useEffect(() => {
     if (!configured || !user) return undefined;
     let active = true;
-    void retryDataLoad(() => Promise.all([loadPublishedDashboard(), loadDashboardDraft(user.id)])).then(([saved, remoteDraft]) => {
+    void Promise.all([
+      fetchCachedQuery(publishedKey, () => retryDataLoad(loadPublishedDashboard), { force: loadAttempt > 0 }),
+      fetchCachedQuery(draftKey, async () => (await retryDataLoad(() => loadDashboardDraft(user.id))) ?? null, { force: loadAttempt > 0 }),
+    ]).then(([saved, remoteDraft]) => {
       if (!active) return;
       const publishedState = saved ?? createDefaultDashboard();
       const nextDraft = remoteDraft ?? publishedState;
@@ -96,7 +106,10 @@ export default function DashboardSettingsPage() {
   useEffect(() => {
     if (!configured || !user || !remoteReady || !hasChanges) return undefined;
     const timeout = window.setTimeout(() => {
-      void saveDashboardDraft(user.id, draft).then(() => setMessage("Draft saved to your editor account")).catch((error) => setMessage(error.message || "Could not save dashboard draft."));
+      void saveDashboardDraft(user.id, draft).then(() => {
+        queryClient.setQueryData(draftKey, draft);
+        setMessage("Draft saved to your editor account");
+      }).catch((error) => setMessage(error.message || "Could not save dashboard draft."));
     }, 900);
     return () => window.clearTimeout(timeout);
   }, [configured, user?.id, draft, hasChanges, remoteReady]);
@@ -115,6 +128,32 @@ export default function DashboardSettingsPage() {
 
   function patchPage(patch) {
     commitDraft({ ...draft, ...patch });
+  }
+
+  function startCanvasResize(event) {
+    if (previewMode || viewport !== "desktop") return;
+    event.preventDefault();
+    event.stopPropagation();
+    const frame = event.currentTarget.closest(".dashboard-preview-frame");
+    if (!frame) return;
+    const startY = event.clientY;
+    const startHeight = frame.getBoundingClientRect().height;
+
+    function resize(moveEvent) {
+      const height = Math.min(1600, Math.max(380, Math.round((startHeight + moveEvent.clientY - startY) / 20) * 20));
+      if (height === Number(draftRef.current.canvasHeight ?? 560)) return;
+      commitDraft({ ...draftRef.current, canvasHeight: height });
+    }
+
+    function finish() {
+      window.removeEventListener("pointermove", resize);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+    }
+
+    window.addEventListener("pointermove", resize);
+    window.addEventListener("pointerup", finish, { once: true });
+    window.addEventListener("pointercancel", finish, { once: true });
   }
 
   function addContainer() {
@@ -157,7 +196,10 @@ export default function DashboardSettingsPage() {
   }
 
   function duplicateContainer(item) {
-    const copy = { ...clone(item), id: globalThis.crypto?.randomUUID?.() ?? "dashboard-copy-" + Date.now(), title: item.title ? item.title + " (copy)" : "" };
+    const copyWidth = Math.min(24, Math.max(1, Number(item.width) || 12));
+    const layout = createDashboardGridLayout(draft.containers, 24, draft.containerGap);
+    const nextRow = layout.reduce((bottom, entry) => Math.max(bottom, entry.y + entry.h), 0);
+    const copy = { ...clone(item), id: globalThis.crypto?.randomUUID?.() ?? "dashboard-copy-" + Date.now(), title: item.title ? item.title + " (copy)" : "", layoutX: 0, layoutY: nextRow, columnStart: 1, width: copyWidth };
     const index = draft.containers.findIndex((entry) => entry.id === item.id);
     const containers = [...draft.containers];
     containers.splice(index + 1, 0, copy);
@@ -173,9 +215,23 @@ export default function DashboardSettingsPage() {
     const containers = [...draft.containers];
     [containers[fromIndex], containers[toIndex]] = [containers[toIndex], containers[fromIndex]];
     commitDraft({ ...draft, containers });
-    setDraggedId("");
   }
 
+  function handleGridLayoutChange(layout) {
+    const currentLayout = createDashboardGridLayout(draftRef.current.containers, 24, draftRef.current.containerGap);
+    const currentById = new Map(currentLayout.map((item) => [item.i, item]));
+    const nextById = new Map(layout.map((item) => [item.i, item]));
+    let changed = false;
+    const containers = draftRef.current.containers.map((item) => {
+      const current = currentById.get(item.id);
+      const next = nextById.get(item.id);
+      if (!current || !next || (current.x === next.x && current.y === next.y && current.w === next.w && current.h === next.h && Number.isFinite(Number(item.layoutX)) && Number.isFinite(Number(item.layoutY)))) return item;
+      if (current.x === next.x && current.y === next.y && current.w === next.w && current.h === next.h) return item;
+      changed = true;
+      return { ...item, layoutX: next.x, layoutY: next.y, width: next.w, height: gridRowsToHeight(next.h, draftRef.current.containerGap), columnStart: next.x + 1 };
+    });
+    if (changed) commitDraft({ ...draftRef.current, containers });
+  }
   function moveBy(index, delta) {
     const target = index + delta;
     if (target < 0 || target >= draft.containers.length) return;
@@ -187,6 +243,10 @@ export default function DashboardSettingsPage() {
     try {
       let publishedDocument = draft;
       if (configured) ({ document: publishedDocument } = await publishDashboardDocument(draft));
+      if (configured) {
+        queryClient.setQueryData(publishedKey, publishedDocument);
+        queryClient.setQueryData(draftKey, null);
+      }
       publishDashboard(publishedDocument);
       setDraft(publishedDocument); draftRef.current = publishedDocument; setPublished(publishedDocument);
       setHasChanges(false); setMessage("Changes published to the live dashboard");
@@ -197,6 +257,7 @@ export default function DashboardSettingsPage() {
     if (configured && !remoteReady) return;
     if (configured && user) {
       try { await discardDashboardDraft(user.id); } catch (error) { setMessage(error.message || "Could not discard remote draft."); return; }
+      queryClient.setQueryData(draftKey, null);
     }
     try { clearDashboardDraft(); } catch { /* the visible draft is still reset */ }
     setDraft(published); draftRef.current = published;
@@ -267,54 +328,6 @@ export default function DashboardSettingsPage() {
     updateEditor({ textLayers: (editor.textLayers ?? []).filter((layer) => layer.id !== id) });
   }
 
-  function startContainerResize(event, item) {
-    event.preventDefault();
-    event.stopPropagation();
-    const direction = event.currentTarget.dataset.resize;
-    const grid = event.currentTarget.closest(".dashboard-layout-grid");
-    if (!grid) return;
-    const gridRect = grid.getBoundingClientRect();
-    const columns = Math.max(1, getComputedStyle(grid).gridTemplateColumns.split(" ").length);
-    const gap = parseFloat(getComputedStyle(grid).columnGap) || 0;
-    resizeSession.current = { id: item.id, direction, startX: event.clientX, startY: event.clientY, width: Number(item.width) || 12, height: Number(item.height) || 250, cellWidth: (gridRect.width - gap * (columns - 1)) / columns, columns };
-
-    function move(moveEvent) {
-      const session = resizeSession.current;
-      if (!session) return;
-      const horizontal = session.direction.includes("e") ? 1 : session.direction.includes("w") ? -1 : 0;
-      const vertical = session.direction.includes("s") ? 1 : session.direction.includes("n") ? -1 : 0;
-      const widthDelta = horizontal && session.columns > 1 ? Math.round((moveEvent.clientX - session.startX) * horizontal / session.cellWidth * 24 / session.columns) : 0;
-      const heightDelta = vertical ? Math.round((moveEvent.clientY - session.startY) * vertical / 10) * 10 : 0;
-      const width = Math.min(24, Math.max(1, session.width + widthDelta));
-      const height = Math.min(800, Math.max(120, session.height + heightDelta));
-      setDraft((current) => {
-        const next = { ...current, containers: current.containers.map((entry) => entry.id === session.id ? { ...entry, width, height } : entry) };
-        draftRef.current = next;
-        return next;
-      });
-      setHasChanges(true);
-      setMessage(`Resizing · ${Math.round((width / 24) * 100)}% × ${height}px`);
-    }
-
-    function finish() {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", finish);
-      window.removeEventListener("pointercancel", finish);
-      if (!resizeSession.current) return;
-      resizeSession.current = null;
-      try {
-        persistDashboardDraft(draftRef.current);
-        setMessage("Draft saved on this device");
-      } catch {
-        setMessage("Size is active but too large to save in browser storage");
-      }
-    }
-
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", finish, { once: true });
-    window.addEventListener("pointercancel", finish, { once: true });
-  }
-
   const editorHasContent = editor && Boolean(editor.images.some((image) => image.src) || (editor.title || "").trim() || (editor.eyebrow || "").trim() || (editor.description || "").trim() || (editor.body || "").trim() || (editor.buttonLabel || "").trim() || editor.links.some((link) => (link.label || "").trim() || (link.url || "").trim()) || (editor.textLayers ?? []).some((layer) => (layer.text || "").trim()));
   const editorCanSave = editorHasContent && Boolean(editor.buttonLabel.trim()) === Boolean(editor.buttonUrl.trim()) && safeUrl(editor.buttonUrl) && editor.images.every((image) => safeImageUrl(image.src)) && editor.links.every((link) => safeUrl(link.url));
 
@@ -332,11 +345,12 @@ export default function DashboardSettingsPage() {
     <section className="dashboard-layout-settings" aria-label="Dashboard spacing settings">
       <label><span><strong>Container spacing</strong><output>{draft.containerGap}px</output></span><input type="range" min="4" max="40" step="1" value={draft.containerGap} onChange={(event) => patchPage({ containerGap: Number(event.target.value) })} /></label>
       <label><span><strong>Page padding</strong><output>{draft.canvasPadding}px</output></span><input type="range" min="0" max="48" step="1" value={draft.canvasPadding} onChange={(event) => patchPage({ canvasPadding: Number(event.target.value) })} /></label>
+      <label><span><strong>Dashboard canvas height</strong><output>{draft.canvasHeight ?? 560}px minimum</output></span><input type="range" min="380" max="1600" step="20" value={draft.canvasHeight ?? 560} onChange={(event) => patchPage({ canvasHeight: Number(event.target.value) })} aria-label="Dashboard canvas minimum height" /></label>
     </section>
 
     <section className="dashboard-builder-workspace">
       <div className="dashboard-builder-toolbar">
-        <div className="dashboard-builder-toolbar-left"><span className="dashboard-container-count">{draftItemCount} {draftItemCount === 1 ? "container" : "containers"}</span><span className="dashboard-builder-help">{previewMode ? "Previewing draft · links are active" : "Drag a container handle to swap its position"}</span></div>
+        <div className="dashboard-builder-toolbar-left"><span className="dashboard-container-count">{draftItemCount} {draftItemCount === 1 ? "container" : "containers"}</span><span className="dashboard-builder-help">{previewMode ? "Previewing draft · links are active" : "Drag, resize, and layer containers freely"}</span></div>
         <div className="dashboard-builder-toolbar-actions">
           {!previewMode && <div className="dashboard-add-control"><Select value={newType} onValueChange={setNewType}><SelectTrigger aria-label="New container type"><SelectValue /></SelectTrigger><SelectContent>{CONTAINER_TYPES.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select><Button type="button" variant="outline" onClick={addContainer}><Plus size={15} /> Add container</Button></div>}
           <div className="dashboard-preview-devices" aria-label="Preview screen size"><DeviceButton label="Desktop preview" active={viewport === "desktop"} onClick={() => setViewport("desktop")}><Monitor size={15} /></DeviceButton><DeviceButton label="Tablet preview" active={viewport === "tablet"} onClick={() => setViewport("tablet")}><Tablet size={15} /></DeviceButton><DeviceButton label="Mobile preview" active={viewport === "mobile"} onClick={() => setViewport("mobile")}><Smartphone size={15} /></DeviceButton></div>
@@ -345,13 +359,17 @@ export default function DashboardSettingsPage() {
       </div>
 
       <div className={"dashboard-builder-stage" + (previewMode ? " is-previewing" : "")}>
-        <div className={"dashboard-preview-frame preview-" + viewport} style={{ "--dashboard-gap": `${draft.containerGap}px`, "--dashboard-canvas-padding": `${draft.canvasPadding}px` }}>
+        <div className={"dashboard-preview-frame preview-" + viewport} style={{ "--dashboard-gap": `${draft.containerGap}px`, "--dashboard-canvas-padding": `${draft.canvasPadding}px`, "--dashboard-canvas-height": `${draft.canvasHeight ?? 560}px` }}>
           <header className="dashboard-preview-heading"><p className="eyebrow">YOUR WORKSPACE</p><h1>{draft.pageTitle || "Your dashboard"}</h1>{draft.pageDescription && <p className="page-description">{draft.pageDescription}</p>}</header>
-          {draft.containers.length ? <div className="dashboard-layout-grid">{draft.containers.map((item, index) => previewMode ? <DashboardContainer item={item} linksEnabled key={item.id} /> : <div className={"dashboard-builder-item" + (draggedId === item.id ? " is-dragged" : "")} style={{ "--dashboard-span-desktop": item.width || 12, "--dashboard-span-tablet": Math.ceil((item.width || 12) / 2), "--dashboard-height": `${item.height || 250}px` }} key={item.id} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); moveContainer(event.dataTransfer.getData("text/plain"), item.id); }}>
-            <div className="dashboard-container-tools"><button type="button" className="dashboard-drag-handle" draggable="true" title="Drag to swap position" aria-label={"Drag " + item.title + " to reorder"} onDragStart={(event) => { setDraggedId(item.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", item.id); }} onDragEnd={() => setDraggedId("")}><GripVertical size={16} /><span>{CONTAINER_TYPE_LABELS[item.type]}</span></button><div><Button type="button" variant="ghost" size="icon" title="Move earlier" aria-label={"Move " + item.title + " earlier"} disabled={index === 0} onClick={() => moveBy(index, -1)}><ArrowUp size={14} /></Button><Button type="button" variant="ghost" size="icon" title="Move later" aria-label={"Move " + item.title + " later"} disabled={index === draft.containers.length - 1} onClick={() => moveBy(index, 1)}><ArrowDown size={14} /></Button><Button type="button" variant="ghost" size="icon" title="Edit container" aria-label={"Edit " + item.title} onClick={() => openEditor(item)}><Pencil size={14} /></Button><Button type="button" variant="ghost" size="icon" title="Duplicate container" aria-label={"Duplicate " + item.title} onClick={() => duplicateContainer(item)}><Copy size={14} /></Button><Button type="button" variant="ghost" size="icon" className="dashboard-container-delete" title="Delete container" aria-label={"Delete " + item.title} onClick={() => deleteContainer(item.id)}><Trash2 size={14} /></Button></div></div>
-            <DashboardContainer item={item} />
-            {["n", "ne", "e", "se", "s", "sw", "w", "nw"].map((direction) => <button type="button" className={`dashboard-resize-handle resize-${direction}`} data-resize={direction} key={direction} aria-label={`Resize ${item.title || "image container"} from ${({ n: "top", ne: "top-right", e: "right", se: "bottom-right", s: "bottom", sw: "bottom-left", w: "left", nw: "top-left" })[direction]} edge`} title="Drag to resize" onPointerDown={(event) => startContainerResize(event, item)} />)}
-          </div>)}</div> : <div className="dashboard-builder-empty"><span><Plus size={20} /></span><strong>No containers yet</strong><p>Add an announcement, feature, message, or quick links section.</p></div>}
+          {draft.containers.length ? <DashboardGrid containers={draft.containers} gap={draft.containerGap} viewport={viewport} editable={!previewMode} onLayoutChange={handleGridLayoutChange}>
+            {draft.containers.map((item, index) => previewMode
+              ? <div className="dashboard-live-grid-item" key={item.id}><DashboardContainer item={item} containerGap={draft.containerGap} linksEnabled /></div>
+              : <div className="dashboard-builder-item" key={item.id}>
+                <div className="dashboard-container-tools"><button type="button" className="dashboard-drag-handle" title="Drag to reposition or layer this container" aria-label={"Drag " + item.title + " to reposition"}><GripVertical size={16} /><span>{CONTAINER_TYPE_LABELS[item.type]}</span></button><div><Button type="button" variant="ghost" size="icon" title="Move earlier" aria-label={"Move " + item.title + " earlier"} disabled={index === 0} onClick={() => moveBy(index, -1)}><ArrowUp size={14} /></Button><Button type="button" variant="ghost" size="icon" title="Move later" aria-label={"Move " + item.title + " later"} disabled={index === draft.containers.length - 1} onClick={() => moveBy(index, 1)}><ArrowDown size={14} /></Button><Button type="button" variant="ghost" size="icon" title="Edit container" aria-label={"Edit " + item.title} onClick={() => openEditor(item)}><Pencil size={14} /></Button><Button type="button" variant="ghost" size="icon" title="Duplicate container" aria-label={"Duplicate " + item.title} onClick={() => duplicateContainer(item)}><Copy size={14} /></Button><Button type="button" variant="ghost" size="icon" className="dashboard-container-delete" title="Delete container" aria-label={"Delete " + item.title} onClick={() => deleteContainer(item.id)}><Trash2 size={14} /></Button></div></div>
+                <DashboardContainer item={item} containerGap={draft.containerGap} />
+              </div>)}
+          </DashboardGrid> : <div className="dashboard-builder-empty"><span><Plus size={20} /></span><strong>No containers yet</strong><p>Add an announcement, feature, message, or quick links section.</p></div>}
+          {!previewMode && viewport === "desktop" && <button type="button" className="dashboard-canvas-resize-handle" title="Drag to adjust the height of the whole dashboard canvas" aria-label="Drag to adjust the height of the whole dashboard canvas" onPointerDown={startCanvasResize}><GripHorizontal size={18} /><span>Dashboard height</span></button>}
         </div>
       </div>
       <div className="dashboard-builder-footer"><span>Preview at any screen size. Save changes to publish this draft to the Dashboard.</span><span>{hasChanges ? "Draft remains private until published" : "Live dashboard is up to date"}</span></div>

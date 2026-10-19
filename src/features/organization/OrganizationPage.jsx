@@ -3,7 +3,8 @@ import { Network, Plus, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import OrgBranch from "@/features/organization/OrgBranch";
 import OrgMemberDialog from "@/features/organization/OrgMemberDialog";
-import { buildOrganizationTree, createMemberId, organizationRoles } from "@/features/organization/organization-data";
+import OrgProfileDialog from "@/features/organization/OrgProfileDialog";
+import { buildOrganizationTree, createMemberId, getHierarchyRoles, organizationHierarchyRoles } from "@/features/organization/organization-data";
 import { useOrganizationRoster } from "@/app/organization-provider";
 import { useAuth } from "@/app/auth-provider";
 
@@ -11,10 +12,11 @@ export default function OrganizationPage() {
   const { members, loading, error, saveMembers } = useOrganizationRoster();
   const { canEdit } = useAuth();
   const [dialog, setDialog] = useState({ open: false, member: null });
+  const [profileMember, setProfileMember] = useState(null);
   const [saveError, setSaveError] = useState("");
 
   const tree = buildOrganizationTree(members);
-  const roleCounts = organizationRoles.map((role) => ({ role, count: members.filter((member) => member.role === role).length }));
+  const roleCounts = organizationHierarchyRoles.map((role) => ({ role, count: members.filter((member) => getHierarchyRoles(member).includes(role)).length }));
 
   function openAddDialog() {
     setDialog({ open: true, member: null });
@@ -54,7 +56,7 @@ export default function OrganizationPage() {
         <div>
           <p className="eyebrow">PEOPLE & STRUCTURE</p>
           <h1>Organizational chart</h1>
-          <p className="page-description">See how your team fits together. Edit people, roles, and reporting lines.</p>
+          <p className="page-description">Follow the reporting structure, assign leadership roles, and find your people.</p>
         </div>
         {canEdit && <Button onClick={openAddDialog}><Plus size={17} /> Add employee</Button>}
       </div>
@@ -67,21 +69,22 @@ export default function OrganizationPage() {
           <span><strong>{members.length}</strong><small>people in your team</small></span>
         </div>
         <div className="org-role-counts">
-          {roleCounts.map(({ role, count }) => (
-            <div className="org-role-count" key={role}><span>{role}</span><strong>{count}</strong></div>
+          <span className="org-role-counts-caption">LEADERSHIP HIERARCHY <small>People may hold more than one role</small></span>
+          {roleCounts.map(({ role, count }, index) => (
+            <div className="org-role-count" key={role}><span className="org-role-count-label"><small>{["OM", "TM", "STL", "TL"][index]}</small>{role.replace(/\s\([^)]*\)$/, "")}</span><strong>{count}</strong></div>
           ))}
         </div>
       </div>
 
       <div className="org-chart-panel">
         <div className="org-chart-heading">
-          <div><span className="org-chart-icon"><Network size={17} /></span><div><h2>Team structure</h2><p>Solid lines show the primary manager. Mentor names appear beneath Customer Reps.</p></div></div>
+          <div><span className="org-chart-icon"><Network size={17} /></span><div><h2>Team structure</h2><p>Reporting lines follow the manager selection. Role chips show each person’s hierarchy assignment.</p></div></div>
           <span className="org-chart-live"><span /> Updated as you edit</span>
         </div>
         {tree.length > 0 ? (
           <div className="org-chart-viewport">
             <div className="org-tree">
-              {tree.map((root) => <OrgBranch key={root.id} member={root} onEdit={(member) => setDialog({ open: true, member })} onRemove={removeMember} canEdit={canEdit} />)}
+              {tree.map((root) => <OrgBranch key={root.id} member={root} onEdit={(member) => setDialog({ open: true, member })} onRemove={removeMember} onOpenProfile={setProfileMember} canEdit={canEdit} />)}
             </div>
           </div>
         ) : (
@@ -90,6 +93,7 @@ export default function OrganizationPage() {
       </div>
 
       {dialog.open && <OrgMemberDialog member={dialog.member} members={members} onClose={() => setDialog({ open: false, member: null })} onSave={saveMember} />}
+      <OrgProfileDialog member={profileMember} onClose={() => setProfileMember(null)} />
     </section>
   );
 }

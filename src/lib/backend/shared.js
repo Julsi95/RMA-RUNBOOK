@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, requireSupabase } from "@/lib/supabase";
+import { invalidateCachedQueries } from "@/lib/backend/query-cache";
 
 let realtimeSequence = 0;
 const syncListeners = new Set();
@@ -6,6 +7,51 @@ const channelStates = new Map();
 let refreshing = false;
 let refreshTimer;
 let networkWatcherAttached = false;
+
+const TABLE_QUERY_PREFIXES = {
+  workspace_branding: [["workspace-branding"]],
+  dashboard_publication: [["dashboard-publication"]],
+  employees: [["organization-roster"]],
+  employee_profiles: [["organization-roster"]],
+  agent_profile_field_definitions: [["organization-roster"]],
+  seat_plans: [["seat-plans"]],
+  seat_positions: [["seat-plans"]],
+  seat_assignments: [["seat-plans"]],
+  projects: [["project-coverage"]],
+  project_trainers: [["project-coverage"]],
+  project_assignments: [["project-coverage"]],
+  call_schedule_months: [["call-schedules"]],
+  call_assignments: [["call-schedules"]],
+  work_schedule_months: [["work-schedule"]],
+  work_schedule_month_assignments: [["work-schedule"]],
+  work_schedule_periods: [["work-schedule"]],
+  work_schedule_period_assignments: [["work-schedule"]],
+  work_schedule_revisions: [["work-schedule"]],
+  vl_months: [["vl-credits"]],
+  vl_credit_entries: [["vl-credits"]],
+  app_links: [["app-links"]],
+  qa_criteria: [["qa-criteria"]],
+  kpi_months: [["kpi-months"]],
+  kpi_results: [["kpi-months"]],
+  current_kpi_scoring: [["kpi-scoring"]],
+  kpi_scoring_versions: [["kpi-scoring"]],
+  history_events: [["history"]],
+  history_recovery: [["history"]],
+  user_notifications: [["notifications"]],
+  app_accounts: [["app-accounts"], ["account"]],
+  runbook_session_settings: [["runbook-session-settings"]],
+};
+
+function invalidateRealtimeQueryFamilies(table, filter) {
+  const prefixes = [...(TABLE_QUERY_PREFIXES[table] ?? [])];
+  if (table === "realtime_sync_signals") {
+    const source = filter?.match(/^source_table=eq\.(.+)$/)?.[1];
+    prefixes.push(...(TABLE_QUERY_PREFIXES[source] ?? []));
+    if (source === "employee_profiles") prefixes.push(["notifications"]);
+  }
+  if (table === "employee_profiles") prefixes.push(["notifications"]);
+  prefixes.forEach((prefix) => { void invalidateCachedQueries(prefix); });
+}
 
 function emitSyncState() {
   const states = [...channelStates.values()];
@@ -98,6 +144,7 @@ export function subscribeToTables(tables, onChange, label = "data") {
     const table = typeof item === "string" ? item : item.table;
     const filter = typeof item === "string" ? undefined : item.filter;
     channel.on("postgres_changes", { event: "*", schema: "public", table, ...(filter ? { filter } : {}) }, () => {
+      invalidateRealtimeQueryFamilies(table, filter);
       markDataRefreshing();
       window.clearTimeout(changeTimer);
       changeTimer = window.setTimeout(onChange, 120);

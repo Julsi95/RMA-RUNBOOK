@@ -21,6 +21,7 @@ export function createDefaultDashboard() {
     pageDescription: "A clear view of what’s happening across your team.",
     containerGap: 14,
     canvasPadding: 0,
+    canvasHeight: 560,
     containers: [
       {
         id: "welcome-announcement",
@@ -109,6 +110,7 @@ function normalizeDashboard(value) {
     pageDescription: typeof value.pageDescription === "string" ? value.pageDescription : "",
     containerGap: Number.isFinite(Number(value.containerGap)) ? Math.min(40, Math.max(4, Number(value.containerGap))) : 14,
     canvasPadding: Number.isFinite(Number(value.canvasPadding)) ? Math.min(48, Math.max(0, Number(value.canvasPadding))) : 0,
+    canvasHeight: Number.isFinite(Number(value.canvasHeight)) ? Math.min(1600, Math.max(380, Number(value.canvasHeight))) : 560,
     containers: value.containers.filter((item) => item && item.id).map((item) => ({
       type: CONTAINER_TYPES.some((type) => type.value === item.type) ? item.type : "content",
       title: typeof item.title === "string" ? item.title : "",

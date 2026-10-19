@@ -3,20 +3,23 @@ import { useAuth } from "@/app/auth-provider";
 import { ORGANIZATION_STORAGE_KEY, getOrganizationMembers } from "@/features/organization/organization-data";
 import { loadRemoteRoster, saveRemoteEmployeeProfile, saveRemoteMembers, saveRemoteProfileFieldDefinitions } from "@/lib/backend/organization";
 import { createPrivateSignedUrlMap, retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
+import { fetchCachedQuery, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
 
 const OrganizationContext = createContext(null);
 
 export function OrganizationProvider({ children }) {
   const { configured, canEdit, loading: authLoading, user } = useAuth();
-  const [members, setMembers] = useState(() => configured ? [] : getOrganizationMembers());
-  const [profiles, setProfiles] = useState({});
-  const [customFieldDefinitions, setCustomFieldDefinitions] = useState([]);
-  const [loading, setLoading] = useState(configured);
+  const rosterKey = useMemo(() => queryKeys.roster(user?.id ?? "anonymous", canEdit), [canEdit, user?.id]);
+  const cachedRoster = readCachedQuery(rosterKey);
+  const [members, setMembers] = useState(() => configured ? cachedRoster?.members ?? [] : getOrganizationMembers());
+  const [profiles, setProfiles] = useState(() => cachedRoster?.profiles ?? {});
+  const [customFieldDefinitions, setCustomFieldDefinitions] = useState(() => cachedRoster?.definitions ?? []);
+  const [loading, setLoading] = useState(configured && !cachedRoster);
   const [error, setError] = useState("");
   const requestSequence = useRef(0);
   const photoUrlsUpdatedAt = useRef(0);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async ({ force = false } = {}) => {
     const requestId = ++requestSequence.current;
     if (!configured) {
       const localMembers = getOrganizationMembers();
@@ -40,9 +43,15 @@ export function OrganizationProvider({ children }) {
       return;
     }
 
-    setLoading(true);
+    const cached = readCachedQuery(rosterKey);
+    if (cached) {
+      setMembers(cached.members);
+      setProfiles(cached.profiles);
+      setCustomFieldDefinitions(cached.definitions);
+      setLoading(false);
+    } else setLoading(true);
     try {
-      const roster = await retryDataLoad(() => loadRemoteRoster(canEdit));
+      const roster = await fetchCachedQuery(rosterKey, () => retryDataLoad(() => loadRemoteRoster(canEdit)), { force });
       if (requestId !== requestSequence.current) return;
       setMembers(roster.members);
       photoUrlsUpdatedAt.current = Date.now();
@@ -55,7 +64,7 @@ export function OrganizationProvider({ children }) {
     } finally {
       if (requestId === requestSequence.current) setLoading(false);
     }
-  }, [authLoading, canEdit, configured, user?.id]);
+  }, [authLoading, canEdit, configured, rosterKey, user?.id]);
 
   const refreshSignedPhotoUrls = useCallback(async () => {
     if (!configured || authLoading || !user) return;
@@ -100,7 +109,7 @@ export function OrganizationProvider({ children }) {
     let timer;
     const reload = () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => { if (active) void refresh(); }, 150);
+      timer = window.setTimeout(() => { if (active) void refresh({ force: true }); }, 150);
     };
     const unsubscribe = subscribeToTables([
       "agent_profile_field_definitions",
@@ -118,7 +127,7 @@ export function OrganizationProvider({ children }) {
     }
     if (!canEdit) throw new Error("Sign in with an editor account to change employees.");
     await saveRemoteMembers(members, nextMembers, deletedId);
-    await refresh();
+    await refresh({ force: true });
   }, [canEdit, configured, members, refresh]);
 
   const saveEmployeeProfile = useCallback(async (employeeId, profile) => {
@@ -128,7 +137,7 @@ export function OrganizationProvider({ children }) {
     }
     if (!canEdit) throw new Error("Sign in with an editor account to edit profiles.");
     await saveRemoteEmployeeProfile(employeeId, profile);
-    await refresh();
+    await refresh({ force: true });
   }, [canEdit, configured, refresh]);
 
   const saveFieldDefinitions = useCallback(async (definitions) => {
@@ -138,7 +147,7 @@ export function OrganizationProvider({ children }) {
     }
     if (!canEdit) throw new Error("Sign in with an editor account to edit profile fields.");
     await saveRemoteProfileFieldDefinitions(definitions);
-    await refresh();
+    await refresh({ force: true });
   }, [canEdit, configured, refresh]);
 
   const value = useMemo(() => ({

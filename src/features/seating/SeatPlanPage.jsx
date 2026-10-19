@@ -2,11 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Armchair, BriefcaseBusiness, CalendarDays, Grip, Plus, Printer, Search, Trash2, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { starterMembers } from "@/features/organization/organization-data";
+import { getOrganizationRoleLabels } from "@/features/organization/organization-data";
 import { useOrganizationRoster } from "@/app/organization-provider";
 import { useAuth } from "@/app/auth-provider";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { loadSeatPlans, saveSeatPlan } from "@/lib/backend-repositories";
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
+import { fetchCachedQuery, queryClient, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
 
 const PLAN_STORAGE_KEY = "starter-app-seat-plans-v1";
 const TEAM_STORAGE_KEY = "starter-app-organization-members-v2";
@@ -73,12 +75,14 @@ function getSeatPosition(seatId) {
 
 export default function SeatPlanPage() {
   const { members: teamMembers } = useOrganizationRoster();
-  const { canEdit } = useAuth();
+  const { canEdit, user } = useAuth();
+  const resourceKey = useMemo(() => queryKeys.seatPlans(user?.id ?? "anonymous", canEdit), [canEdit, user?.id]);
+  const cachedPlans = readCachedQuery(resourceKey);
   const [selectedDate, setSelectedDate] = useState(getLocalDate);
-  const [plans, setPlans] = useState(() => isSupabaseConfigured ? {} : getSavedPlans());
-  const [remoteReady, setRemoteReady] = useState(false);
+  const [plans, setPlans] = useState(() => isSupabaseConfigured ? cachedPlans ?? {} : getSavedPlans());
+  const [remoteReady, setRemoteReady] = useState(Boolean(cachedPlans));
   const [syncError, setSyncError] = useState("");
-  const remoteSnapshotRef = useRef(null);
+  const remoteSnapshotRef = useRef(cachedPlans ? structuredClone(cachedPlans) : null);
   const canManage = canEdit && (!isSupabaseConfigured || Boolean(remoteSnapshotRef.current));
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedMemberId, setSelectedMemberId] = useState(null);
@@ -99,7 +103,7 @@ export default function SeatPlanPage() {
       return undefined;
     }
     let active = true;
-    void retryDataLoad(loadSeatPlans).then((saved) => {
+    void fetchCachedQuery(resourceKey, () => retryDataLoad(loadSeatPlans)).then((saved) => {
       if (!active) return;
       remoteSnapshotRef.current = structuredClone(saved);
       setPlans(saved);
@@ -107,7 +111,7 @@ export default function SeatPlanPage() {
       setSyncError("");
     }).catch((error) => { if (active) setSyncError(error.message || "Could not load saved seat plans."); });
     return () => { active = false; };
-  }, []);
+  }, [resourceKey]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return undefined;
@@ -115,13 +119,13 @@ export default function SeatPlanPage() {
     let timer;
     const unsubscribe = subscribeToTables(["seat_plans", "seat_positions", "seat_assignments"], () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => { void retryDataLoad(loadSeatPlans).then((saved) => {
+      timer = window.setTimeout(() => { void fetchCachedQuery(resourceKey, () => retryDataLoad(loadSeatPlans), { force: true }).then((saved) => {
         if (!active) return;
         remoteSnapshotRef.current = structuredClone(saved); setPlans(saved); setSyncError("");
       }).catch((error) => { if (active) setSyncError(error.message || "Could not sync seat plan changes."); }); }, 180);
     }, "seat-plan");
     return () => { active = false; window.clearTimeout(timer); unsubscribe(); };
-  }, []);
+  }, [resourceKey]);
 
   useEffect(() => {
     if (!isSupabaseConfigured || !remoteReady || !canEdit || !remoteSnapshotRef.current) return undefined;
@@ -131,19 +135,20 @@ export default function SeatPlanPage() {
       try {
         await Promise.all(pending.map(([date, plan]) => saveSeatPlan(date, plan)));
         remoteSnapshotRef.current = { ...(remoteSnapshotRef.current ?? {}), ...Object.fromEntries(pending) };
+        queryClient.setQueryData(resourceKey, remoteSnapshotRef.current);
         setSyncError("");
       } catch (error) {
         setSyncError(error.message || "Could not save seat plan changes.");
       }
     }, 450);
     return () => window.clearTimeout(timeout);
-  }, [plans, remoteReady, canEdit]);
+  }, [plans, remoteReady, canEdit, resourceKey]);
 
   const membersById = useMemo(() => new Map(teamMembers.map((member) => [member.id, member])), [teamMembers]);
   const assignedIds = new Set(Object.values(assignments));
   const availableMembers = teamMembers
     .filter((member) => !assignedIds.has(member.id))
-    .filter((member) => `${member.name} ${member.role}`.toLowerCase().includes(searchTerm.trim().toLowerCase()))
+    .filter((member) => `${member.name} ${getOrganizationRoleLabels(member).join(" ")}`.toLowerCase().includes(searchTerm.trim().toLowerCase()))
     .sort((a, b) => a.name.localeCompare(b.name));
   const assignedCount = allSeatIds.filter((seatId) => membersById.has(assignments[seatId])).length;
   const openCount = Math.max(0, allSeatIds.length - assignedCount);
@@ -323,7 +328,7 @@ export default function SeatPlanPage() {
         className={`seat-position ${member ? "seat-position-assigned" : "seat-position-open"} ${isSelected ? "seat-position-selected" : ""} ${draggingMemberId === member?.id ? "seat-position-dragging" : ""} ${facing === "north" ? "seat-face-north" : "seat-face-south"}`}
         key={seatId}
         type="button"
-        aria-label={`${seatId}, ${member ? `${member.name}, ${member.role}` : "open seat"}${member?.mentorName ? `, mentor ${member.mentorName}` : ""}`}
+        aria-label={`${seatId}, ${member ? `${member.name}, ${getOrganizationRoleLabels(member).join(", ")}` : "open seat"}${member?.mentorName ? `, mentor ${member.mentorName}` : ""}`}
         title={selectedMemberId ? `Assign selected teammate to ${seatId}` : `Select seat ${seatId}`}
         data-seat-drop-id={seatId}
         disabled={!canManage}
@@ -339,7 +344,7 @@ export default function SeatPlanPage() {
           {member ? (
             <span className="seat-occupant">
               <span className="seat-mini-avatar">{member.photo ? <img src={member.photo} alt="" /> : getInitials(member.name)}</span>
-              <span className="seat-occupant-copy"><strong>{member.name}</strong><small>{member.role}</small>{member.mentorName && <small className="seat-mentor-label">Mentor · {member.mentorName}</small>}</span>
+              <span className="seat-occupant-copy"><strong>{member.name}</strong><small>{getOrganizationRoleLabels(member).join(" · ")}</small>{member.mentorName && <small className="seat-mentor-label">Mentor · {member.mentorName}</small>}</span>
             </span>
           ) : (
             <span className="seat-empty-label"><span className="seat-empty-plus">+</span>{selectedSeatId === seatId ? "Seat selected" : "Open seat"}</span>
@@ -364,7 +369,7 @@ export default function SeatPlanPage() {
         if (!member) return null;
         return <div className="seat-drag-preview" style={{ left: dragPreviewPosition.x + 14, top: dragPreviewPosition.y + 14 }} aria-hidden="true">
           <span className="pool-avatar">{member.photo ? <img src={member.photo} alt="" /> : getInitials(member.name)}</span>
-          <span className="available-person-copy"><strong>{member.name}</strong><small>{member.role}</small></span>
+          <span className="available-person-copy"><strong>{member.name}</strong><small>{getOrganizationRoleLabels(member).join(" · ")}</small></span>
           <Grip className="pool-grip" size={15} />
         </div>;
       })()}
@@ -452,7 +457,7 @@ export default function SeatPlanPage() {
                 onClick={() => handlePersonClickWithDrag(member.id)}
               >
                 <span className="pool-avatar">{member.photo ? <img src={member.photo} alt="" /> : getInitials(member.name)}</span>
-                <span className="available-person-copy"><strong>{member.name}</strong><small>{member.role}</small></span>
+                <span className="available-person-copy"><strong>{member.name}</strong><small>{getOrganizationRoleLabels(member).join(" · ")}</small></span>
                 <Grip className="pool-grip" size={14} />
               </button>
             ))}

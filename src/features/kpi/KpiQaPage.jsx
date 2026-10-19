@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useOrganizationRoster } from "@/app/organization-provider";
+import { getOperationalRoster } from "@/features/organization/organization-data";
 import { useAuth } from "@/app/auth-provider";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
@@ -15,9 +16,11 @@ import {
 import { readKpiFile } from "@/features/kpi/import-utils";
 import { createKpiMonth, loadCurrentKpiScoring, loadKpiMonthData, saveKpiMonthResults } from "@/lib/backend-repositories";
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
+import { fetchCachedQuery, queryClient, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
 import "@/features/kpi/kpi-qa.css";
 
 const TREND_RANGES = [6, 12];
+const KPI_SCORING_QUERY_KEY = queryKeys.kpiScoring();
 
 function getLatestMonth(monthlyData) {
   return Object.keys(monthlyData).sort().at(-1) ?? new Date().toISOString().slice(0, 7);
@@ -270,14 +273,18 @@ function ImportDialog({ teamMembers, selectedMonth, onClose, onImport }) {
 }
 
 export default function KpiQaPage() {
-  const { members: teamMembers } = useOrganizationRoster();
-  const { canEdit } = useAuth();
-  const [monthlyData, setMonthlyData] = useState(() => isSupabaseConfigured ? {} : readSavedData(teamMembers));
+  const { members: rosterMembers } = useOrganizationRoster();
+  const teamMembers = useMemo(() => getOperationalRoster(rosterMembers), [rosterMembers]);
+  const { canEdit, user } = useAuth();
+  const monthsKey = useMemo(() => queryKeys.kpiMonths(user?.id ?? "anonymous", canEdit), [canEdit, user?.id]);
+  const scoringKey = KPI_SCORING_QUERY_KEY;
+  const cachedMonths = readCachedQuery(monthsKey);
+  const [monthlyData, setMonthlyData] = useState(() => isSupabaseConfigured ? cachedMonths ?? {} : readSavedData(teamMembers));
   const [selectedMonth, setSelectedMonth] = useState(() => isSupabaseConfigured ? new Date().toISOString().slice(0, 7) : getLatestMonth(readSavedData(teamMembers)));
-  const [remoteReady, setRemoteReady] = useState(false);
+  const [remoteReady, setRemoteReady] = useState(Boolean(cachedMonths));
   const [syncError, setSyncError] = useState("");
   const [creatingMonth, setCreatingMonth] = useState(false);
-  const remoteSnapshotRef = useRef(null);
+  const remoteSnapshotRef = useRef(cachedMonths ? structuredClone(cachedMonths) : null);
   const [monthDraft, setMonthDraft] = useState("");
   const [range, setRange] = useState(6);
   const [trendMetric, setTrendMetric] = useState("qa");
@@ -295,7 +302,10 @@ export default function KpiQaPage() {
   useEffect(() => {
     if (!isSupabaseConfigured) return undefined;
     let active = true;
-    void retryDataLoad(() => Promise.all([loadKpiMonthData(), loadCurrentKpiScoring()])).then(([saved, currentScoring]) => {
+    void Promise.all([
+      fetchCachedQuery(monthsKey, () => retryDataLoad(loadKpiMonthData)),
+      fetchCachedQuery(scoringKey, () => retryDataLoad(loadCurrentKpiScoring)),
+    ]).then(([saved, currentScoring]) => {
       if (!active) return;
       if (currentScoring?.settings) localStorage.setItem("starter-app-kpi-scoring-settings-v1", JSON.stringify(currentScoring.settings));
       remoteSnapshotRef.current = structuredClone(saved);
@@ -305,7 +315,7 @@ export default function KpiQaPage() {
       setSyncError("");
     }).catch((error) => { if (active) { setSyncError(error.message || "Could not load KPI results."); setRemoteReady(true); } });
     return () => { active = false; };
-  }, []);
+  }, [monthsKey, scoringKey]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return undefined;
@@ -313,14 +323,17 @@ export default function KpiQaPage() {
     let timer;
     const unsubscribe = subscribeToTables(["kpi_months", "kpi_results", "current_kpi_scoring", "kpi_scoring_versions"], () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => { void retryDataLoad(() => Promise.all([loadKpiMonthData(), loadCurrentKpiScoring()])).then(([saved, scoring]) => {
+      timer = window.setTimeout(() => { void Promise.all([
+        fetchCachedQuery(monthsKey, () => retryDataLoad(loadKpiMonthData), { force: true }),
+        fetchCachedQuery(scoringKey, () => retryDataLoad(loadCurrentKpiScoring), { force: true }),
+      ]).then(([saved, scoring]) => {
         if (!active) return;
         if (scoring?.settings) localStorage.setItem("starter-app-kpi-scoring-settings-v1", JSON.stringify(scoring.settings));
         remoteSnapshotRef.current = structuredClone(saved); setMonthlyData(saved);
       }).catch((error) => { if (active) setSyncError(error.message || "Could not sync KPI changes."); }); }, 180);
     }, "monthly-kpi");
     return () => { active = false; window.clearTimeout(timer); unsubscribe(); };
-  }, []);
+  }, [monthsKey, scoringKey]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -343,11 +356,12 @@ export default function KpiQaPage() {
           for (const record of records) snapshot.records[record.memberId] = record;
           remoteSnapshotRef.current[month] = snapshot;
         }
+        queryClient.setQueryData(monthsKey, remoteSnapshotRef.current);
         setSyncError("");
       } catch (error) { setSyncError(error.message || "Could not save KPI results."); }
     }, 500);
     return () => window.clearTimeout(timeout);
-  }, [monthlyData, remoteReady, canEdit]);
+  }, [monthlyData, remoteReady, canEdit, monthsKey]);
 
   const monthOptions = useMemo(() => [...new Set([...Object.keys(monthlyData), selectedMonth])].filter(Boolean).sort(), [monthlyData, selectedMonth]);
   const records = monthlyData[selectedMonth]?.records ?? {};
@@ -396,6 +410,7 @@ export default function KpiQaPage() {
       const created = await createKpiMonth(month);
       const monthData = { demo: false, scoringVersionId: created.scoringVersionId, scoringSettings: created.scoringSettings, records: {} };
       remoteSnapshotRef.current = { ...(remoteSnapshotRef.current ?? {}), [month]: monthData };
+      queryClient.setQueryData(monthsKey, remoteSnapshotRef.current);
       setMonthlyData((current) => ({ ...current, [month]: current[month] ?? monthData }));
       setSelectedMonth(month);
     } catch (error) { setSyncError(error.message || "Could not create this KPI month."); }
