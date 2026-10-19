@@ -59,7 +59,6 @@ export default function Sidebar({ open, collapsed, onClose, onToggleCollapse, pu
           {publicWorkspace ? <>
             {canEdit && <NavLink to="/admin/dashboard" onClick={onClose} title="Open editor settings" className={({ isActive }) => `nav-link ${isActive ? "nav-link-active" : ""}`}><PanelsTopLeft size={18} strokeWidth={1.8} /><span>Editor settings</span></NavLink>}
           </> : <>
-            <NavLink to="/" onClick={onClose} title="Back to public workspace" className="nav-link"><LayoutDashboard size={18} strokeWidth={1.8} /><span>Back to public workspace</span></NavLink>
             <NavLink to="/settings" onClick={onClose} title="Settings" className={({ isActive }) => `nav-link ${isActive ? "nav-link-active" : ""}`}><Settings size={18} strokeWidth={1.8} /><span>Settings</span></NavLink>
           </>}
         </div>

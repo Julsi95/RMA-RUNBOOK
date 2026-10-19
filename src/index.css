@@ -538,6 +538,12 @@ h1 { margin: 0; font-size: clamp(27px, 3vw, 34px); font-weight: 620; letter-spac
 .settings-invite-form > button { justify-self: start; }
 .settings-confirm-admin { display: flex; gap: 9px; align-items: center; font-size: 13px; }
 .settings-account-list { display: grid; gap: 10px; }
+.settings-account-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.settings-account-list-heading > div { display: grid; gap: 5px; }
+.settings-account-list-heading h3 { display: flex; align-items: center; gap: 8px; }
+.settings-account-list-heading p { margin: 0; color: var(--muted-foreground); font-size: 12px; }
+.settings-refresh-spinning { animation: settings-refresh-spin 1s linear infinite; }
+@keyframes settings-refresh-spin { to { transform: rotate(360deg); } }
 .settings-account-list h3 { margin: 0; font-size: 16px; }
 .settings-account-table-wrap { width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
 .settings-account-table { width: 100%; min-width: 980px; border-collapse: collapse; text-align: left; font-size: 12px; }
@@ -673,7 +679,7 @@ h1 { margin: 0; font-size: clamp(27px, 3vw, 34px); font-weight: 620; letter-spac
 .session-policy-fixed strong { min-height: 39px; display: flex; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--background); font-size: 13px; }
 @media (max-width: 850px) { .settings-account-row { grid-template-columns: repeat(2,minmax(0,1fr)); } .settings-account-row > div { grid-column: 1/-1; } }
 @media (max-width: 700px) { .session-policy-form { grid-template-columns: 1fr; } .session-policy-form > button,.session-policy-form > p { grid-column: auto; } }
-@media (max-width: 600px) { .settings-invite-form { grid-template-columns: 1fr; } .settings-signout { align-items: flex-start; flex-direction: column; } .settings-account-row { grid-template-columns: 1fr; } .settings-account-row > div { grid-column: auto; } .settings-account-password-form { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .settings-invite-form { grid-template-columns: 1fr; } .settings-signout { align-items: flex-start; flex-direction: column; } .settings-account-row { grid-template-columns: 1fr; } .settings-account-row > div { grid-column: auto; } .settings-account-password-form { grid-template-columns: 1fr; } .settings-account-list-heading { align-items: flex-start; flex-direction: column; } }
 
 /* Impeccable polish: small, consistent feedback across the workspace. */
 :root { --motion-fast: 140ms; --motion-ui: 190ms; --ease-ui: cubic-bezier(.2,.75,.25,1); }

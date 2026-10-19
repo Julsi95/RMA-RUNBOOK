@@ -156,7 +156,12 @@ export function AuthProvider({ children }) {
     const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!active) return;
       if (!nextSession?.user) {
-        clearMemoryQueryCache();
+        // Supabase emits an initial null session for signed-out visitors too.
+        // Clearing TanStack Query for that normal public state cancels page
+        // loads already in flight and surfaces a misleading CancelledError.
+        // Clear cached user data only when an authenticated session actually
+        // existed; clearLocalSession handles invalid/replaced sessions itself.
+        if (currentSessionRef.current?.user) clearMemoryQueryCache();
         currentSessionRef.current = null;
         setSession(null);
         setAccount(null);
