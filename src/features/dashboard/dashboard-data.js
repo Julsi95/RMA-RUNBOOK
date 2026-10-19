@@ -25,7 +25,7 @@ export function createDefaultDashboard() {
     containers: [
       {
         id: "welcome-announcement",
-        publicVisible: false,
+        publicVisible: true,
         type: "announcement",
         title: "A home base for the whole team",
         description: "Keep important updates, useful links, and team highlights in one place.",
@@ -50,7 +50,7 @@ export function createDefaultDashboard() {
       },
       {
         id: "team-feature",
-        publicVisible: false,
+        publicVisible: true,
         type: "feature",
         title: "Meet your people",
         description: "Keep birthdays, milestones, and team details close at hand.",
@@ -75,7 +75,7 @@ export function createDefaultDashboard() {
       },
       {
         id: "quick-access",
-        publicVisible: false,
+        publicVisible: true,
         type: "quickLinks",
         title: "Quick access",
         description: "Jump straight into the tools you use every day.",
@@ -126,7 +126,7 @@ function normalizeDashboard(value) {
       buttonUrl: "",
       width: 12,
       height: 250,
-      publicVisible: false,
+      publicVisible: true,
       showDate: false,
       imageLayout: "banner",
       imageFit: "cover",
@@ -233,7 +233,7 @@ export function makeContainer(type = "feature") {
     buttonUrl: "",
     width: type === "announcement" ? 18 : 12,
     height: 270,
-    publicVisible: false,
+    publicVisible: true,
     showDate: type === "announcement",
     imageLayout: "banner",
     imageFit: "cover",
