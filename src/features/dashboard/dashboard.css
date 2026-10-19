@@ -6,6 +6,7 @@
 .dashboard-settings-link:hover { background: var(--muted); }
 .dashboard-live-canvas { width: 100%; min-width: 0; min-height: var(--dashboard-canvas-height, 560px); container-type: inline-size; }
 .dashboard-layout-grid { display: grid; min-width: 0; grid-template-columns: repeat(12, minmax(0, 1fr)); align-items: stretch; gap: 13px; }
+.dashboard-rgl-grid.is-editable > .react-grid-item { transition: none !important; }
 .dashboard-size-small { --span-desktop: 3; --span-tablet: 3; }
 .dashboard-size-medium { --span-desktop: 4; --span-tablet: 3; }
 .dashboard-size-half { --span-desktop: 6; --span-tablet: 6; }
