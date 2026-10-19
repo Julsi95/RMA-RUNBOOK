@@ -103,7 +103,7 @@ export default function AppLinksPage() {
 
   function openEditor(item = null) {
     if (!canManage) return;
-    setEditor(item ? { ...item } : { id: "", name: "", url: "", application: "", group: activeGroup === "All" ? DEFAULT_GROUPS[0] : activeGroup, description: "", publicVisible: false });
+    setEditor(item ? { ...item } : { id: "", name: "", url: "", application: "", group: activeGroup === "All" ? DEFAULT_GROUPS[0] : activeGroup, description: "", publicVisible: true });
   }
 
   async function saveResource(event) {
