@@ -246,8 +246,13 @@ export default function SettingsPage() {
   const previewPhoto = filePreview || photoUrl;
   return (
     <section className="page-content settings-page">
-      <div className="page-heading"><div><p className="eyebrow">PREFERENCES</p><h1>Settings</h1><p className="page-description">Manage your account and how RUNBOOK looks on this device.</p></div></div>
-      <div className="settings-card">
+      <div className="page-heading settings-page-heading"><div><p className="eyebrow">WORKSPACE CONTROL CENTER</p><h1>Settings</h1><p className="page-description">Account, appearance, and workspace controls in one place.</p></div><span className="settings-heading-badge"><Shield size={15} /> {canEdit ? "Editor controls enabled" : "Personal settings"}</span></div>
+      <nav className="settings-quick-nav" aria-label="Settings sections">
+        <a href="#appearance">Appearance</a>
+        {configured && user && <><a href="#profile">My profile</a><a href="#login-email">Login email</a><a href="#password">Password</a></>}
+        {configured && canEdit && <><a href="#branding">Branding</a><a href="#account-access">Account access</a><a href="#session-security">Session security</a></>}
+      </nav>
+      <div id="appearance" className="settings-card settings-appearance-card">
         <div><h2>Appearance</h2><p>Choose a theme or follow your device setting.</p></div>
         <label className="theme-select-label" htmlFor="theme-select">Theme</label>
         <select id="theme-select" className="theme-select" value={theme} onChange={(event) => setTheme(event.target.value)}>
@@ -255,7 +260,7 @@ export default function SettingsPage() {
         </select>
       </div>
       {configured && user && <>
-        <section className="settings-card account-settings-card">
+        <section id="profile" className="settings-card account-settings-card settings-account-section">
           <div><h2>Account profile</h2><p>Update your name, photo, and summary. If your account is linked to an employee, those profile details stay in sync.</p></div>
           <form className="settings-account-form" onSubmit={saveProfile}>
             <div className="settings-profile-photo"><span>{previewPhoto ? <img src={previewPhoto} alt="Profile preview" /> : (displayName || user.email || "U").slice(0, 1).toUpperCase()}</span><label className="photo-upload-button"><ImagePlus size={15} />Change photo<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(event) => setPhotoFile(event.target.files?.[0] ?? null)} /></label><small>JPEG, PNG, WebP, or animated GIF · max 5 MB</small></div>
@@ -266,11 +271,11 @@ export default function SettingsPage() {
           </form>
           {account?.employee_id && <small>Linked Agent Profile · {members.find((member) => member.id === account.employee_id)?.name ?? account.employee_id}</small>}
         </section>
-        <section className="settings-card account-settings-card">
+        <section id="login-email" className="settings-card account-settings-card settings-account-section">
           <div><h2>Login email / username</h2><p>Supabase verifies the email change before it becomes the new login name.</p></div>
           <form className="settings-account-form" onSubmit={saveEmail}><label className="form-field"><span>Email address</span><input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>{emailError && <p className="auth-error" role="alert">{emailError}</p>}{emailMessage && <p className="auth-success" role="status">{emailMessage}</p>}<Button type="submit">Request email change</Button></form>
         </section>
-        <section className="settings-card account-settings-card">
+        <section id="password" className="settings-card account-settings-card settings-account-section">
           <div><h2>Password</h2><p>Set a new password for this account.</p></div>
           <form className="account-password-form" onSubmit={changePassword}>
             <label>New password<input type="password" autoComplete="new-password" minLength={8} required value={password} onChange={(event) => setPassword(event.target.value)} /></label>
@@ -281,7 +286,7 @@ export default function SettingsPage() {
         </section>
         <div className="settings-signout"><span>Signed in as <strong>{user.email}</strong> · {account?.role === "super_admin" ? "Super Admin" : account?.role ?? "user"}</span><Button variant="outline" onClick={() => void signOut()}><LogOut size={15} /> Sign out</Button></div>
       </>}
-      {configured && canEdit && <section className="settings-card settings-admin-section">
+      {configured && canEdit && <section id="branding" className="settings-card settings-admin-section">
         <div><h2>Sidebar branding</h2><p>Changes appear in the sidebar for everyone signed in.</p></div>
         <form className="settings-branding-form" onSubmit={saveWorkspaceBranding}>
           <label className="form-field"><span>Sidebar title</span><input maxLength={48} required value={brandingTitle} onChange={(event) => setBrandingTitle(event.target.value)} /></label>
@@ -290,7 +295,7 @@ export default function SettingsPage() {
           <Button type="submit" disabled={brandingBusy}>{brandingBusy ? "Saving…" : "Save sidebar branding"}</Button>
         </form>
       </section>}
-      {configured && canEdit && <section className="settings-card settings-admin-section">
+      {configured && canEdit && <section id="account-access" className="settings-card settings-admin-section">
         <div><h2><Shield size={19} /> Account access</h2><p>Invite employees and control who can edit RUNBOOK.</p></div>
         {accountError && <p className="auth-error" role="alert">{accountError}</p>}{accountMessage && <p className="auth-success" role="status">{accountMessage}</p>}
         <form className="settings-invite-form" onSubmit={sendInvite}>
@@ -324,7 +329,7 @@ export default function SettingsPage() {
           </tbody></table></div>}
         </div>
       </section>}
-      {configured && canEdit && <section className="settings-card settings-admin-section">
+      {configured && canEdit && <section id="session-security" className="settings-card settings-admin-section">
         <div><h2><Clock3 size={19} /> Session security</h2><p>Inactive sessions are ended after five minutes. The timeout is enforced by the database.</p></div>
         <form className="session-policy-form" onSubmit={saveSessionPolicy}>
           <div className="session-policy-fixed"><span>Inactivity timeout</span><strong>5 minutes</strong></div>

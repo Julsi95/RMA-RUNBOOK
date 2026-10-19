@@ -35,7 +35,6 @@
 .vl-ledger-heading > span { padding: 6px 10px; border: 1px solid var(--border); border-radius: 99px; color: var(--muted-foreground); font-size: 10px; }
 .vl-credit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 245px), 1fr)); gap: 13px; }
 .vl-credit-card { --card-accent: #9c8b55; position: relative; display: flex; min-width: 0; min-height: 220px; flex-direction: column; padding: 15px 17px 13px; overflow: hidden; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); transition: border-color 150ms ease, transform 150ms ease; }
-.vl-credit-card::before { position: absolute; top: 0; right: 0; left: 0; height: 3px; background: var(--card-accent); content: \"\"; opacity: .78; }
 .vl-credit-card::after { position: absolute; right: -27px; bottom: 23px; width: 92px; height: 92px; border: 1px solid color-mix(in srgb, var(--card-accent) 15%, transparent); border-radius: 50%; content: \"\"; }
 .vl-credit-card:hover { border-color: color-mix(in srgb, var(--card-accent) 48%, var(--border)); transform: translateY(-2px); }
 .vl-card-tone-1 { --card-accent: #628d81; }
