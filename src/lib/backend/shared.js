@@ -40,6 +40,12 @@ const TABLE_QUERY_PREFIXES = {
   user_notifications: [["notifications"]],
   app_accounts: [["app-accounts"], ["account"]],
   runbook_session_settings: [["runbook-session-settings"]],
+  holiday_calendar: [["holiday-calendar"]],
+  wfh_privilege_rewards: [["wfh-privileges"]],
+  wfh_privilege_requests: [["wfh-privileges"]],
+  wfh_privilege_allocations: [["wfh-privileges"]],
+  wfh_privilege_audit: [["wfh-privileges"]],
+  wfh_privilege_settings: [["wfh-privileges"]],
 };
 
 function invalidateRealtimeQueryFamilies(table, filter) {

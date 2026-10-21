@@ -35,6 +35,8 @@ export const queryKeys = {
   notifications: (userId) => ["notifications", userId],
   runbookSessionSettings: (userId) => ["runbook-session-settings", userId],
   accounts: (userId) => ["app-accounts", userId],
+  holidays: (year) => ["holiday-calendar", year],
+  wfhPrivileges: (userId) => ["wfh-privileges", userId],
 };
 
 export function readCachedQuery(queryKey) {

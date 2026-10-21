@@ -1,4 +1,4 @@
-import { Armchair, BarChart3, BriefcaseBusiness, CalendarClock, ChevronsLeft, ChevronsRight, ClipboardCheck, Coins, ContactRound, LayoutDashboard, Link2, Network, PanelsTopLeft, PhoneIncoming, Settings, SlidersHorizontal, X } from "lucide-react";
+import { Armchair, BarChart3, BriefcaseBusiness, CalendarClock, CalendarDays, ChevronsLeft, ChevronsRight, ClipboardCheck, Coins, ContactRound, Gift, LayoutDashboard, Link2, Network, PanelsTopLeft, PhoneIncoming, Settings, SlidersHorizontal, X } from "lucide-react";
 import { NavLink } from "react-router";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/app/auth-provider";
@@ -13,6 +13,8 @@ const links = [
   { to: "/projects", label: "Project coverage", icon: BriefcaseBusiness },
   { to: "/inbound-call-time", label: "Inbound call time", icon: PhoneIncoming },
   { to: "/work-schedule", label: "Work schedule", icon: CalendarClock },
+  { to: "/holidays", label: "Holiday calendar", icon: CalendarDays },
+  { to: "/wfh-privileges", label: "WFH privileges", icon: Gift },
   { to: "/vl-credits", label: "VL credits", icon: Coins },
   { to: "/app-links", label: "App / Links", icon: Link2 },
   { to: "/agent-profiles", label: "Agent profiles", icon: ContactRound },
@@ -48,7 +50,7 @@ export default function Sidebar({ open, collapsed, onClose, onToggleCollapse, pu
           </Button>
         </div>
         <nav className="nav-list" aria-label="Main navigation">
-          {links.filter((item) => publicWorkspace ? ["/", "/organizational", "/agent-profiles", "/app-links"].includes(item.to) : !item.editorOnly || canEdit).map(({ to, label, icon: Icon, end }) => (
+          {links.filter((item) => publicWorkspace ? ["/", "/organizational", "/agent-profiles", "/app-links", "/holidays"].includes(item.to) : !item.editorOnly || canEdit).map(({ to, label, icon: Icon, end }) => (
             <NavLink key={to} to={to} end={end} onClick={onClose} title={label} className={({ isActive }) => `nav-link ${isActive ? "nav-link-active" : ""}`}>
               <Icon size={18} strokeWidth={1.8} />
               <span>{label}</span>

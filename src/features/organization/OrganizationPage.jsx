@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Network, Plus, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import OrgBranch from "@/features/organization/OrgBranch";
@@ -14,9 +14,35 @@ export default function OrganizationPage() {
   const [dialog, setDialog] = useState({ open: false, member: null });
   const [profileMember, setProfileMember] = useState(null);
   const [saveError, setSaveError] = useState("");
+  const chartRef = useRef(null);
+  const panRef = useRef(null);
+  const [isPanning, setIsPanning] = useState(false);
 
   const tree = buildOrganizationTree(members);
   const roleCounts = organizationHierarchyRoles.map((role) => ({ role, count: members.filter((member) => getHierarchyRoles(member).includes(role)).length }));
+
+  function startChartPan(event) {
+    if (event.pointerType !== "mouse" || event.button !== 0 || event.target.closest("button, a, input, textarea, select, .org-person-card")) return;
+    const viewport = chartRef.current;
+    if (!viewport) return;
+    panRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, left: viewport.scrollLeft, top: viewport.scrollTop };
+    viewport.setPointerCapture(event.pointerId);
+    setIsPanning(true);
+  }
+
+  function moveChartPan(event) {
+    const pan = panRef.current;
+    if (!pan || pan.pointerId !== event.pointerId || !chartRef.current) return;
+    chartRef.current.scrollLeft = pan.left - (event.clientX - pan.x);
+    chartRef.current.scrollTop = pan.top - (event.clientY - pan.y);
+  }
+
+  function stopChartPan(event) {
+    if (!panRef.current || panRef.current.pointerId !== event.pointerId) return;
+    panRef.current = null;
+    setIsPanning(false);
+    if (chartRef.current?.hasPointerCapture(event.pointerId)) chartRef.current.releasePointerCapture(event.pointerId);
+  }
 
   function openAddDialog() {
     setDialog({ open: true, member: null });
@@ -79,10 +105,10 @@ export default function OrganizationPage() {
       <div className="org-chart-panel">
         <div className="org-chart-heading">
           <div><span className="org-chart-icon"><Network size={17} /></span><div><h2>Team structure</h2><p>Reporting lines follow the manager selection. Role chips show each person’s hierarchy assignment.</p></div></div>
-          <span className="org-chart-live"><span /> Updated as you edit</span>
+          <span className="org-chart-live"><span /> Updated as you edit <small>Drag empty space or scroll to explore</small></span>
         </div>
         {tree.length > 0 ? (
-          <div className="org-chart-viewport">
+          <div ref={chartRef} className={`org-chart-viewport${isPanning ? " is-panning" : ""}`} role="region" aria-label="Organizational chart. Scroll or drag the empty chart area to explore." tabIndex={0} onPointerDown={startChartPan} onPointerMove={moveChartPan} onPointerUp={stopChartPan} onPointerCancel={stopChartPan}>
             <div className="org-tree">
               {tree.map((root) => <OrgBranch key={root.id} member={root} onEdit={(member) => setDialog({ open: true, member })} onRemove={removeMember} onOpenProfile={setProfileMember} canEdit={canEdit} />)}
             </div>

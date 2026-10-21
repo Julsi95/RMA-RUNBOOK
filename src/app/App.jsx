@@ -20,6 +20,8 @@ import RequireAuth from "@/app/RequireAuth";
 import { ForgotPasswordPage, InvitationPasswordSetupPage, LoginPage, ResetPasswordPage } from "@/pages/AuthPages";
 import HistoryPage from "@/features/history/HistoryPage";
 import NotificationsPage from "@/features/notifications/NotificationsPage";
+import WfhPrivilegesPage from "@/features/wfh-privileges/WfhPrivilegesPage";
+import HolidayCalendarPage from "@/features/holidays/HolidayCalendarPage";
 import { DashboardKpiProvider } from "@/features/dashboard/dashboard-kpi-provider";
 
 function DashboardSettingsWithKpi() { return <DashboardKpiProvider><DashboardSettingsPage /></DashboardKpiProvider>; }
@@ -36,6 +38,7 @@ export default function App() {
         <Route path="organizational" element={<OrganizationPage />} />
         <Route path="agent-profiles" element={<AgentProfilesPage />} />
         <Route path="app-links" element={<AppLinksPage />} />
+        <Route path="holidays" element={<HolidayCalendarPage />} />
       </Route>
       <Route element={<RequireAuth><AppShell /></RequireAuth>}>
         <Route path="admin/dashboard" element={<RequireEditor><DashboardSettingsWithKpi /></RequireEditor>} />
@@ -43,6 +46,7 @@ export default function App() {
         <Route path="projects" element={<ProjectsPage />} />
         <Route path="inbound-call-time" element={<InboundSchedulePage />} />
         <Route path="work-schedule" element={<WorkSchedulePage />} />
+        <Route path="wfh-privileges" element={<WfhPrivilegesPage />} />
         <Route path="vl-credits" element={<VlCreditsPage />} />
         <Route path="admin/qa-parameters" element={<QaParametersPage />} />
         <Route path="history" element={<RequireEditor><HistoryPage /></RequireEditor>} />

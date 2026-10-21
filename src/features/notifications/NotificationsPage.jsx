@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Bell, Cake as CakeIcon, CheckCheck, ChartNoAxesColumnIncreasing as KpiIcon, CalendarClock as CalendarIcon, Link2 as LinkIcon, LoaderCircle, Megaphone as MegaphoneIcon, PhoneIncoming as PhoneIcon, UsersRound as UsersIcon, Wallet as WalletIcon } from "lucide-react";
+import { Bell, Cake as CakeIcon, CheckCheck, ChartNoAxesColumnIncreasing as KpiIcon, CalendarClock as CalendarIcon, Gift, Link2 as LinkIcon, LoaderCircle, Megaphone as MegaphoneIcon, PhoneIncoming as PhoneIcon, UsersRound as UsersIcon, Wallet as WalletIcon } from "lucide-react";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/Button";
 import { useNotifications } from "@/app/notification-provider";
+import { notificationHref } from "./notification-utils";
 
 export default function NotificationsPage() {
   const { notifications, loading, error, hasMore, loadMore, markAllRead } = useNotifications();
@@ -24,9 +25,9 @@ function NotificationMenuRow({ item }) {
 function NotificationMenuRowContent({ item }) {
   const { markRead } = useNotifications();
   const [error, setError] = useState("");
-  const Icon = ({ birthday: CakeIcon, "vl-credit": WalletIcon, dashboard: MegaphoneIcon, project: UsersIcon, "inbound-call": PhoneIcon, "work-schedule": CalendarIcon, "work-link": LinkIcon, "monthly-kpi": KpiIcon }[item.category]) ?? Bell;
+  const Icon = ({ birthday: CakeIcon, "vl-credit": WalletIcon, dashboard: MegaphoneIcon, project: UsersIcon, "inbound-call": PhoneIcon, "work-schedule": CalendarIcon, "work-link": LinkIcon, "monthly-kpi": KpiIcon, "wfh-privilege": Gift }[item.category]) ?? Bell;
   return <>
-    <Link className="notification-archive-open" to={item.href || "/"} onClick={() => { if (!item.read_at) void markRead(item.id).catch((cause) => setError(cause.message || "Could not mark read.")); }}><span className="notification-row-icon"><Icon size={17} /></span><span className="notification-archive-copy"><strong>{item.title}</strong><span>{item.body}</span><time dateTime={item.created_at}>{new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.created_at))}</time>{error && <small role="alert">{error}</small>}</span></Link>
+    <Link className="notification-archive-open" to={notificationHref(item)} onClick={() => { if (!item.read_at) void markRead(item.id).catch((cause) => setError(cause.message || "Could not mark read.")); }}><span className="notification-row-icon"><Icon size={17} /></span><span className="notification-archive-copy"><strong>{item.title}</strong><span>{item.body}</span><time dateTime={item.created_at}>{new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.created_at))}</time>{error && <small role="alert">{error}</small>}</span></Link>
     {!item.read_at && <Button size="sm" variant="outline" onClick={() => void markRead(item.id).catch((cause) => setError(cause.message || "Could not mark read."))}>Mark read</Button>}
   </>;
 }

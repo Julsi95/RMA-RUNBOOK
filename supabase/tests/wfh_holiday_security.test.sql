@@ -1,0 +1,30 @@
+begin;
+select plan(24);
+
+select ok((select relrowsecurity from pg_class where oid='public.wfh_privilege_rewards'::regclass), 'WFH rewards enforce RLS');
+select ok((select relrowsecurity from pg_class where oid='public.wfh_privilege_requests'::regclass), 'WFH requests enforce RLS');
+select ok((select relrowsecurity from pg_class where oid='public.wfh_privilege_allocations'::regclass), 'WFH allocations enforce RLS');
+select ok((select relrowsecurity from pg_class where oid='public.holiday_calendar'::regclass), 'holiday calendar enforces RLS');
+select ok(has_table_privilege('anon','public.wfh_privilege_rewards','select') is false, 'anonymous visitors cannot read private WFH balances');
+select ok(has_table_privilege('authenticated','public.wfh_privilege_rewards','insert') is false, 'clients cannot insert or inflate rewards directly');
+select ok(has_function_privilege('anon','public.award_wfh_privileges(text[],integer,date,text)','execute') is false, 'anonymous visitors cannot award WFH privileges');
+select ok(has_function_privilege('authenticated','public.sync_holiday_calendar(text,integer,jsonb)','execute') is false, 'clients cannot invoke the service-role-only holiday upsert');
+select ok(position('is_current_runbook_session' in pg_get_functiondef('public.save_holiday(uuid,text,date,text,boolean)'::regprocedure)) > 0, 'holiday mutations require an active app session');
+select ok((select prosecdef from pg_proc where oid='public.decide_wfh_privilege_request(uuid,text,date[],text)'::regprocedure), 'approval logic runs in a trusted database function');
+select ok(exists(select 1 from pg_index i join pg_class c on c.oid=i.indexrelid where c.relname='wfh_one_active_privilege_per_employee_day' and i.indisunique and i.indpred is not null), 'a unique partial index prevents two active allocations on one day');
+select ok(position('pg_advisory_xact_lock' in pg_get_functiondef('public.decide_wfh_privilege_request(uuid,text,date[],text)'::regprocedure)) > 0, 'concurrent approvals serialize on the employee');
+select ok(position('expires_on >= work_date' in pg_get_functiondef('public.decide_wfh_privilege_request(uuid,text,date[],text)'::regprocedure)) > 0, 'allocations require rewards valid through the requested date');
+select ok(position('cancellation_notice_days' in pg_get_functiondef('public.request_wfh_cancellation(date[],text)'::regprocedure)) > 0, 'cancellation requests enforce the configured notice period');
+select ok(position('refunded_dates' in pg_get_functiondef('public.decide_wfh_privilege_request(uuid,text,date[],text)'::regprocedure)) > 0, 'cancellation decisions record which days were refunded');
+select ok(position('order by r.expires_on, r.created_at, r.id' in pg_get_functiondef('public.decide_wfh_privilege_request(uuid,text,date[],text)'::regprocedure)) > 0, 'approved requests allocate from the earliest-expiring reward first');
+select ok(position('reward.revoked_at is null and reward.expires_on >= public.runbook_today()' in pg_get_functiondef('public.decide_wfh_privilege_request(uuid,text,date[],text)'::regprocedure)) > 0, 'cancellation refunds cannot restore expired or revoked rewards');
+select ok(exists(select 1 from pg_trigger where tgrelid='public.wfh_privilege_audit'::regclass and tgname='wfh_privilege_audit_append_only' and not tgisinternal), 'WFH audit rows are append-only');
+select ok(has_table_privilege('authenticated','public.wfh_privilege_audit','update') is false and has_table_privilege('authenticated','public.wfh_privilege_audit','delete') is false, 'authenticated clients cannot edit or delete WFH audit records');
+select ok(exists(select 1 from pg_policy where polrelid='public.wfh_privilege_rewards'::regclass and polname='WFH rewards are scoped to owners and responsible leads' and pg_get_expr(polqual,polrelid) like '%is_current_runbook_session%'), 'WFH reads require the current session and an authorized relationship');
+select ok(exists(select 1 from cron.job where jobname='runbook-wfh-expiry-notifications'), 'daily expiry notifications are scheduled by pg_cron');
+select ok(position('wfh-expiry:' in pg_get_functiondef('public.enqueue_wfh_expiry_notifications()'::regprocedure)) > 0 and position('do nothing' in lower(pg_get_functiondef('public.enqueue_wfh_expiry_notifications()'::regprocedure))) > 0, 'expiry notifications use a stable idempotency key');
+select ok(position('name_override is null' in pg_get_functiondef('public.sync_holiday_calendar(text,integer,jsonb)'::regprocedure)) > 0, 'holiday sync preserves administrator name overrides');
+select ok(exists(select 1 from pg_index i join pg_class c on c.oid=i.indexrelid where c.relname='holiday_calendar_unique_display_entry' and i.indisunique and i.indpred is not null), 'active holiday display entries are unique while deleted records can be replaced');
+
+select * from finish();
+rollback;

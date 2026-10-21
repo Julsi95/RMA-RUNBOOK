@@ -14,6 +14,15 @@ This project uses Supabase directly from the React application; it does not run 
 
 The services retain the current UI-facing data shapes. Private photo URLs are requested in one Storage call per roster/month load instead of one request per photo. Database RLS and RPC checks remain the authoritative write/security boundary; client permission checks only shape the UI and provide quicker feedback.
 
+## WFH Privileges and holiday calendar
+
+- `src/features/wfh-privileges/` contains the WFH page, focused balance/request/approval/history components, UI validation helpers, and service hooks. Awarding, expiry, approval, earliest-expiring allocation, cancellation refunds, and immutable audit writes execute in database RPCs in `202610210001_wfh_privileges_and_holiday_calendar.sql`.
+- WFH records are readable only by the employee, their nearest responsible TL/STL, or an administrator, with the current RUNBOOK session required. Direct client writes are revoked. Concurrent approvals serialize per employee and a unique partial index protects each employee/date from duplicate consumption.
+- `src/features/holidays/` contains the shared US/PH calendar/list and editor. `sync-holidays` uses Nager.Date; it checks for stale data on a signed-in calendar visit, with a 24-hour server-side throttle. Admins can force a sync. Holiday working-status and name overrides survive provider updates; soft-deleted API rows stay deleted.
+- The migration schedules daily WFH expiry notices through `pg_cron` at 09:00 Asia/Manila. Notifications use the existing `user_notifications` unique `(recipient_id,event_key)` guard. The project must have `pg_cron` available; the migration enables the extension.
+- After pushing this migration, deploy the trusted holiday function with `npx supabase functions deploy sync-holidays`. Supabase supplies `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` to deployed Edge Functions; never copy the service-role secret into Vercel or `VITE_*` values.
+- Run frontend unit tests with `npm test`. Database contract tests are in `supabase/tests/wfh_holiday_security.test.sql` and run with `npx supabase test db` when the local Supabase stack and Docker are available.
+
 ## Manual project setup required
 
 1. Create a Supabase project in the account you control and choose a strong database password. Keep the database password and service-role key private; neither belongs in the frontend.
