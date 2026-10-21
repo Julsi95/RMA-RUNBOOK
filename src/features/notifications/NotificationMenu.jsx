@@ -1,12 +1,13 @@
 import { useState } from "react";
-import { Bell, Cake, ChartNoAxesColumnIncreasing, ExternalLink, Link2, PhoneIncoming, UsersRound, Wallet, CalendarClock, Megaphone, CheckCheck } from "lucide-react";
+import { Bell, Cake, ChartNoAxesColumnIncreasing, ExternalLink, Gift, Link2, PhoneIncoming, UsersRound, Wallet, CalendarClock, Megaphone, CheckCheck } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 import { useNotifications } from "@/app/notification-provider";
+import { notificationHref } from "./notification-utils";
 
 const icons = {
   birthday: Cake, "vl-credit": Wallet, dashboard: Megaphone, project: UsersRound,
   "inbound-call": PhoneIncoming, "work-schedule": CalendarClock, "work-link": Link2,
-  "monthly-kpi": ChartNoAxesColumnIncreasing,
+  "monthly-kpi": ChartNoAxesColumnIncreasing, "wfh-privilege": Gift,
 };
 
 function relativeTime(value) {
@@ -26,7 +27,7 @@ function NotificationRow({ item, close }) {
   async function open() {
     try { if (!item.read_at) await markRead(item.id); } catch { /* the destination remains available if marking read fails */ }
     close?.();
-    navigate(item.href || "/");
+    navigate(notificationHref(item));
   }
   return <button className={`notification-row${item.read_at ? "" : " is-unread"}`} type="button" onClick={() => void open()}>
     <span className="notification-row-icon"><Icon size={16} /></span>

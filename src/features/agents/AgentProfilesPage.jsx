@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useOrganizationRoster } from "@/app/organization-provider";
 import { useAuth } from "@/app/auth-provider";
 import { getOperationalRoster } from "@/features/organization/organization-data";
+import { canShowBirthday, getNextBirthday } from "@/features/agents/birthday-calendar";
 import "@/features/agents/agent-profiles.css";
 
 const PROFILES_KEY = "starter-app-agent-profiles-v1";
@@ -54,16 +55,6 @@ function dateOnly(value) {
 
 function localDateValue(date = new Date()) {
   return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0");
-}
-
-function birthdayDate(value, now = new Date()) {
-  if (!value) return null;
-  const [, month, day] = value.match(/^(\d{4})-(\d{2})-(\d{2})$/) ?? [];
-  if (!month || !day) return null;
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  let next = new Date(now.getFullYear(), Number(month) - 1, Number(day));
-  if (next < today) next = new Date(now.getFullYear() + 1, Number(month) - 1, Number(day));
-  return { date: next, days: Math.round((next - today) / 86400000) };
 }
 
 function birthdayInYear(value, year) {
@@ -150,10 +141,16 @@ export default function AgentProfilesPage() {
   const today = new Date();
   const roles = useMemo(() => [...new Set(members.map((member) => member.role).filter(Boolean))].sort(), [members]);
   const birthdaysThisYear = useMemo(() => members.map((member) => {
-    const birthday = birthdayInYear(profiles[member.id]?.birthday, today.getFullYear());
+    const profile = profiles[member.id] ?? {};
+    const birthday = birthdayInYear(profile.birthday, today.getFullYear());
+    return birthday && (canManage || profile.visibility?.birthday) ? { member, ...birthday } : null;
+  }).filter(Boolean), [members, profiles, today.getFullYear(), canManage]);
+  const upcomingBirthdaysThisYear = members.map((member) => {
+    const profile = profiles[member.id] ?? {};
+    if (!canShowBirthday({ birthday: profile.birthday, isPublic: profile.visibility?.birthday, canManage, now: today })) return null;
+    const birthday = getNextBirthday(profile.birthday, today);
     return birthday ? { member, ...birthday } : null;
-  }).filter(Boolean), [members, profiles, today.getFullYear()]);
-  const upcomingBirthdaysThisYear = birthdaysThisYear.filter((item) => item.date >= new Date(today.getFullYear(), today.getMonth(), today.getDate())).sort((a, b) => a.date - b.date);
+  }).filter(Boolean).sort((a, b) => a.date - b.date);
   const recentlyPassedBirthdays = birthdaysThisYear.filter((item) => {
     const daysAgo = Math.round((new Date(today.getFullYear(), today.getMonth(), today.getDate()) - item.date) / 86400000);
     return daysAgo > 0 && daysAgo <= 30;
@@ -162,10 +159,12 @@ export default function AgentProfilesPage() {
   const birthdayMonths = birthdayView === "upcoming"
     ? Array.from({ length: 12 - today.getMonth() }, (_, index) => today.getMonth() + index + 1)
     : Array.from({ length: today.getMonth() + 1 }, (_, index) => index + 1);
+  if (birthdayView === "upcoming" && upcomingBirthdaysThisYear.some((item) => item.date.getFullYear() > today.getFullYear() && item.month === 1)) birthdayMonths.push(1);
+  birthdayMonths.sort((a, b) => a - b);
   const visibleBirthdays = birthdayMonth === "all" ? birthdayCollection : birthdayCollection.filter((item) => item.month === Number(birthdayMonth));
   const completedCount = members.filter((member) => {
     const profile = profiles[member.id] ?? {};
-    return Boolean(profile.birthday || profile.hireDate || profile.personality);
+    return Boolean((canManage || profile.visibility?.birthday) && profile.birthday || profile.hireDate || profile.personality);
   }).length;
   const visibleMembers = members.filter((member) => {
     const profile = profiles[member.id] ?? {};
@@ -250,16 +249,17 @@ export default function AgentProfilesPage() {
 
     <section className="agent-directory-overview">
       <div className="agent-directory-copy"><span className="agent-directory-icon"><Sparkles size={19} /></span><div><span className="agent-directory-kicker">TEAM SNAPSHOT</span><strong>A little more about the people behind the work.</strong><small>Photos, names, and roles stay in sync with your organization chart.</small></div></div>
-      <div className="agent-overview-stats"><div><strong>{members.length}</strong><span>team members</span></div><i /><div><strong>{members.filter((member) => profiles[member.id]?.birthday).length}</strong><span>birthdays saved</span></div><i /><div><strong>{completedCount}</strong><span>profiles started</span></div></div>
+      <div className="agent-overview-stats"><div><strong>{members.length}</strong><span>team members</span></div><i /><div><strong>{members.filter((member) => { const profile = profiles[member.id] ?? {}; return Boolean(profile.birthday && (canManage || profile.visibility?.birthday)); }).length}</strong><span>birthdays saved</span></div><i /><div><strong>{completedCount}</strong><span>profiles started</span></div></div>
     </section>
 
     <section className="agent-birthday-panel">
-      <div className="agent-birthday-calendar-heading"><div className="agent-birthday-title"><span className="agent-birthday-icon"><Cake size={17} /></span><div><p className="agent-profile-kicker">CURRENT YEAR · {today.getFullYear()}</p><h2>Birthday calendar</h2></div></div><span className="agent-birthday-count">{birthdayView === "upcoming" ? upcomingBirthdaysThisYear.length + " upcoming" : recentlyPassedBirthdays.length + " past 30 days"}</span></div>
+      <div className="agent-birthday-calendar-heading"><div className="agent-birthday-title"><span className="agent-birthday-icon"><Cake size={17} /></span><div><p className="agent-profile-kicker">UPCOMING · NEXT 12 MONTHS</p><h2>Birthday calendar</h2></div></div><span className="agent-birthday-count">{birthdayView === "upcoming" ? upcomingBirthdaysThisYear.length + " upcoming" : recentlyPassedBirthdays.length + " past 30 days"}</span></div>
       <div className="agent-birthday-views" role="group" aria-label="Birthday calendar view"><button type="button" className={birthdayView === "upcoming" ? "active" : ""} aria-pressed={birthdayView === "upcoming"} onClick={() => { setBirthdayView("upcoming"); setBirthdayMonth("all"); }}>Upcoming <span>{upcomingBirthdaysThisYear.length}</span></button><button type="button" className={birthdayView === "recent" ? "active" : ""} aria-pressed={birthdayView === "recent"} onClick={() => { setBirthdayView("recent"); setBirthdayMonth("all"); }}>Recently passed <span>{recentlyPassedBirthdays.length}</span></button></div>
       <div className="agent-birthday-months" role="group" aria-label="Filter birthdays by month"><button type="button" className={birthdayMonth === "all" ? "active" : ""} aria-pressed={birthdayMonth === "all"} onClick={() => setBirthdayMonth("all")}>{birthdayView === "upcoming" ? "All upcoming" : "All recent"}</button>{birthdayMonths.map((month) => <button type="button" className={birthdayMonth === String(month) ? "active" : ""} aria-pressed={birthdayMonth === String(month)} key={month} onClick={() => setBirthdayMonth(String(month))}>{new Intl.DateTimeFormat("en-US", { month: "short" }).format(new Date(today.getFullYear(), month - 1, 1))}<span>{birthdayCollection.filter((item) => item.month === month).length}</span></button>)}</div>
       {visibleBirthdays.length ? <div className="agent-birthday-list">{visibleBirthdays.map(({ member, date, daysAgo }) => {
         const days = Math.round((date - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / 86400000);
-        return <div className="agent-birthday-item" key={member.id}><button type="button" className="agent-birthday-open" onClick={() => editPerson(member)}><PersonAvatar member={member} /><span><strong>{member.name}</strong><small>{new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(date)} · {birthdayView === "upcoming" ? birthdayMessage(days) : birthdayAgoMessage(daysAgo)}</small></span><ChevronRight size={15} /></button>{canManage && <Button type="button" variant="ghost" size="icon" className="agent-birthday-delete" aria-label={"Remove birthday for " + member.name} title="Remove birthday" onClick={() => void deleteBirthday(member.id)}><Trash2 size={14} /></Button>}</div>;
+        const birthdayIsPrivate = !canManage && !profiles[member.id]?.visibility?.birthday;
+        return <div className="agent-birthday-item" key={member.id}><button type="button" className="agent-birthday-open" onClick={() => editPerson(member)}><PersonAvatar member={member} /><span><strong>{member.name}</strong><small>{new Intl.DateTimeFormat("en-US", birthdayIsPrivate ? { month: "short", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" }).format(date)} · {birthdayView === "upcoming" ? birthdayMessage(days) : birthdayAgoMessage(daysAgo)}</small></span><ChevronRight size={15} /></button>{canManage && <Button type="button" variant="ghost" size="icon" className="agent-birthday-delete" aria-label={"Remove birthday for " + member.name} title="Remove birthday" onClick={() => void deleteBirthday(member.id)}><Trash2 size={14} /></Button>}</div>;
       })}</div> : <button className="agent-birthday-empty" type="button" onClick={() => members[0] && editPerson(members[0])}><span>{birthdayView === "upcoming" ? (upcomingBirthdaysThisYear.length ? "No upcoming birthdays in this month" : "No birthdays remaining this year") : (recentlyPassedBirthdays.length ? "No recent birthdays in this month" : "No birthdays in the past 30 days")}</span><span>Add or edit a profile <ArrowRight size={14} /></span></button>}
     </section>
 
@@ -268,14 +268,15 @@ export default function AgentProfilesPage() {
       {visibleMembers.length ? <div className="agent-profile-grid">{visibleMembers.map((member, index) => {
         const profile = profiles[member.id] ?? {};
         const personality = personalityInfo(profile.personality);
-        const nextBirthday = birthdayDate(profile.birthday, today);
+        const birthdayIsVisible = canManage || profile.visibility?.birthday;
+        const nextBirthday = birthdayIsVisible ? getNextBirthday(profile.birthday, today) : null;
         const tenure = tenureLabel(profile.hireDate, today);
         return <button type="button" className={"agent-profile-card agent-profile-card-" + (index % 4)} key={member.id} onClick={() => editPerson(member)} aria-label={"View " + member.name + " profile"}>
           <span className="agent-card-accent" />
           <span className="agent-profile-card-top"><span className="agent-card-role">{member.role || "Team member"}</span><span className="agent-card-arrow"><ArrowRight size={15} /></span></span>
           <span className="agent-card-person"><PersonAvatar member={member} large /><span><strong>{member.name}</strong><small>{personality ? personality.name + " · " + profile.personality : "Personality not added"}</small></span></span>
           {profile.summary && <span className="agent-card-summary">{profile.summary}</span>}
-          <span className="agent-card-details"><span><Cake size={14} /><span>{profile.birthday ? birthdayLabel(profile.birthday) + (nextBirthday ? " · " + birthdayMessage(nextBirthday.days) : "") : "Birthday not set"}</span></span><span><CalendarDays size={14} /><span>{tenure ? tenure + " here" : profile.hireDate ? "Hire date in the future" : "Hire date not set"}</span></span></span>
+          <span className="agent-card-details"><span><Cake size={14} /><span>{birthdayIsVisible && profile.birthday ? birthdayLabel(profile.birthday) + (nextBirthday ? " · " + birthdayMessage(nextBirthday.days) : "") : profile.birthday ? "Birthday is private" : "Birthday not set"}</span></span><span><CalendarDays size={14} /><span>{tenure ? tenure + " here" : profile.hireDate ? "Hire date in the future" : "Hire date not set"}</span></span></span>
           <span className="agent-card-bottom"><span>{customFields.length ? Object.values(profile.fields ?? {}).filter(Boolean).length + " profile details" : "Open full profile"}</span><ChevronRight size={15} /></span>
         </button>;
       })}</div> : <div className="agent-profile-empty"><CircleUserRound size={22} /><strong>{members.length ? "No profiles match" : "Add people to your organization first"}</strong><span>{members.length ? "Try a different name or role." : "Your profile directory uses the shared employee roster."}</span>{!members.length && <Link to="/organizational">Open organization chart <ArrowRight size={14} /></Link>}</div>}
@@ -287,7 +288,7 @@ export default function AgentProfilesPage() {
         <div className="agent-profile-identity"><div><h2 id="agent-profile-dialog-title">{selectedPerson.name}</h2><span>{selectedPerson.role || "Team member"}</span></div><span className="agent-roster-sync"><Check size={13} /> Organization roster</span></div>
       </div>
       <div className="agent-profile-form-scroll">
-      <div className="agent-profile-date-grid"><label className="agent-profile-field"><span><Cake size={14} /> Birthday</span><input type="date" disabled={!canManage} value={draft.birthday ?? ""} max={localDateValue()} onChange={(event) => setDraft((value) => ({ ...value, birthday: event.target.value }))} /></label><label className="agent-profile-field"><span><CalendarDays size={14} /> Joined the team</span><input type="date" disabled={!canManage} value={draft.hireDate ?? ""} max={localDateValue()} onChange={(event) => setDraft((value) => ({ ...value, hireDate: event.target.value }))} /></label></div>
+      <div className="agent-profile-date-grid"><label className="agent-profile-field"><span><Cake size={14} /> Birthday</span>{canManage || draft.visibility?.birthday ? <input type="date" disabled={!canManage} value={draft.birthday ?? ""} max={localDateValue()} onChange={(event) => setDraft((value) => ({ ...value, birthday: event.target.value }))} /> : <span className="agent-profile-private-value">Private</span>}</label><label className="agent-profile-field"><span><CalendarDays size={14} /> Joined the team</span><input type="date" disabled={!canManage} value={draft.hireDate ?? ""} max={localDateValue()} onChange={(event) => setDraft((value) => ({ ...value, hireDate: event.target.value }))} /></label></div>
         {canManage && <div className="agent-visibility-control" ref={visibilityControlRef}><Button type="button" variant="outline" onClick={() => setVisibilityOpen((open) => !open)} aria-expanded={visibilityOpen}><Eye size={15} /> Profile visibility</Button>{visibilityOpen && <section className="agent-visibility-panel"><strong>Shown to signed-in users</strong><p>Hidden details are omitted from data reads.</p>{[["photo", "Profile photo"], ["birthday", "Birthday"], ["hireDate", "Hire date"], ["personality", "Personality"], ["summary", "Summary"]].map(([key, label]) => <label key={key}><input type="checkbox" checked={draft.visibility?.[key] ?? key === "photo"} onChange={(event) => setDraft((value) => ({ ...value, visibility: { ...value.visibility, [key]: event.target.checked } }))} /><span>{label}</span></label>)}{customFields.length > 0 && <div className="agent-visibility-custom"><span>Custom fields</span>{customFields.map((field) => <label key={field.id}><input type="checkbox" checked={Boolean(draft.visibility?.fields?.[field.id])} onChange={(event) => setDraft((value) => ({ ...value, visibility: { ...value.visibility, fields: { ...value.visibility?.fields, [field.id]: event.target.checked } } }))} /><span>{field.label}</span></label>)}</div>}</section>}</div>}
         {draft.hireDate && <div className="agent-tenure-display"><CalendarDays size={15} /><span>On the team for</span><strong>{tenureLabel(draft.hireDate, today) || "Less than a month"}</strong></div>}
         <section className="agent-profile-personality"><div className="agent-profile-section-heading"><span><Sparkles size={15} /> Personality</span><small>{canManage ? "Editable snapshot" : "Team profile"}</small></div><label className="agent-profile-field"><span>16 personalities type</span><Select disabled={!canManage} value={draft.personality || "none"} onValueChange={(personality) => setDraft((value) => ({ ...value, personality: personality === "none" ? "" : personality }))}><SelectTrigger aria-label="Select personality type" disabled={!canManage}><SelectValue placeholder="Choose a personality type" /></SelectTrigger><SelectContent><SelectItem value="none">Not set</SelectItem>{PERSONALITY_OPTIONS.map((item) => <SelectItem value={item.value} key={item.value}>{item.name} · {item.value} · {item.family}</SelectItem>)}</SelectContent></Select></label>

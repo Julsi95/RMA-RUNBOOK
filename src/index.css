@@ -685,8 +685,8 @@ h1 { margin: 0; font-size: clamp(27px, 3vw, 34px); font-weight: 620; letter-spac
 :root { --motion-fast: 140ms; --motion-ui: 190ms; --ease-ui: cubic-bezier(.2,.75,.25,1); }
 button:not(:disabled), a, select, input, textarea { transition: color var(--motion-fast) var(--ease-ui), background-color var(--motion-fast) var(--ease-ui), border-color var(--motion-fast) var(--ease-ui), box-shadow var(--motion-fast) var(--ease-ui), transform var(--motion-fast) var(--ease-ui); }
 button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-.page-content { animation: page-arrive 240ms var(--ease-ui) both; }
-@keyframes page-arrive { from { opacity: .72; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+/* Keep fixed dialogs viewport-bound; transforms and opacity animations on this wrapper alter their containing or stacking context. */
+.page-content { animation: none; }
 .settings-card, .quick-card, .notification-archive-item, .history-entry-icon, .nav-link { transition: border-color var(--motion-ui) var(--ease-ui), background-color var(--motion-ui) var(--ease-ui), box-shadow var(--motion-ui) var(--ease-ui), transform var(--motion-ui) var(--ease-ui), color var(--motion-ui) var(--ease-ui); }
 .settings-card:hover, .quick-card:hover { border-color: color-mix(in srgb, var(--ring) 52%, var(--border)); box-shadow: 0 10px 28px rgb(0 0 0 / .045); }
 .nav-link { min-height: 42px; }
@@ -755,3 +755,14 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 @media (max-width: 760px) { .profile-hero { grid-template-columns: 1fr; gap: 18px; } .profile-detail-grid { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .settings-page-heading { align-items: flex-start; flex-direction: column; gap: 12px; } .settings-quick-nav { top: 60px; width: 100%; } .settings-admin-section { padding: 18px; } .profile-hero-main { align-items: flex-start; flex-direction: column; } .profile-info-list { grid-template-columns: 1fr; } .profile-avatar-large { width: 82px; height: 82px; border-radius: 23px; } .profile-edit-button { width: 100%; } }
 @media (prefers-reduced-motion: reduce) { .page-content { animation: none; } .nav-link:hover, .profile-panel:hover, .profile-footer-link:hover { transform: none; } .profile-menu { animation: none; } }
+
+/* Keep the chart inside the space below the page heading and summary. */
+.organization-page{height:calc(100dvh - 85px);min-height:0;max-height:1000px;grid-template-rows:auto auto minmax(0,1fr);gap:16px}
+.org-chart-panel{display:grid;grid-template-rows:auto minmax(0,1fr);min-height:0}
+.org-chart-viewport{height:100%;min-height:0;overflow:auto;overscroll-behavior:contain;cursor:grab;touch-action:pan-x pan-y;scrollbar-color:var(--muted-foreground) transparent;scrollbar-width:thin}
+.org-chart-viewport:focus-visible{outline:2px solid var(--ring);outline-offset:-3px}
+.org-chart-viewport.is-panning{cursor:grabbing;user-select:none}
+.org-chart-viewport.is-panning *{user-select:none}
+.org-chart-live{gap:8px}
+.org-chart-live small{padding-left:8px;border-left:1px solid var(--border);font-size:10px;font-weight:450}
+@media(max-width:700px){.organization-page{height:calc(100dvh - 95px);gap:12px}.org-summary-row{min-height:0}.org-chart-heading p{max-width:62ch}.org-chart-viewport{touch-action:auto}}
