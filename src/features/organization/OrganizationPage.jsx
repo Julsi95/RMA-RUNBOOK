@@ -14,6 +14,7 @@ export default function OrganizationPage() {
   const [dialog, setDialog] = useState({ open: false, member: null });
   const [profileMember, setProfileMember] = useState(null);
   const [saveError, setSaveError] = useState("");
+  const [saveMessage, setSaveMessage] = useState("");
   const chartRef = useRef(null);
   const panRef = useRef(null);
   const [isPanning, setIsPanning] = useState(false);
@@ -45,11 +46,14 @@ export default function OrganizationPage() {
   }
 
   function openAddDialog() {
+    setSaveError(""); setSaveMessage("");
     setDialog({ open: true, member: null });
   }
 
   async function saveMember(memberData) {
     const id = memberData.id ?? createMemberId();
+    const creating = !members.some((person) => person.id === id);
+    setSaveError(""); setSaveMessage("");
     const previous = members.find((person) => person.id === id);
     const savedMember = { ...memberData, id };
     let next = members.some((person) => person.id === id)
@@ -60,6 +64,7 @@ export default function OrganizationPage() {
     }
     await saveMembers(next);
     setDialog({ open: false, member: null });
+    setSaveMessage(creating ? "Employee added successfully." : "Employee changes saved.");
   }
 
   async function removeMember(member) {
@@ -87,7 +92,7 @@ export default function OrganizationPage() {
         {canEdit && <Button onClick={openAddDialog}><Plus size={17} /> Add employee</Button>}
       </div>
       {loading && <p className="page-description" role="status">Loading team directory…</p>}
-      {(error || saveError) && <p className="auth-error" role="alert">{saveError || error}</p>}
+      {(error || saveError) && <p className="auth-error" role="alert">{saveError || error}</p>}{saveMessage && <p className="auth-success" role="status">{saveMessage}</p>}
 
       <div className="org-summary-row">
         <div className="org-total-card">

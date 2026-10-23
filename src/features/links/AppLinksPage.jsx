@@ -6,6 +6,7 @@ import { isSupabaseConfigured } from "@/lib/supabase";
 import { loadAppLinks, saveAppLinks } from "@/lib/backend-repositories";
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 import { fetchCachedQuery, queryClient, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
+import { safeHttpUrl } from "@/lib/safe-url";
 import "@/features/links/app-links.css";
 
 const STORAGE_KEY = "starter-app-app-links-v1";
@@ -25,11 +26,11 @@ function readResources() {
 }
 
 function getHost(value) {
-  try { return new URL(value).host; } catch { return ""; }
+  try { return new URL(safeHttpUrl(value)).host; } catch { return ""; }
 }
 
 function getFavicon(value) {
-  try { return new URL("/favicon.ico", value).toString(); } catch { return ""; }
+  try { return new URL("/favicon.ico", safeHttpUrl(value)).toString(); } catch { return ""; }
 }
 
 function ResourceIcon({ item }) {
@@ -51,6 +52,7 @@ export default function AppLinksPage() {
   const [retryCount, setRetryCount] = useState(0);
   const [loadError, setLoadError] = useState("");
   const [saveError, setSaveError] = useState("");
+  const [saveMessage, setSaveMessage] = useState("");
   const canManage = canEdit && remoteReady;
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -103,25 +105,28 @@ export default function AppLinksPage() {
 
   function openEditor(item = null) {
     if (!canManage) return;
+    setSaveError(""); setSaveMessage("");
     setEditor(item ? { ...item } : { id: "", name: "", url: "", application: "", group: activeGroup === "All" ? DEFAULT_GROUPS[0] : activeGroup, description: "", publicVisible: true });
   }
 
   async function saveResource(event) {
     event.preventDefault();
     if (!canManage) return;
+    setSaveError(""); setSaveMessage("");
     const name = editor.name.trim();
     const url = editor.url.trim();
     const group = editor.group.trim();
     try {
       const parsed = new URL(url);
-      if (!["http:", "https:"].includes(parsed.protocol)) return;
-    } catch { return; }
-    if (!name || !group) return;
+      if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) { setSaveError("Use a valid HTTP or HTTPS URL without embedded credentials."); return; }
+    } catch { setSaveError("Enter a valid URL, including https:// or http://."); return; }
+    if (!name || !group) { setSaveError("Enter a resource name and collection."); return; }
     const item = { ...editor, id: editor.id || newId(), name, url, group, application: editor.application.trim(), description: editor.description.trim() };
     try { await persist(editor.id ? resources.map((current) => current.id === editor.id ? item : current) : [item, ...resources]); }
     catch (error) { setSaveError(error.message || "Could not save this resource."); return; }
     setActiveGroup("All");
     setEditor(null);
+    setSaveMessage(editor.id ? "Resource updated successfully." : "Resource added successfully.");
   }
 
   async function deleteResource(id) {
@@ -136,7 +141,7 @@ export default function AppLinksPage() {
       {canManage && <Button onClick={() => openEditor()}><Plus size={17} /> Add resource</Button>}
     </header>
     {refreshing && <p className="page-description data-refresh-status" role="status"><LoaderCircle size={14} className="data-refresh-spinner" />{remoteReady ? "Updating shared links…" : "Loading shared links…"}</p>}
-    {(loadError || saveError) && <div className="data-refresh-error" role="alert"><p className="auth-error">{saveError || loadError}</p>{loadError && <Button type="button" variant="outline" size="sm" onClick={() => setRetryCount((count) => count + 1)}><RefreshCw size={14} /> Retry loading</Button>}</div>}
+    {(loadError || saveError) && <div className="data-refresh-error" role="alert"><p className="auth-error">{saveError || loadError}</p>{loadError && <Button type="button" variant="outline" size="sm" onClick={() => setRetryCount((count) => count + 1)}><RefreshCw size={14} /> Retry loading</Button>}</div>}{saveMessage && <p className="auth-success" role="status">{saveMessage}</p>}
 
     <section className="app-links-hero" aria-label="Resource library overview">
       <div className="app-links-hero-copy"><span className="app-links-hero-mark"><Shapes size={20} /></span><div><p className="app-links-hero-kicker">QUICK ACCESS LIBRARY</p><h2>Everything your shift needs.</h2><p>Choose a collection, find the right tool, and launch it in a new tab.</p></div></div>
@@ -159,8 +164,8 @@ export default function AppLinksPage() {
         <div className="app-link-card-top"><span className="app-link-group-tag"><i />{item.group}</span>{canManage && <div className="app-link-actions"><Button type="button" variant="ghost" size="icon" title="Edit resource" aria-label={"Edit " + item.name} onClick={() => openEditor(item)}><Pencil size={15} /></Button><Button type="button" variant="ghost" size="icon" className="app-link-delete" title="Delete resource" aria-label={"Delete " + item.name} onClick={() => void deleteResource(item.id)}><Trash2 size={15} /></Button></div>}</div>
         <div className="app-link-card-main"><ResourceIcon item={item} /><div className="app-link-title"><h3>{item.name}</h3>{item.application && <span>{item.application}</span>}</div><span className="app-link-card-number">{String(index + 1).padStart(2, "0")}</span></div>
         {item.description && <p className="app-link-description">{item.description}</p>}
-        <a className="app-link-url" href={item.url} target="_blank" rel="noreferrer noopener"><span>{item.url}</span><ArrowUpRight size={15} /></a>
-        <div className="app-link-card-footer"><span><Link2 size={13} />{getHost(item.url) || "Web resource"}</span><a className="app-link-launch" href={item.url} target="_blank" rel="noreferrer noopener"><ExternalLink size={15} /> Launch app <ArrowUpRight size={15} /></a></div>
+        <a className="app-link-url" href={safeHttpUrl(item.url) || undefined} target="_blank" rel="noreferrer noopener"><span>{item.url}</span><ArrowUpRight size={15} /></a>
+        <div className="app-link-card-footer"><span><Link2 size={13} />{getHost(item.url) || "Web resource"}</span><a className="app-link-launch" href={safeHttpUrl(item.url) || undefined} target="_blank" rel="noreferrer noopener"><ExternalLink size={15} /> Launch app <ArrowUpRight size={15} /></a></div>
       </article>)}</div> : <div className="app-links-empty"><span><AppWindow size={22} /></span><strong>{search ? "No matching resources" : resources.length ? "Nothing in this collection yet" : "Your launchpad is ready"}</strong><p>{search ? "Try a different search, or switch collections." : canManage ? "Add your first web base, app, or request form to get started." : "No resources have been published yet."}</p>{!search && canManage && <Button variant="outline" onClick={() => openEditor()}><Plus size={16} /> Add a resource</Button>}</div>}
     </section>
 

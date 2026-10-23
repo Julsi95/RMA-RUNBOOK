@@ -68,6 +68,7 @@ export default function QaParametersPage() {
   const [retryCount, setRetryCount] = useState(0);
   const [loadError, setLoadError] = useState("");
   const [saveError, setSaveError] = useState("");
+  const [saveMessage, setSaveMessage] = useState("");
   const canManage = canEdit && remoteReady;
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -112,6 +113,7 @@ export default function QaParametersPage() {
 
   function openEditor(item = null) {
     if (!canManage) return;
+    setSaveError(""); setSaveMessage("");
     setEditor(item
       ? { ...item, tcr: String(item.tcr), tcp: String(item.tcp) }
       : { id: "", category: activeCategory === "All" ? "Customer experience" : activeCategory, criterion: "", tcr: "14", tcp: "14" });
@@ -120,15 +122,18 @@ export default function QaParametersPage() {
   async function saveCriterion(event) {
     event.preventDefault();
     if (!canManage) return;
+    setSaveError(""); setSaveMessage("");
     const tcr = Number(editor.tcr);
     const tcp = Number(editor.tcp);
-    if (!editor.criterion.trim() || !editor.category.trim() || !Number.isInteger(tcr) || !Number.isInteger(tcp) || tcr < 0 || tcp < 0 || tcp > tcr) return;
+    if (!editor.criterion.trim() || !editor.category.trim()) { setSaveError("Enter both a criterion and category."); return; }
+    if (!Number.isInteger(tcr) || !Number.isInteger(tcp) || tcr < 0 || tcp < 0 || tcp > tcr) { setSaveError("Use non-negative whole numbers, and make TCP no greater than TCR."); return; }
     const existing = criteria.find((item) => item.id === editor.id);
     const nextItem = { ...editor, id: editor.id || makeId(), criterion: editor.criterion.trim(), category: editor.category.trim(), tcr, tcp, order: existing?.order ?? criteria.length };
     try { await persist(existing ? criteria.map((item) => item.id === existing.id ? nextItem : item) : [...criteria, nextItem]); }
     catch (error) { setSaveError(error.message || "Could not save criterion."); return; }
     setActiveCategory(nextItem.category);
     setEditor(null);
+    setSaveMessage(existing ? "QA criterion updated successfully." : "QA criterion added successfully.");
   }
 
   async function deleteCriterion(id) {
@@ -143,7 +148,7 @@ export default function QaParametersPage() {
       {canManage && <Button onClick={() => openEditor()}><Plus size={17} /> Add criterion</Button>}
     </header>
     {refreshing && <p className="page-description data-refresh-status" role="status"><LoaderCircle size={14} className="data-refresh-spinner" />{remoteReady ? "Updating shared QA criteria…" : "Loading shared QA criteria…"}</p>}
-    {(loadError || saveError) && <div className="data-refresh-error" role="alert"><p className="auth-error">{saveError || loadError}</p>{loadError && <Button type="button" variant="outline" size="sm" onClick={() => setRetryCount((count) => count + 1)}><RefreshCw size={14} /> Retry loading</Button>}</div>}
+    {(loadError || saveError) && <div className="data-refresh-error" role="alert"><p className="auth-error">{saveError || loadError}</p>{loadError && <Button type="button" variant="outline" size="sm" onClick={() => setRetryCount((count) => count + 1)}><RefreshCw size={14} /> Retry loading</Button>}</div>}{saveMessage && <p className="auth-success" role="status">{saveMessage}</p>}
 
     <section className="qa-params-overview">
       <div className="qa-params-score-panel">

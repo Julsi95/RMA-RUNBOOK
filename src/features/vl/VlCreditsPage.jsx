@@ -77,6 +77,7 @@ export default function VlCreditsPage() {
   const [search, setSearch] = useState("");
   const [editor, setEditor] = useState(null);
   const [formError, setFormError] = useState("");
+  const [formMessage, setFormMessage] = useState("");
   const bounds = monthBounds(month);
   const entries = useMemo(() => records.filter((entry) => entry.validFrom <= bounds.end && entry.validTo >= bounds.start), [records, bounds.start, bounds.end]);
   const assignedIds = useMemo(() => new Set(entries.map((entry) => entry.memberId)), [entries]);
@@ -125,7 +126,7 @@ export default function VlCreditsPage() {
 
   function openEditor(entry = null) {
     if (!canEdit || (isSupabaseConfigured && !remoteReady)) return;
-    setFormError("");
+    setFormError(""); setFormMessage("");
     setEditor(entry ? { ...entry } : {
       id: "", memberId: "", value: "", ...bounds,
     });
@@ -157,6 +158,7 @@ export default function VlCreditsPage() {
         setRecords((current) => current.some((record) => record.id === next.id) ? current.map((record) => record.id === next.id ? next : record) : [...current, next]);
       }
       setEditor(null);
+      setFormMessage(editor.id ? "VL credit record updated successfully." : "VL credit record added successfully.");
     } catch (error) { setFormError(error.message || "VL record could not be saved."); }
     finally { setBusy(false); }
   }
@@ -176,7 +178,7 @@ export default function VlCreditsPage() {
       <div><p className="eyebrow">PEOPLE · LEAVE TRACKING</p><h1>VL credits</h1><p className="page-description">View a month’s balances from records with clear effective dates.</p></div>
       {canEdit && <Button onClick={() => openEditor()} disabled={busy || !remoteReady}><CirclePlus size={17} /> Add credit record</Button>}
     </header>
-    {(syncError || (!remoteReady && isSupabaseConfigured)) && <p className={syncError ? "auth-error" : "page-description"} role={syncError ? "alert" : "status"}>{syncError || "Loading shared VL records…"}</p>}
+    {(syncError || (!remoteReady && isSupabaseConfigured)) && <p className={syncError ? "auth-error" : "page-description"} role={syncError ? "alert" : "status"}>{syncError || "Loading shared VL records…"}</p>}{formMessage && <p className="auth-success" role="status">{formMessage}</p>}
 
     <section className="vl-overview" aria-label="Monthly VL overview">
       <div className="vl-overview-main"><span className="vl-overview-icon"><Coins size={19} /></span><div><span className="vl-overview-label">VALID ON ANY DAY IN</span><strong>{monthLabel(month)}</strong><small>Entries appear in every month covered by their validity dates.</small></div><div className="vl-stamp"><span>VL</span><i /></div></div>
