@@ -51,7 +51,7 @@ export default function SettingsPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deletePhrase, setDeletePhrase] = useState("");
   const [deleteError, setDeleteError] = useState("");
-  const [sessionPolicy, setSessionPolicy] = useState(cachedSessionSettings ?? { inactivity_timeout_minutes: 5, absolute_timeout_hours: 12, warning_minutes: 2 });
+  const [sessionPolicy, setSessionPolicy] = useState(cachedSessionSettings ?? { inactivity_timeout_minutes: 30, absolute_timeout_hours: 12, warning_minutes: 2 });
   const [sessionPolicyBusy, setSessionPolicyBusy] = useState(false);
   const [sessionPolicyMessage, setSessionPolicyMessage] = useState("");
   const [sessionPolicyError, setSessionPolicyError] = useState("");
@@ -165,8 +165,8 @@ export default function SettingsPage() {
   async function saveSessionPolicy(event) {
     event.preventDefault(); setSessionPolicyError(""); setSessionPolicyMessage(""); setSessionPolicyBusy(true);
     try {
-      await saveRunbookSessionSettings({ ...sessionPolicy, inactivity_timeout_minutes: 5 });
-      queryClient.setQueryData(sessionSettingsKey, { ...sessionPolicy, inactivity_timeout_minutes: 5 });
+      await saveRunbookSessionSettings({ ...sessionPolicy, inactivity_timeout_minutes: 30 });
+      queryClient.setQueryData(sessionSettingsKey, { ...sessionPolicy, inactivity_timeout_minutes: 30 });
       await refreshSessionStatus();
       setSessionPolicyMessage("Session security settings saved for everyone.");
     } catch (error) { setSessionPolicyError(error.message || "Session settings could not be saved."); }
@@ -368,9 +368,9 @@ export default function SettingsPage() {
       </section>}
       {deleteTarget && <AccountDeletionDialog account={deleteTarget} phrase={deletePhrase} error={deleteError} busy={accountBusy} onPhraseChange={setDeletePhrase} onClose={() => { if (!accountBusy) { setDeleteTarget(null); setDeletePhrase(""); setDeleteError(""); } }} onConfirm={() => void confirmAccountDeletion()} />}
       {configured && canEdit && <section id="session-security" className="settings-card settings-admin-section">
-        <div><h2><Clock3 size={19} /> Session security</h2><p>Inactive sessions are ended after five minutes. The timeout is enforced by the database.</p></div>
+        <div><h2><Clock3 size={19} /> Session security</h2><p>Inactive sessions are ended after 30 minutes. The timeout is enforced by the database.</p></div>
         <form className="session-policy-form" onSubmit={saveSessionPolicy}>
-          <div className="session-policy-fixed"><span>Inactivity timeout</span><strong>5 minutes</strong></div>
+          <div className="session-policy-fixed"><span>Inactivity timeout</span><strong>30 minutes</strong></div>
           <label className="form-field"><span>Maximum session lifetime (hours)</span><input type="number" min="1" max="168" required value={sessionPolicy.absolute_timeout_hours} onChange={(event) => setSessionPolicy((value) => ({ ...value, absolute_timeout_hours: event.target.value }))} /></label>
           {sessionPolicyError && <p className="auth-error" role="alert">{sessionPolicyError}</p>}{sessionPolicyMessage && <p className="auth-success" role="status">{sessionPolicyMessage}</p>}
           <Button type="submit" disabled={sessionPolicyBusy}>{sessionPolicyBusy ? "Saving…" : "Save session settings"}</Button>

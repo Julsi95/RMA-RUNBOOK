@@ -283,6 +283,7 @@ export default function KpiQaPage() {
   const [selectedMonth, setSelectedMonth] = useState(() => isSupabaseConfigured ? new Date().toISOString().slice(0, 7) : getLatestMonth(readSavedData(teamMembers)));
   const [remoteReady, setRemoteReady] = useState(Boolean(cachedMonths));
   const [syncError, setSyncError] = useState("");
+  const [syncMessage, setSyncMessage] = useState("");
   const [creatingMonth, setCreatingMonth] = useState(false);
   const remoteSnapshotRef = useRef(cachedMonths ? structuredClone(cachedMonths) : null);
   const [monthDraft, setMonthDraft] = useState("");
@@ -398,9 +399,11 @@ export default function KpiQaPage() {
   async function createMonth(month) {
     if (!month) return;
     if (monthlyData[month]) { setSelectedMonth(month); return; }
+    setSyncError(""); setSyncMessage("");
     if (!isSupabaseConfigured) {
       setSelectedMonth(month);
       setMonthlyData((current) => ({ ...current, [month]: { demo: false, scoringSettings: getKpiScoringSettings(), records: {} } }));
+      setSyncMessage("KPI month created in this browser.");
       return;
     }
     if (!canEdit) { setSyncError("Sign in with an editor account to create a KPI month."); return; }
@@ -413,6 +416,7 @@ export default function KpiQaPage() {
       queryClient.setQueryData(monthsKey, remoteSnapshotRef.current);
       setMonthlyData((current) => ({ ...current, [month]: current[month] ?? monthData }));
       setSelectedMonth(month);
+      setSyncMessage(getMonthLabel(month) + " KPI month created successfully.");
     } catch (error) { setSyncError(error.message || "Could not create this KPI month."); }
     finally { setCreatingMonth(false); }
   }
@@ -500,7 +504,7 @@ export default function KpiQaPage() {
         {!isDemo && <span className="kpi-saved-indicator"><span /> {isSupabaseConfigured ? "Published results" : "Saved in this browser"}</span>}
       </div>
 
-      {syncError && <div className="kpi-form-error" role="alert">{syncError}</div>}
+      {syncError && <div className="kpi-form-error" role="alert">{syncError}</div>}{syncMessage && <p className="auth-success" role="status">{syncMessage}</p>}
       {isSupabaseConfigured && !remoteReady && <div className="kpi-empty-state"><BarChart3 size={22} /><strong>Loading monthly results…</strong></div>}
 
       <section className="kpi-trend-panel">

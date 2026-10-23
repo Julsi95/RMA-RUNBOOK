@@ -3,27 +3,12 @@ import { ArrowRight, ArrowUpRight, CalendarDays, ChevronLeft, ChevronRight, Quot
 import { Link } from "react-router";
 import { getOverallScore, getKpiScoringSettings } from "@/features/kpi/kpi-data";
 import { useDashboardKpi } from "@/features/dashboard/dashboard-kpi-provider";
-
-function safeHref(value) {
-  if (!value || typeof value !== "string") return "";
-  if (value.startsWith("/") && !value.startsWith("//")) return value;
-  try {
-    const url = new URL(value);
-    return ["http:", "https:"].includes(url.protocol) ? url.href : "";
-  } catch {
-    return "";
-  }
-}
+import { safeAppHref, safeHttpUrl } from "@/lib/safe-url";
 
 function safeImageSource(value) {
   if (typeof value !== "string" || !value) return "";
   if (/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(value)) return value;
-  try {
-    const url = new URL(value, window.location.origin);
-    return ["http:", "https:"].includes(url.protocol) ? url.href : "";
-  } catch {
-    return "";
-  }
+  try { return safeHttpUrl(new URL(value, window.location.origin).href); } catch { return ""; }
 }
 
 function gridColumnStyles(item, width) {
@@ -36,7 +21,7 @@ function gridColumnStyles(item, width) {
 }
 
 function DashboardLink({ url, children, className = "", enabled = true }) {
-  const href = safeHref(url);
+  const href = safeAppHref(url);
   if (!href) return null;
   if (!enabled) return <span className={className}>{children}</span>;
   if (href.startsWith("/")) return <Link className={className} to={href}>{children}</Link>;

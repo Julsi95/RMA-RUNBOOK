@@ -36,9 +36,9 @@ export function useHolidayCalendar(year, { autoSync = true } = {}) {
     let active = true;
     void refresh().catch(() => {});
     const unsubscribe = subscribeToTables(["holiday_calendar"], () => { if (active) void refresh(true).catch(() => {}); }, `holiday-calendar-${year}`);
-    if (user && autoSync) for (const country of ["US", "PH"]) void syncHolidayYear(country, year, false).then(() => active && refresh(true)).catch((cause) => { if (active) setError(cause.message || "Holiday sync failed."); });
+    if (user && isAdmin && autoSync) for (const country of ["US", "PH"]) void syncHolidayYear(country, year, false).then(() => active && refresh(true)).catch((cause) => { if (active) setError(cause.message || "Holiday sync failed."); });
     return () => { active = false; unsubscribe(); };
-  }, [autoSync, refresh, user?.id, year]);
+  }, [autoSync, isAdmin, refresh, user?.id, year]);
 
   return { holidays, loading, error, syncing, isAdmin: Boolean(user && isAdmin), refresh, sync };
 }

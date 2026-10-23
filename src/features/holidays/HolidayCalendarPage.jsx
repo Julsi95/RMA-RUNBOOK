@@ -16,7 +16,7 @@ function HolidayEditor({ holiday, onClose, onSaved }) {
   const [error, setError] = useState("");
   async function submit(event) {
     event.preventDefault(); setBusy(true); setError("");
-    try { await saveHoliday({ id: holiday?.id, ...form }); await onSaved(); onClose(); }
+    try { await saveHoliday({ id: holiday?.id, ...form }); onClose(); await onSaved(!holiday); }
     catch (cause) { setError(cause.message || "Holiday could not be saved."); }
     finally { setBusy(false); }
   }
@@ -56,6 +56,7 @@ export default function HolidayCalendarPage() {
   const [editor, setEditor] = useState(null);
   const [previewYear, setPreviewYear] = useState(null);
   const [actionError, setActionError] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
   const year = month.getUTCFullYear();
   const { holidays, loading, error, syncing, isAdmin, refresh, sync } = useHolidayCalendar(year);
   const shownHolidays = useMemo(() => holidays.filter((holiday) => country === "all" || holiday.country_code === country), [country, holidays]);
@@ -70,17 +71,24 @@ export default function HolidayCalendarPage() {
 
   async function removeHoliday(item) {
     if (!window.confirm(`Delete “${item.name_override || item.name}” from the calendar?`)) return;
-    try { await deleteHoliday(item.id); await refresh(true); } catch (cause) { setActionError(cause.message || "Holiday could not be deleted."); }
+    setActionError(""); setActionMessage("");
+    try { await deleteHoliday(item.id); } catch (cause) { setActionError(cause.message || "Holiday could not be deleted."); return; }
+    setActionMessage("Holiday deleted successfully.");
+    try { await refresh(true); } catch { setActionError("Holiday was deleted, but the calendar could not refresh. Try reloading the calendar."); }
   }
-  async function syncCountry(code) { setActionError(""); try { await sync(code, true); } catch (cause) { setActionError(cause.message || "Holiday sync failed."); } }
+  async function syncCountry(code) { setActionError(""); setActionMessage(""); try { await sync(code, true); setActionMessage(`${code} holidays synchronized successfully.`); } catch (cause) { setActionError(cause.message || "Holiday sync failed."); } }
+  async function onHolidaySaved(created) {
+    setActionError(""); setActionMessage(created ? "Holiday added successfully." : "Holiday updated successfully.");
+    try { await refresh(true); } catch { setActionError("Holiday was saved, but the calendar could not refresh. Try reloading the calendar."); }
+  }
 
   return <section className="page-content holiday-page">
     <header className="page-heading holiday-heading"><div><p className="eyebrow">WORKPLACE CALENDAR</p><h1>US &amp; PH holidays</h1><p className="page-description">Plan WFH dates around public holidays. Non-working holidays are marked in coral.</p></div><div className="holiday-heading-actions">{isAdmin && <><Button type="button" variant="outline" disabled={syncing} onClick={() => { void syncCountry("US"); void syncCountry("PH"); }}><RefreshCw size={15} className={syncing ? "holiday-spin" : ""} />{syncing ? "Syncing" : "Sync holidays"}</Button><Button type="button" onClick={() => setEditor({})}><Plus size={16} /> Add holiday</Button></>}</div></header>
-    {(error || actionError) && <p className="auth-error holiday-error" role="alert">{actionError || error}</p>}
+    {(error || actionError) && <p className="auth-error holiday-error" role="alert">{actionError || error}</p>}{actionMessage && <p className="auth-success" role="status">{actionMessage}</p>}
     <div className="holiday-toolbar"><div className="holiday-month-controls"><Button variant="outline" size="icon" aria-label="Previous month" onClick={() => setMonth(new Date(Date.UTC(year, month.getUTCMonth() - 1, 1)))}><ChevronLeft size={18} /></Button><h2>{monthTitle(month)}</h2><Button variant="outline" size="icon" aria-label="Next month" onClick={() => setMonth(new Date(Date.UTC(year, month.getUTCMonth() + 1, 1)))}><ChevronRight size={18} /></Button></div><div className="holiday-toolbar-end"><div className="holiday-filter" role="group" aria-label="Filter by country">{[["all", "Both countries"], ["US", "US"], ["PH", "Philippines"]].map(([value, label]) => <button type="button" key={value} className={country === value ? "selected" : ""} onClick={() => setCountry(value)}>{label}</button>)}</div><Button type="button" variant="outline" onClick={() => setPreviewYear(String(year))}><Eye size={15} /> Preview year</Button></div></div>
     <div className="holiday-layout"><section className="holiday-calendar-panel" aria-label={`${monthTitle(month)} calendar`}><div className="holiday-calendar-weekdays">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => <span key={day}>{day}</span>)}</div><div className="holiday-calendar-grid">{monthDays.map((day) => { const date = isoDate(day); const inMonth = day.getUTCMonth() === month.getUTCMonth(); const items = byDate.get(date) ?? []; return <div key={date} className={`holiday-calendar-day ${!inMonth ? "outside" : ""} ${items.some((item) => !item.is_working) ? "has-nonworking" : items.length ? "has-working" : ""}`}><span className="holiday-day-number">{day.getUTCDate()}</span>{items.slice(0, 2).map((item) => <span key={item.id} title={`${item.name_override || item.name} · ${HOLIDAY_COUNTRIES[item.country_code]}`} className={`holiday-day-marker ${item.is_working ? "working" : "nonworking"}`}>{item.name_override || item.name}</span>)}{items.length > 2 && <span className="holiday-more">+{items.length - 2} more</span>}</div>; })}</div><div className="holiday-legend"><span><i className="nonworking" />Non-working</span><span><i className="working" />Working holiday</span></div></section>
       <aside className="holiday-list-panel"><header><div><p className="eyebrow">{HOLIDAY_COUNTRIES[country] ?? "UNITED STATES + PHILIPPINES"}</p><h2>Holidays this month</h2></div><span className="holiday-count">{monthHolidays.length}</span></header>{loading && <p className="holiday-empty">Loading calendar…</p>}{!loading && monthHolidays.length === 0 && <div className="holiday-empty"><CalendarDays size={22} /><span>No holidays in this month.</span></div>}<div className="holiday-list">{monthHolidays.map((item) => <article key={item.id} className={`holiday-list-item ${item.is_working ? "working" : "nonworking"}`}><div className="holiday-list-date"><strong>{Number(item.holiday_date.slice(8, 10))}</strong><span>{DATE_FORMAT.format(new Date(`${item.holiday_date}T00:00:00Z`)).split(" ")[0]}</span></div><div className="holiday-list-copy"><strong>{item.name_override || item.name}</strong><span>{HOLIDAY_COUNTRIES[item.country_code]}</span><span className={`holiday-status ${item.is_working ? "working" : "nonworking"}`}>{item.is_working ? "Working holiday" : "Non-working holiday"}</span></div>{isAdmin && <div className="holiday-item-actions"><Button variant="ghost" size="icon" aria-label={`Edit ${item.name}`} onClick={() => setEditor(item)}><Pencil size={15} /></Button><Button variant="ghost" size="icon" aria-label={`Delete ${item.name}`} onClick={() => void removeHoliday(item)}><Trash2 size={15} /></Button></div>}</article>)}</div><footer>{isAdmin && <div className="holiday-sync-actions"><Button variant="outline" size="sm" disabled={syncing} onClick={() => void syncCountry("US")}>Sync US</Button><Button variant="outline" size="sm" disabled={syncing} onClick={() => void syncCountry("PH")}>Sync PH</Button></div>}<span>Updated automatically from Nager.Date</span></footer></aside></div>
-    {editor && <HolidayEditor holiday={editor.id ? editor : null} onClose={() => setEditor(null)} onSaved={() => refresh(true)} />}
+    {editor && <HolidayEditor holiday={editor.id ? editor : null} onClose={() => setEditor(null)} onSaved={(created) => onHolidaySaved(created)} />}
     {previewYear && <HolidayYearPreview initialYear={previewYear} onClose={() => setPreviewYear(null)} />}
   </section>;
 }

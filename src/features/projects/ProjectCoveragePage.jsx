@@ -118,6 +118,7 @@ export default function ProjectCoveragePage() {
   const [projects, setProjects] = useState(() => isSupabaseConfigured ? cachedProjects ?? [] : getSavedProjects());
   const [remoteReady, setRemoteReady] = useState(Boolean(cachedProjects));
   const [syncError, setSyncError] = useState("");
+  const [syncMessage, setSyncMessage] = useState("");
   const remoteSnapshotRef = useRef(cachedProjects ? structuredClone(cachedProjects) : null);
   const { members: rosterMembers } = useOrganizationRoster();
   const members = useMemo(() => getOperationalRoster(rosterMembers), [rosterMembers]);
@@ -139,7 +140,7 @@ export default function ProjectCoveragePage() {
       setProjects(saved);
       setRemoteReady(true);
       setSyncError("");
-    }).catch((error) => { if (active) { setSyncError(error.message || "Could not load project coverage."); setRemoteReady(true); } });
+    }).catch((error) => { if (active) { setSyncError(error.message || "Could not load project coverage."); setSyncMessage(""); setRemoteReady(true); } });
     return () => { active = false; };
   }, [resourceKey]);
 
@@ -164,13 +165,15 @@ export default function ProjectCoveragePage() {
     }
     if (!remoteReady || !canEdit || !remoteSnapshotRef.current || JSON.stringify(projects) === JSON.stringify(remoteSnapshotRef.current)) return undefined;
     const next = structuredClone(projects);
+    setSyncError(""); setSyncMessage("");
     const timeout = window.setTimeout(async () => {
       try {
         await saveProjectCoverage(next);
         remoteSnapshotRef.current = next;
         queryClient.setQueryData(resourceKey, next);
         setSyncError("");
-      } catch (error) { setSyncError(error.message || "Could not save project coverage."); }
+        setSyncMessage("Project coverage saved successfully.");
+      } catch (error) { setSyncMessage(""); setSyncError(error.message || "Could not save project coverage."); }
     }, 500);
     return () => window.clearTimeout(timeout);
   }, [projects, remoteReady, canEdit, resourceKey]);
@@ -194,8 +197,10 @@ export default function ProjectCoveragePage() {
 
   function saveProject(draft) {
     if (!canEdit || (isSupabaseConfigured && !remoteSnapshotRef.current)) return;
+    setSyncError(""); setSyncMessage("");
     if (draft.id) setProjects((current) => current.map((project) => project.id === draft.id ? draft : project));
     else setProjects((current) => [...current, { ...draft, id: createProjectId() }]);
+    if (!isSupabaseConfigured) setSyncMessage(draft.id ? "Project changes saved in this browser." : "Project added in this browser.");
     setProjectDialog(null);
   }
 
@@ -240,7 +245,7 @@ export default function ProjectCoveragePage() {
         <div><p className="eyebrow">ADMIN · OPERATIONS</p><h1>Project coverage</h1><p className="page-description">Manage project contacts, trainers, and each team member’s training coverage.</p></div>
         {canManage && <Button onClick={() => setProjectDialog({ project: null })}><Plus size={16} /> Add project</Button>}
       </div>
-      {syncError && <p className="auth-error" role="alert">{syncError}</p>}
+      {syncError && <p className="auth-error" role="alert">{syncError}</p>}{syncMessage && <p className="auth-success" role="status">{syncMessage}</p>}
 
       <div className="coverage-summary-grid">
         <article><span className="coverage-summary-icon"><BriefcaseBusiness size={17} /></span><div><small>ACTIVE PROJECTS</small><strong>{activeProjects.length}</strong><span>{projects.length - activeProjects.length} archived</span></div></article>
