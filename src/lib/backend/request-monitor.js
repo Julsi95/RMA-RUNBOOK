@@ -1,7 +1,16 @@
 const MAX_RECENT_REQUESTS = 500;
 const RETENTION_DAYS = 7;
 const STORAGE_KEY = "runbook-backend-request-monitor-v1";
+const SHARED_REPORT_PATH = "/rest/v1/rpc/record_runbook_backend_request_metrics";
+const INTERNAL_METRIC_ENDPOINTS = new Set(["record_runbook_backend_request_metrics", "get_runbook_backend_request_metrics"]);
 const listeners = new Set();
+let sharedBatch = { total: 0, failed: 0, slowestMs: 0, byPage: {}, byCategory: {} };
+let sharedTimer = null;
+let sharedFlush = null;
+let sharedTransport = null;
+let sharedRetryCount = 0;
+let sharedRetryDelay = 5000;
+let sharedReportingDisabled = false;
 
 function emptySnapshot() {
   return { startedAt: Date.now(), total: 0, failed: 0, lastAt: null, slowestMs: 0, byPage: {}, byCategory: {}, requests: [] };
@@ -68,6 +77,86 @@ let snapshot = loadSnapshot({ persistPruned: true });
 
 function notify() { listeners.forEach((listener) => listener(snapshot)); }
 
+function readHeader(headers, name) {
+  if (!headers) return "";
+  if (typeof headers.get === "function") return headers.get(name) ?? "";
+  const key = Object.keys(headers).find((candidate) => candidate.toLowerCase() === name.toLowerCase());
+  return key ? String(headers[key]) : "";
+}
+
+function scheduleSharedFlush() {
+  if (sharedTimer || sharedFlush || sharedReportingDisabled || !sharedBatch.total) return;
+  sharedTimer = globalThis.setTimeout(() => {
+    sharedTimer = null;
+    void flushSharedMetrics();
+  }, sharedRetryDelay);
+}
+
+async function flushSharedMetrics(keepalive = false) {
+  if (sharedFlush || sharedReportingDisabled || !sharedTransport || !sharedBatch.total) return;
+  if (sharedTimer) globalThis.clearTimeout(sharedTimer);
+  sharedTimer = null;
+  const batch = sharedBatch;
+  sharedBatch = { total: 0, failed: 0, slowestMs: 0, byPage: {}, byCategory: {} };
+  const body = JSON.stringify({
+    p_total: batch.total,
+    p_failed: batch.failed,
+    p_slowest_ms: batch.slowestMs,
+    p_by_page: batch.byPage,
+    p_by_category: batch.byCategory,
+  });
+  sharedFlush = sharedTransport.fetch(`${sharedTransport.origin}${SHARED_REPORT_PATH}`, {
+    method: "POST",
+    headers: {
+      apikey: sharedTransport.apiKey,
+      Authorization: sharedTransport.authorization,
+      "Content-Type": "application/json",
+    },
+    body,
+    keepalive,
+  }).then((response) => {
+    if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+      sharedReportingDisabled = true;
+      sharedBatch = { total: 0, failed: 0, slowestMs: 0, byPage: {}, byCategory: {} };
+      return;
+    }
+    if (!response.ok) throw new Error("Shared request metrics could not be saved.");
+    sharedRetryCount = 0;
+    sharedRetryDelay = 5000;
+  }).catch(() => {
+    sharedBatch.total += batch.total;
+    sharedBatch.failed += batch.failed;
+    sharedBatch.slowestMs = Math.max(sharedBatch.slowestMs, batch.slowestMs);
+    for (const [page, count] of Object.entries(batch.byPage)) sharedBatch.byPage[page] = (sharedBatch.byPage[page] ?? 0) + count;
+    for (const [category, count] of Object.entries(batch.byCategory)) sharedBatch.byCategory[category] = (sharedBatch.byCategory[category] ?? 0) + count;
+    sharedRetryCount += 1;
+    if (sharedRetryCount >= 3) {
+      sharedReportingDisabled = true;
+      sharedBatch = { total: 0, failed: 0, slowestMs: 0, byPage: {}, byCategory: {} };
+    } else {
+      sharedRetryDelay = 5000 * (2 ** sharedRetryCount);
+    }
+  }).finally(() => {
+    sharedFlush = null;
+    scheduleSharedFlush();
+  });
+  await sharedFlush;
+}
+
+function queueSharedMetric(event, baseFetch, projectOrigin, headers) {
+  const apiKey = readHeader(headers, "apikey");
+  if (!apiKey) return;
+  const authorization = readHeader(headers, "authorization") || `Bearer ${apiKey}`;
+  sharedTransport = { fetch: baseFetch, origin: projectOrigin, apiKey, authorization };
+  sharedBatch.total += 1;
+  sharedBatch.failed += Number(event.failed);
+  sharedBatch.slowestMs = Math.max(sharedBatch.slowestMs, event.durationMs);
+  sharedBatch.byPage[event.page] = (sharedBatch.byPage[event.page] ?? 0) + 1;
+  sharedBatch.byCategory[event.category] = (sharedBatch.byCategory[event.category] ?? 0) + 1;
+  if (sharedBatch.total >= 20) void flushSharedMetrics();
+  else scheduleSharedFlush();
+}
+
 function recordRequest({ method, endpoint, category, page, status, durationMs, failed }) {
   const at = Date.now();
   const data = pruneStoredData(readStoredData(), at);
@@ -94,6 +183,7 @@ if (typeof window !== "undefined") {
       notify();
     }
   });
+  window.addEventListener("pagehide", () => { void flushSharedMetrics(true); });
 }
 
 function classifyEndpoint(pathname) {
@@ -120,16 +210,26 @@ export function createMonitoredFetch(supabaseUrl, baseFetch = globalThis.fetch.b
 
     const method = String(init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
     const { endpoint, category } = classifyEndpoint(parsed.pathname);
+    const shouldTrack = !INTERNAL_METRIC_ENDPOINTS.has(endpoint.split("/").at(-1));
+    const requestHeaders = init?.headers ?? (input instanceof Request ? input.headers : undefined);
     const page = globalThis.location?.pathname || "(no page)";
     const start = globalThis.performance?.now?.() ?? Date.now();
     try {
       const response = await baseFetch(input, init);
       const durationMs = Math.round((globalThis.performance?.now?.() ?? Date.now()) - start);
-      recordRequest({ method, endpoint, category, page, status: response.status, durationMs, failed: !response.ok });
+      if (shouldTrack) {
+        const event = { method, endpoint, category, page, status: response.status, durationMs, failed: !response.ok };
+        recordRequest(event);
+        queueSharedMetric(event, baseFetch, projectOrigin, requestHeaders);
+      }
       return response;
     } catch (error) {
       const durationMs = Math.round((globalThis.performance?.now?.() ?? Date.now()) - start);
-      recordRequest({ method, endpoint, category, page, status: "Network error", durationMs, failed: true });
+      if (shouldTrack) {
+        const event = { method, endpoint, category, page, status: "Network error", durationMs, failed: true };
+        recordRequest(event);
+        queueSharedMetric(event, baseFetch, projectOrigin, requestHeaders);
+      }
       throw error;
     }
   };
