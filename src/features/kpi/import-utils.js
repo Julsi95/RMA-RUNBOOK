@@ -42,7 +42,6 @@ function tableRowsToObjects(rows, headerIndex, nextHeaderIndex) {
       const group = String(cell ?? "").trim();
       if (group) currentGroup = group;
       const subheader = String(subheaderRow[index] ?? "").trim();
-      if (index === 0) return "Name";
       if (currentGroup && KPI_METRICS.some((metric) => normalize(currentGroup).includes(normalize(metric.label)))) {
         return `${currentGroup} ${subheader}`.trim();
       }
@@ -80,6 +79,26 @@ function numericValue(value) {
   return Number.isFinite(number) ? number : "";
 }
 
+function findNameColumn(rows, teamMembers) {
+  const headers = Object.keys(rows[0] ?? {});
+  const explicit = headers.find((key) => ["name", "agent", "employee", "teammember", "person", "employeename", "agentname"].includes(normalize(key)));
+  if (explicit) return explicit;
+  const knownNames = new Set(teamMembers.map((member) => normalize(member.name)));
+  const knownShortNames = new Set(teamMembers.map((member) => shortNameKey(member.name)).filter(Boolean));
+  const scores = headers.map((header) => ({
+    header,
+    score: rows.reduce((count, row) => {
+      const value = String(row[header] ?? "").trim();
+      return count + (knownNames.has(normalize(value)) || knownShortNames.has(shortNameKey(value)) ? 1 : 0);
+    }, 0),
+  })).sort((a, b) => b.score - a.score);
+  if (scores[0]?.score > 0) return scores[0].header;
+  return headers.find((header) => rows.some((row) => {
+    const value = String(row[header] ?? "").trim();
+    return value && !Number.isFinite(Number(value));
+  })) ?? headers[0];
+}
+
 function findMetricCell(row, metric, kind) {
   const entries = Object.entries(row);
   const metricNames = [normalize(metric.label), normalize(metric.shortLabel)];
@@ -112,8 +131,7 @@ export function normalizeImportedRows(rows, teamMembers) {
     if (!headers.some((header) => aliases.some((alias) => normalize(header).includes(alias)) && (normalize(header).includes("equivalent") || normalize(header).includes("equiv")))) missingColumns.push(`${metric.label} equivalent score`);
     if (!headers.some((header) => aliases.some((alias) => normalize(header).includes(alias)) && normalize(header).includes("weighted"))) missingColumns.push(`${metric.label} weighted score`);
   }
-  const nameKey = Object.keys(rows[0] ?? {}).find((key) => ["name", "agent", "employee", "teammember", "person"].includes(normalize(key)))
-    ?? Object.keys(rows[0] ?? {})[0];
+  const nameKey = findNameColumn(rows, teamMembers);
   const memberByName = new Map(teamMembers.map((member) => [normalize(member.name), member]));
   const membersByShortName = new Map();
   for (const member of teamMembers) {
@@ -126,18 +144,16 @@ export function normalizeImportedRows(rows, teamMembers) {
   const repeated = [];
   const seen = new Set();
 
-  for (const row of rows) {
+  const rankHeader = Object.keys(rows[0] ?? {}).find((header) => normalize(header) === "rank" || normalize(header).endsWith("rank"));
+  for (const [rowIndex, row] of rows.entries()) {
     const name = String(row[nameKey] ?? "").trim();
     if (!name || ["name", "agent", "employee"].includes(normalize(name))) continue;
     const exactMatch = memberByName.get(normalize(name));
     const shortMatches = membersByShortName.get(shortNameKey(name)) ?? [];
     const member = exactMatch ?? (shortMatches.length === 1 ? shortMatches[0] : null);
-    if (!member) {
-      unmatched.push(name);
-      continue;
-    }
-    if (seen.has(member.id)) repeated.push(name);
-    seen.add(member.id);
+    if (!member) unmatched.push(name);
+    if (member && seen.has(member.id)) repeated.push(name);
+    if (member) seen.add(member.id);
     const metrics = emptyMetrics();
     for (const metric of KPI_METRICS) {
       const rawValue = numericValue(findMetricCell(row, metric, "value"));
@@ -153,12 +169,15 @@ export function normalizeImportedRows(rows, teamMembers) {
     const overallHeader = Object.keys(row).find((header) => normalize(header).includes("kpiscore"));
     const evaluationHeader = Object.keys(row).find((header) => normalize(header).includes("evaluation"));
     imported.push({
-      memberId: member.id,
-      memberName: member.name,
-      role: member.role,
+      importRowId: `${rowIndex}-${normalize(name)}`,
+      sourceName: name,
+      memberId: member?.id ?? "",
+      memberName: member?.name ?? name,
+      role: member?.role ?? "",
       metrics,
       overallScore: overallHeader ? numericValue(row[overallHeader]) : null,
       evaluation: evaluationHeader ? String(row[evaluationHeader] ?? "").trim() : "",
+      importedRank: rankHeader ? String(row[rankHeader] ?? "").trim() : "",
     });
   }
   return { imported, unmatched: [...new Set(unmatched)], repeated: [...new Set(repeated)], missingColumns };

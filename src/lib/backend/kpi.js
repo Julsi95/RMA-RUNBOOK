@@ -41,6 +41,7 @@ export async function loadKpiMonthData() {
     months[row.month_key].records[row.employee_id] = {
       memberId: row.employee_id, memberName: row.employee_name_snapshot, role: row.employee_role_snapshot,
       metrics: row.metrics ?? {}, overallScore: row.overall_score == null ? null : Number(row.overall_score), evaluation: row.evaluation,
+      source: row.source ?? "manual",
       resultRevision: row.result_revision, scoringVersionId: months[row.month_key].scoringVersionId,
       scoringSettings: months[row.month_key].scoringSettings,
     };

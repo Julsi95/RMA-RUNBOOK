@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { createMonitoredFetch } from "@/lib/backend/request-monitor";
 
 const url = import.meta.env.VITE_SUPABASE_URL?.trim();
 const key = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY)?.trim();
@@ -11,6 +12,7 @@ export const supabase = isSupabaseConfigured
         persistSession: true,
         detectSessionInUrl: true,
       },
+      global: { fetch: createMonitoredFetch(url) },
     })
   : null;
 

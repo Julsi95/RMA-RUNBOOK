@@ -12,6 +12,7 @@ import { useBranding } from "@/app/branding-provider";
 import { loadRunbookSessionSettings, saveRunbookSessionSettings } from "@/lib/backend/session";
 import { fetchCachedQuery, queryClient, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
 import { generateStrongPassword } from "@/lib/strong-password";
+import BackendRequestMonitor from "@/features/diagnostics/BackendRequestMonitor";
 
 export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
@@ -282,7 +283,7 @@ export default function SettingsPage() {
         <a href="#appearance">Appearance</a>
         {configured && user && <><a href="#profile">My profile</a><a href="#login-email">Login email</a><a href="#password">Password</a></>}
         {configured && canEdit && <><a href="#branding">Branding</a><a href="#session-security">Session security</a></>}
-        {canManageAccounts && <a href="#account-access">User management</a>}
+        {canManageAccounts && <><a href="#account-access">User management</a><a href="#backend-requests">Backend requests</a></>}
       </nav>
       <div id="appearance" className="settings-card settings-appearance-card">
         <div><h2>Appearance</h2><p>Choose a theme or follow your device setting.</p></div>
@@ -376,6 +377,7 @@ export default function SettingsPage() {
           <Button type="submit" disabled={sessionPolicyBusy}>{sessionPolicyBusy ? "Saving…" : "Save session settings"}</Button>
         </form>
       </section>}
+      {canManageAccounts && <BackendRequestMonitor />}
     </section>
   );
 }
