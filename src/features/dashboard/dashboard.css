@@ -30,6 +30,15 @@
 .dashboard-card-inner h2 { max-width: 740px; margin: 12px 0 0; font-size: clamp(18px, 2.1cqi, 25px); font-weight: 640; letter-spacing: -.04em; line-height: 1.15; }
 .dashboard-card-description { max-width: 660px; margin: 8px 0 0; color: var(--muted-foreground); font-size: 11px; line-height: 1.55; }
 .dashboard-card-body { max-width: 680px; margin: 12px 0 0; color: var(--foreground); font-size: 12px; line-height: 1.65; }
+.dashboard-overflow-text { min-width: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: transparent transparent; }
+.dashboard-overflow-text[data-scrolling="true"] { scrollbar-color: color-mix(in srgb, var(--muted-foreground) 60%, transparent) transparent; }
+.dashboard-overflow-text::-webkit-scrollbar { width: 5px; height: 5px; }
+.dashboard-overflow-text::-webkit-scrollbar-track { background: transparent; }
+.dashboard-overflow-text::-webkit-scrollbar-thumb { border-radius: 99px; background: transparent; }
+.dashboard-overflow-text[data-scrolling="true"]::-webkit-scrollbar-thumb,
+.dashboard-overflow-text::-webkit-scrollbar-thumb:active { background: color-mix(in srgb, var(--muted-foreground) 60%, transparent); }
+.dashboard-card-description { max-height: 5.5em; }
+.dashboard-card-body { max-height: 9em; }
 .dashboard-card-date { display: inline-flex; align-items: center; gap: 6px; margin-top: 13px; color: var(--muted-foreground); font-size: 9px; }
 .dashboard-card-date svg { color: var(--dashboard-accent); }
 .dashboard-card-cta { display: inline-flex; min-height: 37px; align-items: center; gap: 8px; margin-top: auto; padding: 0 12px; border: 1px solid color-mix(in srgb, var(--dashboard-accent) 30%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--dashboard-accent) 12%, var(--background)); color: var(--foreground); font-size: 10px; font-weight: 650; transition: background .15s ease, transform .15s ease; }
@@ -148,6 +157,8 @@
 .dashboard-editor-field { display: grid; min-width: 0; gap: 5px; color: var(--muted-foreground); font-size: 9px; }
 .dashboard-editor-field > span { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .dashboard-editor-field small { font-size: 8px; }
+.dashboard-wrap-option { display: inline-flex !important; width: max-content; align-items: center !important; justify-content: flex-start !important; gap: 6px !important; color: var(--muted-foreground); font-size: 9px; cursor: pointer; }
+.dashboard-wrap-option input { width: 13px !important; min-height: 13px !important; height: 13px; margin: 0; padding: 0; accent-color: var(--foreground); }
 .dashboard-editor-field input, .dashboard-editor-field textarea, .dashboard-editor-field .ui-select-trigger { width: 100%; min-width: 0; min-height: 37px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 7px; outline: 0; background: var(--background); color: var(--foreground); font: inherit; font-size: 10px; line-height: 1.5; }
 .dashboard-editor-field textarea { resize: vertical; }
 .dashboard-editor-field input:focus, .dashboard-editor-field textarea:focus, .dashboard-editor-field .ui-select-trigger:focus { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 20%, transparent); }
@@ -328,7 +339,7 @@
 .dashboard-builder-item:has(.dashboard-resize-handle:active) { border-color: var(--ring); }
 .dashboard-container-tools { box-sizing: border-box; height: 36px; min-height: 36px; flex: 0 0 36px; }
 .dashboard-builder-item .dashboard-content-card { position: absolute; inset: 36px 0 0; width: 100%; height: calc(var(--dashboard-height, 250px) - 38px); min-height: 0; flex: none; }
-.dashboard-custom-text-layer { position: absolute; z-index: 3; max-width: min(84%, 900px); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.2; text-shadow: 0 1px 10px rgb(0 0 0 / 32%); pointer-events: none; }
+.dashboard-custom-text-layer { position: absolute; z-index: 3; box-sizing: border-box; min-width: 10%; max-width: 100%; min-height: 10%; max-height: 100%; overflow: auto; line-height: 1.2; text-shadow: 0 1px 10px rgb(0 0 0 / 32%); pointer-events: auto; }
 .dashboard-text-layer-editor { display: grid; gap: 10px; }
 .dashboard-text-layer-fields { display: grid; gap: 11px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: color-mix(in srgb, var(--foreground) 2%, var(--surface)); }
 .dashboard-text-layer-heading { display: flex; align-items: center; justify-content: space-between; }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownRight, ArrowUpRight, Award, BarChart3, CalendarDays, Check,
   Crown, Download, Medal, Plus, Search, Sparkles, Target, Trophy, Upload, X,
@@ -14,7 +14,7 @@ import {
   getOverallScore, getPreviousMonth, KPI_METRICS, KPI_STORAGE_KEY, makeCsvTemplate,
 } from "@/features/kpi/kpi-data";
 import { readKpiFile } from "@/features/kpi/import-utils";
-import { createKpiMonth, loadCurrentKpiScoring, loadKpiMonthData, saveKpiMonthResults } from "@/lib/backend-repositories";
+import { createKpiMonth, loadCurrentKpiScoring, loadKpiMonthData, replaceKpiMonthResults, saveKpiMonthResults } from "@/lib/backend-repositories";
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 import { fetchCachedQuery, queryClient, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
 import "@/features/kpi/kpi-qa.css";
@@ -113,60 +113,8 @@ function formatScore(value, digits = 2) {
   return Number(value || 0).toFixed(digits);
 }
 
-function TrendChart({ months, monthlyData, teamMembers, metricMode, range, targetId, selectedMonth }) {
-  const chartMonths = months.filter((month) => month <= selectedMonth).slice(-range);
-  const values = chartMonths.map((month) => {
-    const rows = targetId === "team"
-      ? teamMembers.map((member) => monthlyData[month]?.records?.[member.id]).filter(Boolean)
-      : [monthlyData[month]?.records?.[targetId]].filter(Boolean);
-    const numbers = rows.map((record) => {
-      if (metricMode !== "qa") return getRecordScore(record, settingsOf(record));
-      const value = record.metrics?.qa?.rawValue;
-      return value === "" || value == null ? Number.NaN : Number(value);
-    }).filter(Number.isFinite);
-    return { month, value: numbers.length ? numbers.reduce((sum, number) => sum + number, 0) / numbers.length : null };
-  }).filter((item) => item.value != null);
-  const isQa = metricMode === "qa";
-  const min = isQa ? 90 : 0;
-  const selectedSettings = monthlyData[selectedMonth]?.scoringSettings ?? getKpiScoringSettings();
-  const max = isQa ? 100 : Math.max(getMaximumKpiScore(selectedSettings), ...chartMonths.map((month) => getMaximumKpiScore(monthlyData[month]?.scoringSettings ?? selectedSettings)), 0.1);
-  const target = isQa ? 98 : Number([...selectedSettings.evaluationBands].sort((a, b) => Number(b.min) - Number(a.min))[0]?.min ?? max);
-  const width = 760;
-  const height = 215;
-  const left = 43;
-  const right = 17;
-  const top = 15;
-  const bottom = 35;
-  const plotWidth = width - left - right;
-  const plotHeight = height - top - bottom;
-  const points = values.map((item, index) => ({
-    ...item,
-    x: values.length === 1 ? left + plotWidth / 2 : left + (index / (values.length - 1)) * plotWidth,
-    y: top + (1 - ((item.value - min) / (max - min))) * plotHeight,
-  }));
-  const line = points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
-  const ticks = isQa ? [90, 95, 100] : [0, max / 2, max];
-  const targetY = top + (1 - ((Math.max(min, Math.min(max, target)) - min) / (max - min))) * plotHeight;
-  const lastValue = values.at(-1)?.value;
-  const priorValue = values.at(-2)?.value;
-  const delta = lastValue == null || priorValue == null ? null : lastValue - priorValue;
-
-  return (
-    <>
-    <svg className="kpi-trend-svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${isQa ? "QA percentage" : "KPI score"} trend over ${points.length} months`}>
-      {ticks.map((tick) => {
-        const y = top + (1 - ((tick - min) / (max - min))) * plotHeight;
-        return <g key={tick}><line x1={left} x2={width - right} y1={y} y2={y} className="kpi-chart-gridline" /><text x={left - 9} y={y + 4} textAnchor="end" className="kpi-chart-tick">{isQa ? `${tick}%` : tick.toFixed(2)}</text></g>;
-      })}
-      <line x1={left} x2={width - right} y1={targetY} y2={targetY} className="kpi-chart-target" />
-      {points.length > 1 && <path d={line} className="kpi-chart-line" />}
-      {points.map((point) => <g key={point.month}><circle cx={point.x} cy={point.y} r="4.5" className="kpi-chart-dot" /><text x={point.x} y={height - 10} textAnchor="middle" className="kpi-chart-month">{new Intl.DateTimeFormat(undefined, { month: "short" }).format(new Date(`${point.month}-15T12:00:00`))}</text></g>)}
-      {!points.length && <text x={width / 2} y={height / 2} textAnchor="middle" className="kpi-chart-tick">No scores in this range yet</text>}
-    </svg>
-    <div className="kpi-trend-footer"><span>Target · {isQa ? `${target}% QA` : `${target.toFixed(2)} KPI`}</span><span className={delta == null ? "" : delta >= 0 ? "kpi-positive" : "kpi-negative"}>{delta == null ? "Add another month to see progress" : `Last month ${delta >= 0 ? "+" : ""}${isQa ? `${delta.toFixed(2)}%` : delta.toFixed(2)}`}</span></div>
-    </>
-  );
-}
+const TrendChart = lazy(() => import("@/features/kpi/KpiTrendChart"));
+const KpiInsightsCharts = lazy(() => import("@/features/kpi/KpiInsightsCharts"));
 
 function MemberAvatar({ member, large = false }) {
   return <span className={`kpi-avatar ${large ? "kpi-avatar-large" : ""}`}>{member?.photo ? <img src={member.photo} alt="" /> : initials(member?.name)}</span>;
@@ -286,7 +234,7 @@ function ImportDialog({ teamMembers, selectedMonth, onClose, onImport }) {
           const next = typeof update === "function" ? update(row) : { ...row, ...update };
           if (next.memberId && next.memberId !== row.memberId) {
             const member = teamMembers.find((item) => item.id === next.memberId);
-            return { ...next, memberName: member?.name ?? next.memberName, role: member?.role ?? next.role };
+            return { ...next, memberName: member?.name ?? next.memberName, role: member?.role ?? next.role, historical: !member };
           }
           return next;
         }),
@@ -295,7 +243,8 @@ function ImportDialog({ teamMembers, selectedMonth, onClose, onImport }) {
   }
 
   const totalRows = staged?.tables.reduce((total, table) => total + table.imported.length, 0) ?? 0;
-  const matchedRows = staged?.tables.reduce((total, table) => total + table.imported.filter((row) => row.memberId).length, 0) ?? 0;
+  const matchedRows = staged?.tables.reduce((total, table) => total + table.imported.filter((row) => teamMembers.some((member) => member.id === row.memberId)).length, 0) ?? 0;
+  const historicalRows = staged?.tables.reduce((total, table) => total + table.imported.filter((row) => row.historical).length, 0) ?? 0;
   const invalidRows = staged?.tables.some((table) => {
     const ids = table.imported.map((row) => row.memberId).filter(Boolean);
     return ids.length !== table.imported.length || new Set(ids).size !== ids.length;
@@ -307,11 +256,11 @@ function ImportDialog({ teamMembers, selectedMonth, onClose, onImport }) {
         <div className="kpi-dialog-heading"><div><p className="kpi-overline">BULK UPDATE</p><h2 id="kpi-import-title">Import monthly results</h2><span>Upload, review, edit, and save the spreadsheet values as provided.</span></div><Button variant="ghost" size="icon" onClick={onClose} aria-label="Close import"><X size={18} /></Button></div>
         <label className="kpi-form-field"><span>Fallback month when the file has no month heading</span><input type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
         <label className={`kpi-upload-dropzone ${staged ? "kpi-upload-ready" : ""}`}>
-          <input type="file" accept=".csv,.xlsx,.xls" onChange={handleFile} /><span className="kpi-upload-icon">{staged ? <Check size={19} /> : <Upload size={19} />}</span><strong>{loading ? "Reading file…" : staged ? staged.fileName : "Choose a CSV or Excel file"}</strong><small>Tables can start in any row or column. Review every value before saving.</small>
+          <input type="file" accept=".csv,.xlsx,.xls" onChange={handleFile} /><span className="kpi-upload-icon">{staged ? <Check size={19} /> : <Upload size={19} />}</span><strong>{loading ? "Reading file…" : staged ? staged.fileName : "Choose a CSV or Excel file"}</strong><small>CSV, XLSX, or XLS · up to 10 MB and 2,000 result rows. Review every value before saving.</small>
         </label>
-        <div className="kpi-import-help"><p>Rows for matched people update that month. Other people’s results remain unchanged. Imported scores and ranks are kept as uploaded.</p><Button variant="outline" size="sm" onClick={() => { const blob = new Blob([makeCsvTemplate()], { type: "text/csv;charset=utf-8" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "monthly-kpi-template.csv"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }}><Download size={14} /> Download template</Button></div>
-        {staged && <div className="kpi-import-preview"><div className="kpi-preview-title"><strong>Review · {staged.fileName}</strong><span>{matchedRows}/{totalRows} people matched</span></div>{staged.tables.map((table, tableIndex) => <div className="kpi-import-table-preview" key={`${table.month ?? month}-${tableIndex}`}><div className="kpi-preview-title"><strong>{table.month ? getMonthLabel(table.month) : getMonthLabel(month)}</strong><span>{table.imported.length} rows</span></div>{table.missingColumns.length > 0 && <p className="kpi-import-warning">Columns not found: {table.missingColumns.join(", ")}. Missing spreadsheet fields will remain blank.</p>}{table.imported.some((row) => !row.memberId) && <p className="kpi-import-warning">Choose a roster match for each highlighted row before saving.</p>}{new Set(table.imported.map((row) => row.memberId).filter(Boolean)).size < table.imported.filter((row) => row.memberId).length && <p className="kpi-import-warning">Each person can appear only once in a month. Remove duplicate rows before saving.</p>}
-          <div className="kpi-import-grid-wrap"><table className="kpi-import-grid"><thead><tr><th>Spreadsheet name</th><th>Match to person</th>{KPI_METRICS.map((metric) => <th key={metric.id} colSpan="3">{metric.label}</th>)}<th>KPI score</th><th>Evaluation</th><th>Rank</th><th /></tr><tr><th /><th />{KPI_METRICS.flatMap((metric) => [<th key={`${metric.id}-raw`}>{metric.isPercent ? "Score %" : "Count"}</th>, <th key={`${metric.id}-equiv`}>Equivalent</th>, <th key={`${metric.id}-weighted`}>Weighted</th>])}<th /><th /><th /><th /></tr></thead><tbody>{table.imported.map((row, rowIndex) => <tr key={row.importRowId ?? `${row.sourceName}-${rowIndex}`} className={!row.memberId ? "kpi-import-unmatched" : ""}><td>{row.sourceName}</td><td><select value={row.memberId} onChange={(event) => updateImported(tableIndex, rowIndex, { memberId: event.target.value })}><option value="">Select person…</option>{teamMembers.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></td>{KPI_METRICS.flatMap((metric) => ["rawValue", "equivalentScore", "weightedScore"].map((field) => <td key={`${metric.id}-${field}`}><input aria-label={`${row.sourceName} ${metric.label} ${field}`} type="number" step="any" value={row.metrics?.[metric.id]?.[field] ?? ""} onChange={(event) => updateImported(tableIndex, rowIndex, (current) => ({ ...current, metrics: { ...current.metrics, [metric.id]: { ...current.metrics?.[metric.id], [field]: event.target.value, ...(field === "rawValue" && metric.isPercent ? { percentValue: event.target.value } : {}) } } }))} /></td>))}<td><input aria-label={`${row.sourceName} KPI score`} type="number" step="any" value={row.overallScore ?? ""} onChange={(event) => updateImported(tableIndex, rowIndex, { overallScore: event.target.value === "" ? null : Number(event.target.value) })} /></td><td><input aria-label={`${row.sourceName} evaluation`} type="text" value={row.evaluation ?? ""} onChange={(event) => updateImported(tableIndex, rowIndex, { evaluation: event.target.value })} /></td><td><input aria-label={`${row.sourceName} rank`} type="text" value={row.importedRank ?? ""} onChange={(event) => updateImported(tableIndex, rowIndex, { importedRank: event.target.value })} /></td><td><button className="kpi-import-remove" type="button" onClick={() => setStaged((current) => ({ ...current, tables: current.tables.map((item, index) => index !== tableIndex ? item : { ...item, imported: item.imported.filter((_, i) => i !== rowIndex) }) }))} aria-label={`Remove ${row.sourceName}`}>×</button></td></tr>)}</tbody></table></div>
+        <div className="kpi-import-help"><p>Each uploaded month replaces that month’s scoreboard. People omitted from this file are removed from the current month view; earlier versions remain recoverable for 30 days. Scores and ranks stay as uploaded.</p><Button variant="outline" size="sm" onClick={() => { const blob = new Blob([makeCsvTemplate()], { type: "text/csv;charset=utf-8" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "monthly-kpi-template.csv"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }}><Download size={14} /> Download template</Button></div>
+        {staged && <div className="kpi-import-preview"><div className="kpi-preview-title"><strong>Review · {staged.fileName}</strong><span>{matchedRows} matched ? {historicalRows} historical ? {totalRows} total</span></div>{staged.tables.map((table, tableIndex) => <div className="kpi-import-table-preview" key={`${table.month ?? month}-${tableIndex}`}><div className="kpi-preview-title"><strong>{table.month ? getMonthLabel(table.month) : getMonthLabel(month)}</strong><span>{table.imported.length} rows</span></div>{table.missingColumns.length > 0 && <p className="kpi-import-warning">Columns not found: {table.missingColumns.join(", ")}. Missing spreadsheet fields will remain blank.</p>}{table.imported.some((row) => row.historical) && <p className="kpi-import-history-note">Unmatched people are saved as historical records only. No account or roster entry is created.</p>}{new Set(table.imported.map((row) => row.memberId).filter(Boolean)).size < table.imported.filter((row) => row.memberId).length && <p className="kpi-import-warning">Each person can appear only once in a month. Remove duplicate rows before saving.</p>}
+          <div className="kpi-import-grid-wrap"><table className="kpi-import-grid"><thead><tr><th>Spreadsheet name</th><th>Result name</th><th>Role snapshot</th><th>Save as</th>{KPI_METRICS.map((metric) => <th key={metric.id} colSpan="3">{metric.label}</th>)}<th>KPI score</th><th>Evaluation</th><th>Rank</th><th /></tr><tr><th /><th /><th /><th />{KPI_METRICS.flatMap((metric) => [<th key={`${metric.id}-raw`}>{metric.isPercent ? "Score %" : "Count"}</th>, <th key={`${metric.id}-equiv`}>Equivalent</th>, <th key={`${metric.id}-weighted`}>Weighted</th>])}<th /><th /><th /><th /></tr></thead><tbody>{table.imported.map((row, rowIndex) => <tr key={row.importRowId ?? `${row.sourceName}-${rowIndex}`} className={row.historical ? "kpi-import-unmatched" : ""}><td>{row.sourceName}</td><td><input aria-label={`${row.sourceName} result name`} type="text" value={row.memberName} onChange={(event) => updateImported(tableIndex, rowIndex, { memberName: event.target.value })} /></td><td><input aria-label={`${row.sourceName} role snapshot`} type="text" value={row.role ?? ""} onChange={(event) => updateImported(tableIndex, rowIndex, { role: event.target.value })} /></td><td><select value={row.memberId} onChange={(event) => updateImported(tableIndex, rowIndex, { memberId: event.target.value })}><option value={row.memberId}>{row.historical ? "Historical record (not on roster)" : row.memberName}</option>{teamMembers.filter((member) => member.id !== row.memberId).map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></td>{KPI_METRICS.flatMap((metric) => ["rawValue", "equivalentScore", "weightedScore"].map((field) => <td key={`${metric.id}-${field}`}><input aria-label={`${row.sourceName} ${metric.label} ${field}`} type="number" step="any" value={row.metrics?.[metric.id]?.[field] ?? ""} onChange={(event) => updateImported(tableIndex, rowIndex, (current) => ({ ...current, metrics: { ...current.metrics, [metric.id]: { ...current.metrics?.[metric.id], [field]: event.target.value, ...(field === "rawValue" && metric.isPercent ? { percentValue: event.target.value } : {}) } } }))} /></td>))}<td><input aria-label={`${row.sourceName} KPI score`} type="number" step="any" value={row.overallScore ?? ""} onChange={(event) => updateImported(tableIndex, rowIndex, { overallScore: event.target.value === "" ? null : Number(event.target.value) })} /></td><td><input aria-label={`${row.sourceName} evaluation`} type="text" value={row.evaluation ?? ""} onChange={(event) => updateImported(tableIndex, rowIndex, { evaluation: event.target.value })} /></td><td><input aria-label={`${row.sourceName} rank`} type="text" value={row.importedRank ?? ""} onChange={(event) => updateImported(tableIndex, rowIndex, { importedRank: event.target.value })} /></td><td><button className="kpi-import-remove" type="button" onClick={() => setStaged((current) => ({ ...current, tables: current.tables.map((item, index) => index !== tableIndex ? item : { ...item, imported: item.imported.filter((_, i) => i !== rowIndex) }) }))} aria-label={`Remove ${row.sourceName}`}>×</button></td></tr>)}</tbody></table></div>
         </div>)}</div>}
         {error && <p className="kpi-form-error">{error}</p>}
         <div className="kpi-dialog-actions"><Button variant="outline" onClick={onClose}>Cancel</Button><Button disabled={!staged || !month || !staged.tables.some((table) => table.imported.length) || invalidRows} onClick={() => onImport(staged.tables.map((table) => ({ month: table.month ?? month, imported: table.imported })))}><Upload size={15} /> Save {staged?.tables.length ?? 0} {staged?.tables.length === 1 ? "month" : "months"}</Button></div>
@@ -334,6 +283,7 @@ export default function KpiQaPage() {
   const [syncMessage, setSyncMessage] = useState("");
   const [creatingMonth, setCreatingMonth] = useState(false);
   const remoteSnapshotRef = useRef(cachedMonths ? structuredClone(cachedMonths) : null);
+  const importingRef = useRef(false);
   const [monthDraft, setMonthDraft] = useState("");
   const [range, setRange] = useState(6);
   const [trendMetric, setTrendMetric] = useState("qa");
@@ -371,6 +321,7 @@ export default function KpiQaPage() {
     let active = true;
     let timer;
     const unsubscribe = subscribeToTables(["kpi_months", "kpi_results", "current_kpi_scoring", "kpi_scoring_versions"], () => {
+      if (importingRef.current) return;
       window.clearTimeout(timer);
       timer = window.setTimeout(() => { void Promise.all([
         fetchCachedQuery(monthsKey, () => retryDataLoad(loadKpiMonthData), { force: true }),
@@ -414,10 +365,27 @@ export default function KpiQaPage() {
 
   const monthOptions = useMemo(() => [...new Set([...Object.keys(monthlyData), selectedMonth])].filter(Boolean).sort(), [monthlyData, selectedMonth]);
   const records = monthlyData[selectedMonth]?.records ?? {};
+  const peopleWithHistory = useMemo(() => {
+    const people = new Map(teamMembers.map((member) => [member.id, member]));
+    for (const monthData of Object.values(monthlyData)) {
+      for (const record of Object.values(monthData?.records ?? {})) {
+        if (!record?.memberId || people.has(record.memberId)) continue;
+        people.set(record.memberId, { id: record.memberId, name: record.memberName || "Former roster member", role: record.role || "Historical record", historical: true });
+      }
+    }
+    return [...people.values()];
+  }, [monthlyData, teamMembers]);
+  const scoreboardMembers = useMemo(() => {
+    const people = new Map(teamMembers.map((member) => [member.id, member]));
+    for (const record of Object.values(records)) {
+      if (record?.memberId && !people.has(record.memberId)) people.set(record.memberId, { id: record.memberId, name: record.memberName || "Former roster member", role: record.role || "Historical record", historical: true });
+    }
+    return [...people.values()];
+  }, [records, teamMembers]);
   const previousMonth = getPreviousMonth(selectedMonth);
   const previousRecords = monthlyData[previousMonth]?.records ?? {};
   const selectedScoringSettings = monthlyData[selectedMonth]?.scoringSettings ?? getKpiScoringSettings();
-  const leaderboard = teamMembers.map((member) => {
+  const leaderboard = scoreboardMembers.map((member) => {
     const record = getMemberRecord(records, member.id);
     const importedRank = record?.source === "import" ? String(record.metrics?._importedRank ?? "").trim() : "";
     const explicitRank = Number(importedRank.match(/\d+/)?.[0]);
@@ -428,7 +396,11 @@ export default function KpiQaPage() {
     if (a.explicitRank == null && b.explicitRank != null) return 1;
     return b.score - a.score || a.member.name.localeCompare(b.member.name);
   }).map((row, index) => ({ ...row, rank: row.explicitRank ?? index + 1, rankLabel: row.importedRank || String(row.explicitRank ?? index + 1) }));
-  const previousLeaderboard = teamMembers.map((member) => ({ member, record: previousRecords[member.id] })).filter((row) => row.record).sort((a, b) => getRecordScore(b.record, settingsOf(b.record)) - getRecordScore(a.record, settingsOf(a.record)) || a.member.name.localeCompare(b.member.name));
+  const previousLeaderboard = Object.entries(previousRecords).map(([memberId, record]) => ({ member: peopleWithHistory.find((person) => person.id === memberId) ?? { id: memberId, name: record.memberName || "Former roster member", role: record.role || "Historical record", historical: true }, record })).map((row) => {
+    const importedRank = row.record.source === "import" ? String(row.record.metrics?._importedRank ?? "").trim() : "";
+    const parsedRank = Number(importedRank.match(/\d+/)?.[0]);
+    return { ...row, rank: Number.isFinite(parsedRank) ? parsedRank : null };
+  }).sort((a, b) => a.rank != null && b.rank != null ? a.rank - b.rank : a.rank != null ? -1 : b.rank != null ? 1 : getRecordScore(b.record, settingsOf(b.record)) - getRecordScore(a.record, settingsOf(a.record)) || a.member.name.localeCompare(b.member.name));
   const filteredLeaderboard = leaderboard.filter(({ member }) => `${member.name} ${member.role}`.toLowerCase().includes(search.trim().toLowerCase()));
   const rankedTeam = leaderboard.length;
   const teamAverage = rankedTeam ? leaderboard.reduce((sum, row) => sum + row.score, 0) / rankedTeam : 0;
@@ -436,9 +408,9 @@ export default function KpiQaPage() {
   const averageQa = qaValues.length ? qaValues.reduce((sum, value) => sum + value, 0) / qaValues.length : 0;
   const topPerformer = leaderboard[0];
   const selectedRecord = getMemberRecord(records, detailMemberId);
-  const selectedMember = teamMembers.find((member) => member.id === detailMemberId);
-  const comparePrimary = teamMembers.some((member) => member.id === comparisonSubject) ? comparisonSubject : leaderboard[0]?.member.id ?? teamMembers[0]?.id ?? "";
-  const compareOtherMember = comparisonPeer && comparisonPeer !== comparePrimary ? comparisonPeer : leaderboard.find((row) => row.member.id !== comparePrimary)?.member.id ?? teamMembers.find((member) => member.id !== comparePrimary)?.id ?? "";
+  const selectedMember = scoreboardMembers.find((member) => member.id === detailMemberId);
+  const comparePrimary = scoreboardMembers.some((member) => member.id === comparisonSubject) ? comparisonSubject : leaderboard[0]?.member.id ?? teamMembers[0]?.id ?? "";
+  const compareOtherMember = comparisonPeer && comparisonPeer !== comparePrimary ? comparisonPeer : leaderboard.find((row) => row.member.id !== comparePrimary)?.member.id ?? scoreboardMembers.find((member) => member.id !== comparePrimary)?.id ?? "";
   const compareSecondMonth = compareMode === "previous" ? previousRecords[comparePrimary] : records[compareOtherMember];
   const comparePrimaryRecord = records[comparePrimary];
   const trendMonths = monthOptions;
@@ -446,9 +418,9 @@ export default function KpiQaPage() {
   const selectedMaximum = getMaximumKpiScore(selectedScoringSettings);
 
   function getRankMovement(memberId, currentRank) {
-    const previousPosition = previousLeaderboard.findIndex((row) => row.member.id === memberId);
-    if (previousPosition < 0) return null;
-    return previousPosition + 1 - currentRank;
+    const previous = previousLeaderboard.find((row) => row.member.id === memberId);
+    if (!previous) return null;
+    return (previous.rank ?? previousLeaderboard.indexOf(previous) + 1) - currentRank;
   }
 
   async function createMonth(month) {
@@ -504,15 +476,12 @@ export default function KpiQaPage() {
   }
 
   async function importRecords(imports) {
+    importingRef.current = true;
     try {
       let next = { ...monthlyData };
       for (const { month, imported } of imports) {
-        let monthData = next[month];
-        if (!monthData && isSupabaseConfigured) {
-          if (!canEdit) throw new Error("Sign in with an editor account to import KPI results.");
-          const created = await createKpiMonth(month);
-          monthData = { demo: false, scoringVersionId: created.scoringVersionId, scoringSettings: created.scoringSettings, records: {} };
-        }
+        const monthData = next[month];
+        if (isSupabaseConfigured && !canEdit) throw new Error("Sign in with an editor account to import KPI results.");
         const scoringSettings = monthData?.scoringSettings ?? getKpiScoringSettings();
         const converted = imported.map((record) => ({
           ...record,
@@ -523,19 +492,42 @@ export default function KpiQaPage() {
           scoringVersionId: monthData?.scoringVersionId ?? null,
           source: "import",
         }));
-        next[month] = { ...(monthData ?? { records: {} }), demo: false, scoringSettings, records: { ...(monthData?.demo ? {} : monthData?.records ?? {}), ...Object.fromEntries(converted.map((record) => [record.memberId, record])) } };
+        if (isSupabaseConfigured) await replaceKpiMonthResults(month, converted);
+        next[month] = { ...(monthData ?? { records: {} }), demo: false, scoringSettings, records: Object.fromEntries(converted.map((record) => [record.memberId, record])) };
       }
-      remoteSnapshotRef.current = isSupabaseConfigured ? { ...(remoteSnapshotRef.current ?? {}) } : remoteSnapshotRef.current;
+      if (isSupabaseConfigured) {
+        const saved = await loadKpiMonthData();
+        remoteSnapshotRef.current = structuredClone(saved);
+        queryClient.setQueryData(monthsKey, saved);
+        next = saved;
+      }
       setMonthlyData(next);
       setSelectedMonth(imports.map(({ month }) => month).sort().at(-1) ?? selectedMonth);
       setShowImporter(false);
       setSyncError("");
-    } catch (error) { setSyncError(error.message || "Could not import KPI results."); }
+      setSyncMessage(`Replaced results for ${imports.length} ${imports.length === 1 ? "month" : "months"}.`);
+    } catch (error) {
+      setSyncError(error.message || "Could not import KPI results.");
+      if (isSupabaseConfigured) {
+        try {
+          const saved = await loadKpiMonthData();
+          remoteSnapshotRef.current = structuredClone(saved);
+          queryClient.setQueryData(monthsKey, saved);
+          setMonthlyData(saved);
+        } catch { /* Keep the original import error visible if refresh also fails. */ }
+      }
+    } finally {
+      importingRef.current = false;
+    }
   }
 
   function openAddResult() {
     const memberWithoutRecord = teamMembers.find((member) => !records[member.id]);
     setEditingMemberId(memberWithoutRecord?.id ?? teamMembers[0]?.id ?? null);
+  }
+
+  function openPersonDetails(member) {
+    setDetailMemberId(member.id);
   }
 
   function getPreviousRow(memberId) {
@@ -562,16 +554,18 @@ export default function KpiQaPage() {
       {isSupabaseConfigured && !remoteReady && <div className="kpi-empty-state"><BarChart3 size={22} /><strong>Loading monthly results…</strong></div>}
 
       <section className="kpi-trend-panel">
-        <div className="kpi-section-head"><div><p className="kpi-overline">LONG-TERM PROGRESS</p><h2>Performance trend</h2><p>Follow the team over time; the selected month sets the chart endpoint.</p></div><div className="kpi-chart-controls"><select value={trendMetric} onChange={(event) => setTrendMetric(event.target.value)} aria-label="Trend metric"><option value="qa">QA score · percent</option><option value="overall">KPI score · weighted</option></select><select value={trendTarget} onChange={(event) => setTrendTarget(event.target.value)} aria-label="Trend subject"><option value="team">Team average</option>{teamMembers.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select><div className="kpi-range-toggle">{TREND_RANGES.map((item) => <button type="button" className={range === item ? "active" : ""} key={item} onClick={() => setRange(item)}>{item} mo</button>)}</div></div></div>
-        <div className="kpi-chart-summary"><span className="kpi-chart-legend"><i />{trendTarget === "team" ? "Team average" : teamMembers.find((member) => member.id === trendTarget)?.name}<small>·</small><span className="kpi-target-key">Dashed line · starter target</span></span><span>Through {getMonthLabel(selectedMonth)}</span></div>
-        <TrendChart months={trendMonths} monthlyData={monthlyData} teamMembers={teamMembers} metricMode={trendMetric} range={range} targetId={trendTarget} selectedMonth={selectedMonth} />
+        <div className="kpi-section-head"><div><p className="kpi-overline">LONG-TERM PROGRESS</p><h2>Performance trend</h2><p>Follow saved monthly results, including historical records.</p></div><div className="kpi-chart-controls"><select value={trendMetric} onChange={(event) => { const mode = event.target.value; setTrendMetric(mode); if (mode === "rank" && trendTarget === "team") setTrendTarget(peopleWithHistory[0]?.id ?? "team"); }} aria-label="Trend metric"><option value="overall">KPI score</option><option value="rank">Imported rank</option>{KPI_METRICS.map((metric) => <option value={metric.id} key={metric.id}>{metric.label}{metric.isPercent ? " · percent" : " · raw count"}</option>)}</select><select value={trendTarget} onChange={(event) => setTrendTarget(event.target.value)} aria-label="Trend subject"><option value="team" disabled={trendMetric === "rank"}>Team average</option>{peopleWithHistory.map((member) => <option value={member.id} key={member.id}>{member.name}{member.historical ? " · former" : ""}</option>)}</select><div className="kpi-range-toggle">{TREND_RANGES.map((item) => <button type="button" className={range === item ? "active" : ""} key={item} onClick={() => setRange(item)}>{item} mo</button>)}</div></div></div>
+        <div className="kpi-chart-summary"><span className="kpi-chart-legend"><i />{trendTarget === "team" ? "Average across saved monthly rows" : peopleWithHistory.find((member) => member.id === trendTarget)?.name}<small>·</small><span className="kpi-target-key">{trendMetric === "rank" ? "Imported rank · lower is better" : trendMetric === "overall" || trendMetric === "qa" ? "Dashed line · target" : "Imported raw values"}</span></span><span>Through {getMonthLabel(selectedMonth)}</span></div>
+        <Suspense fallback={<div className="kpi-chart-empty">Loading performance chart…</div>}><TrendChart months={trendMonths} monthlyData={monthlyData} metricMode={trendMetric} range={range} targetId={trendTarget} selectedMonth={selectedMonth} getRecordScore={getRecordScore} settingsOf={settingsOf} /></Suspense>
       </section>
+
+      <Suspense fallback={<div className="kpi-insights-grid"><div className="kpi-insight-loading">Loading monthly insights…</div></div>}><KpiInsightsCharts monthlyData={monthlyData} selectedMonth={selectedMonth} people={peopleWithHistory} getRecordScore={getRecordScore} settingsOf={settingsOf} /></Suspense>
 
       <div className="kpi-summary-grid">
         <article className="kpi-summary-card"><span className="kpi-summary-icon"><BarChart3 size={17} /></span><div><small>TEAM KPI AVERAGE</small><strong>{rankedTeam ? formatScore(teamAverage) : "—"}<em>/ {selectedMaximum.toFixed(2)}</em></strong><span>{getEvaluation(teamAverage, selectedScoringSettings)}</span></div></article>
         <article className="kpi-summary-card"><span className="kpi-summary-icon"><Target size={17} /></span><div><small>AVERAGE QA SCORE</small><strong>{rankedTeam ? `${formatScore(averageQa, 2)}%` : "—"}</strong><span>Across {rankedTeam} team members</span></div></article>
         <article className="kpi-summary-card kpi-top-summary"><span className="kpi-summary-icon"><Trophy size={17} /></span><div><small>MONTH LEADER</small><strong>{topPerformer?.member.name ?? "No results yet"}</strong><span>{topPerformer ? `${formatScore(topPerformer.score)} KPI · rank #1` : "Enter or import results"}</span></div></article>
-        <article className="kpi-summary-card"><span className="kpi-summary-icon"><Medal size={17} /></span><div><small>RESULTS ENTERED</small><strong>{rankedTeam}<em> / {teamMembers.length}</em></strong><span>For {getMonthLabel(selectedMonth)}</span></div></article>
+        <article className="kpi-summary-card"><span className="kpi-summary-icon"><Medal size={17} /></span><div><small>RESULTS ENTERED</small><strong>{rankedTeam}</strong><span>Saved monthly rows for {getMonthLabel(selectedMonth)}</span></div></article>
       </div>
 
       <section className="kpi-comparison-panel">
@@ -587,7 +581,7 @@ export default function KpiQaPage() {
           const delta = prior ? value - getMetricValue(prior.record, compareMetric, compareMetric === "qa" ? "rawValue" : "equivalentScore") : null;
           return <button className="kpi-team-bar-row" type="button" key={row.member.id} onClick={() => setDetailMemberId(row.member.id)}><span className="kpi-bar-rank">{String(index + 1).padStart(2, "0")}</span><MemberAvatar member={row.member} /><span className="kpi-bar-name"><strong>{row.member.name}</strong><small>{row.member.role}</small></span><span className="kpi-bar-track"><i style={{ width: `${Math.max(0, Math.min(100, (value / max) * 100))}%` }} /></span><strong className="kpi-bar-value">{compareMetric === "qa" ? `${formatScore(value, 2)}%` : formatScore(value)}</strong><span className={`kpi-bar-delta ${delta == null ? "" : delta >= 0 ? "kpi-positive" : "kpi-negative"}`}>{delta == null ? "New" : <>{delta >= 0 ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}{delta >= 0 ? "+" : ""}{compareMetric === "qa" ? `${formatScore(delta, 2)}%` : formatScore(delta)}</>}</span></button>;
         })}</div> : <div className="kpi-empty-state"><BarChart3 size={22} /><strong>No monthly results yet</strong><span>Enter scores or import your monthly file to populate the dashboard.</span><div><Button variant="outline" onClick={() => setShowImporter(true)}><Upload size={14} /> Import results</Button><Button onClick={openAddResult}><Plus size={14} /> Enter first result</Button></div></div>}
-        {compareOpen && <div className="kpi-compare-drawer"><div className="kpi-compare-drawer-head"><div><p className="kpi-overline">HEAD-TO-HEAD</p><h3>Compare performance</h3></div><div className="kpi-compare-pickers"><label><span>Person</span><select value={comparePrimary} onChange={(event) => setComparisonSubject(event.target.value)}>{teamMembers.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label><label><span>Against</span><select value={compareMode} onChange={(event) => setCompareMode(event.target.value)}><option value="previous">Previous month</option><option value="person">Another person</option></select></label>{compareMode === "person" && <label><span>Team member</span><select value={compareOtherMember} onChange={(event) => setComparisonPeer(event.target.value)}>{teamMembers.filter((member) => member.id !== comparePrimary).map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label>}</div></div><div className="kpi-head-to-head-labels"><span>{teamMembers.find((member) => member.id === comparePrimary)?.name ?? "Person"}</span><span>{compareMode === "previous" ? getMonthLabel(previousMonth) : teamMembers.find((member) => member.id === compareOtherMember)?.name ?? "Person"}</span></div><div className="kpi-head-to-head"><div className="kpi-head-to-head-row"><span>Overall KPI</span><div><i className="kpi-bar-first" style={{ width: `${getMaximumKpiScore(settingsOf(comparePrimaryRecord)) ? (getRecordScore(comparePrimaryRecord, settingsOf(comparePrimaryRecord)) / getMaximumKpiScore(settingsOf(comparePrimaryRecord))) * 100 : 0}%` }} /><i className="kpi-bar-second" style={{ width: `${getMaximumKpiScore(settingsOf(compareSecondMonth)) ? (getRecordScore(compareSecondMonth, settingsOf(compareSecondMonth)) / getMaximumKpiScore(settingsOf(compareSecondMonth))) * 100 : 0}%` }} /></div><strong>{formatScore(getRecordScore(comparePrimaryRecord, settingsOf(comparePrimaryRecord)))} <small>·</small> {formatScore(getRecordScore(compareSecondMonth, settingsOf(compareSecondMonth)))}</strong></div>{KPI_METRICS.map((metric) => { const a = getMetricValue(comparePrimaryRecord, metric.id); const b = getMetricValue(compareSecondMonth, metric.id); return <div className="kpi-head-to-head-row" key={metric.id}><span>{metric.shortLabel}</span><div><i className="kpi-bar-first" style={{ width: `${(a / 5) * 100}%` }} /><i className="kpi-bar-second" style={{ width: `${(b / 5) * 100}%` }} /></div><strong>{formatScore(a)} <small>·</small> {formatScore(b)}</strong></div>; })}</div><p className="kpi-compare-footnote">Bars show equivalent score out of 5. Overall KPI bars use each month’s saved scoring scale.</p></div>}
+        {compareOpen && <div className="kpi-compare-drawer"><div className="kpi-compare-drawer-head"><div><p className="kpi-overline">HEAD-TO-HEAD</p><h3>Compare performance</h3></div><div className="kpi-compare-pickers"><label><span>Person</span><select value={comparePrimary} onChange={(event) => setComparisonSubject(event.target.value)}>{scoreboardMembers.map((member) => <option key={member.id} value={member.id}>{member.name}{member.historical ? " (former)" : ""}</option>)}</select></label><label><span>Against</span><select value={compareMode} onChange={(event) => setCompareMode(event.target.value)}><option value="previous">Previous month</option><option value="person">Another person</option></select></label>{compareMode === "person" && <label><span>Team member</span><select value={compareOtherMember} onChange={(event) => setComparisonPeer(event.target.value)}>{scoreboardMembers.filter((member) => member.id !== comparePrimary).map((member) => <option key={member.id} value={member.id}>{member.name}{member.historical ? " (former)" : ""}</option>)}</select></label>}</div></div><div className="kpi-head-to-head-labels"><span>{scoreboardMembers.find((member) => member.id === comparePrimary)?.name ?? "Person"}</span><span>{compareMode === "previous" ? getMonthLabel(previousMonth) : scoreboardMembers.find((member) => member.id === compareOtherMember)?.name ?? "Person"}</span></div><div className="kpi-head-to-head"><div className="kpi-head-to-head-row"><span>Overall KPI</span><div><i className="kpi-bar-first" style={{ width: `${getMaximumKpiScore(settingsOf(comparePrimaryRecord)) ? (getRecordScore(comparePrimaryRecord, settingsOf(comparePrimaryRecord)) / getMaximumKpiScore(settingsOf(comparePrimaryRecord))) * 100 : 0}%` }} /><i className="kpi-bar-second" style={{ width: `${getMaximumKpiScore(settingsOf(compareSecondMonth)) ? (getRecordScore(compareSecondMonth, settingsOf(compareSecondMonth)) / getMaximumKpiScore(settingsOf(compareSecondMonth))) * 100 : 0}%` }} /></div><strong>{formatScore(getRecordScore(comparePrimaryRecord, settingsOf(comparePrimaryRecord)))} <small>·</small> {formatScore(getRecordScore(compareSecondMonth, settingsOf(compareSecondMonth)))}</strong></div>{KPI_METRICS.map((metric) => { const a = getMetricValue(comparePrimaryRecord, metric.id); const b = getMetricValue(compareSecondMonth, metric.id); return <div className="kpi-head-to-head-row" key={metric.id}><span>{metric.shortLabel}</span><div><i className="kpi-bar-first" style={{ width: `${(a / 5) * 100}%` }} /><i className="kpi-bar-second" style={{ width: `${(b / 5) * 100}%` }} /></div><strong>{formatScore(a)} <small>·</small> {formatScore(b)}</strong></div>; })}</div><p className="kpi-compare-footnote">Bars show equivalent score out of 5. Overall KPI bars use each month’s saved scoring scale.</p></div>}
       </section>
 
       <section className="kpi-leaderboard-section">
@@ -609,15 +603,15 @@ export default function KpiQaPage() {
         {!leaderboard.length && <div className="kpi-empty-state kpi-empty-compact"><Trophy size={22} /><strong>Rankings appear after scores are entered</strong><span>Complete a monthly result for your team to generate the leaderboard.</span></div>}
       </section>
 
-      <section className="kpi-roster-card"><div className="kpi-roster-heading"><div><p className="kpi-overline">MONTHLY SCORECARDS</p><h2>Team results</h2><p>Open a profile for detailed metric scores, or edit that month’s results.</p></div><Button variant="outline" onClick={openAddResult}><Plus size={15} /> Add / edit result</Button></div><div className="kpi-member-card-grid">{teamMembers.map((member) => {
+      <section className="kpi-roster-card"><div className="kpi-roster-heading"><div><p className="kpi-overline">MONTHLY SCORECARDS</p><h2>Team results</h2><p>Open a profile for detailed metric scores, or edit that month’s results.</p></div><Button variant="outline" onClick={openAddResult}><Plus size={15} /> Add / edit result</Button></div><div className="kpi-member-card-grid">{scoreboardMembers.map((member) => {
         const record = records[member.id];
         const row = leaderboard.find((item) => item.member.id === member.id);
         const previous = getPreviousRow(member.id);
         const delta = record && previous ? getRecordScore(record, settingsOf(record)) - getRecordScore(previous.record, settingsOf(previous.record)) : null;
-        return <article className={`kpi-member-card ${!record ? "kpi-member-card-empty" : ""}`} key={member.id}><button className="kpi-member-card-main" type="button" onClick={() => record && setDetailMemberId(member.id)} disabled={!record}><span className="kpi-member-card-top"><MemberAvatar member={member} /><span className="kpi-member-card-rank">{row ? `#${row.rankLabel}` : "—"}</span></span><strong>{member.name}</strong><small>{member.role}</small><span className="kpi-member-card-score">{record ? formatScore(getRecordScore(record, settingsOf(record))) : "No result"}<em>{record ? `/ ${getMaximumKpiScore(settingsOf(record)).toFixed(2)}` : ""}</em></span><span className="kpi-member-card-evaluation">{record ? getRecordEvaluation(record, getRecordScore(record, settingsOf(record)), settingsOf(record)) : "Add this month’s scores"}</span><span className={`kpi-member-card-delta ${delta == null ? "" : delta >= 0 ? "kpi-positive" : "kpi-negative"}`}>{delta == null ? "No previous month" : `${delta >= 0 ? "+" : ""}${formatScore(delta)} vs last month`}</span></button>{canEdit && <button className="kpi-card-edit" type="button" onClick={() => setEditingMemberId(member.id)}>{record ? "Edit" : "Enter score"}</button>}</article>;
+        return <article className={`kpi-member-card ${!record ? "kpi-member-card-empty" : ""}`} key={member.id}><button className="kpi-member-card-main" type="button" onClick={() => record && setDetailMemberId(member.id)} disabled={!record}><span className="kpi-member-card-top"><MemberAvatar member={member} /><span className="kpi-member-card-rank">{row ? `#${row.rankLabel}` : "—"}</span></span><strong>{member.name}</strong><small>{member.role}{member.historical ? " ? Former roster" : ""}</small><span className="kpi-member-card-score">{record ? formatScore(getRecordScore(record, settingsOf(record))) : "No result"}<em>{record ? `/ ${getMaximumKpiScore(settingsOf(record)).toFixed(2)}` : ""}</em></span><span className="kpi-member-card-evaluation">{record ? getRecordEvaluation(record, getRecordScore(record, settingsOf(record)), settingsOf(record)) : "Add this month’s scores"}</span><span className={`kpi-member-card-delta ${delta == null ? "" : delta >= 0 ? "kpi-positive" : "kpi-negative"}`}>{delta == null ? "No previous month" : `${delta >= 0 ? "+" : ""}${formatScore(delta)} vs last month`}</span></button>{canEdit && !member.historical && <button className="kpi-card-edit" type="button" onClick={() => setEditingMemberId(member.id)}>{record ? "Edit" : "Enter score"}</button>}</article>;
       })}</div></section>
 
-      {selectedMember && selectedRecord && <MemberDetailDialog member={selectedMember} record={selectedRecord} previousRecord={previousRecords[selectedMember.id]} teamAverage={teamAverage} canEdit={canEdit} onClose={() => setDetailMemberId(null)} onEdit={() => { setEditingMemberId(selectedMember.id); setDetailMemberId(null); }} />}
+      {selectedMember && selectedRecord && <MemberDetailDialog member={selectedMember} record={selectedRecord} previousRecord={previousRecords[selectedMember.id]} teamAverage={teamAverage} canEdit={canEdit && !selectedMember?.historical} onClose={() => setDetailMemberId(null)} onEdit={() => { setEditingMemberId(selectedMember.id); setDetailMemberId(null); }} />}
       {canEdit && editingMemberId && <ScoreEditorDialog key={`${selectedMonth}-${editingMemberId}`} teamMembers={teamMembers} initialMemberId={editingMemberId} initialRecord={records[editingMemberId] ?? null} scoringSettings={selectedScoringSettings} onClose={() => setEditingMemberId(null)} onSave={saveRecord} />}
       {canEdit && showImporter && <ImportDialog teamMembers={teamMembers} selectedMonth={selectedMonth} onClose={() => setShowImporter(false)} onImport={importRecords} />}
     </section>

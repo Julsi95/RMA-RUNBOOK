@@ -162,7 +162,7 @@ export function getPreviousMonth(month) {
 }
 
 export function makeCsvTemplate() {
-  const headers = ["Name", "Role", ...KPI_METRICS.flatMap((metric) => {
+  const headers = ["Employee ID", "Name", "Role", ...KPI_METRICS.flatMap((metric) => {
     const label = metric.id === "qa" ? "QA Score" : metric.label.replace(/ count$/i, "");
     return [
       `${label} ${metric.isPercent ? "(%)" : "Count"}`,

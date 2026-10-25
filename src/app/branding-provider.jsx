@@ -54,6 +54,8 @@ export function BrandingProvider({ children }) {
       if (!supabase) throw new Error("Connect Supabase before changing sidebar branding.");
       let logoPath = branding.logo_path || "";
       if (file) {
+        if (!/^image\/(jpeg|png|webp|gif)$/.test(file.type)) throw new Error("Use a JPEG, PNG, WebP, or GIF image.");
+        if (file.size <= 0 || file.size > 5 * 1024 * 1024) throw new Error("Branding images must be 5 MB or smaller.");
         const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : file.type === "image/gif" ? "gif" : "jpg";
         logoPath = `branding/sidebar-${crypto.randomUUID()}.${extension}`;
         const { error: uploadError } = await supabase.storage.from("runbook-public").upload(logoPath, file, { contentType: file.type, upsert: false });

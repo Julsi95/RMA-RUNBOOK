@@ -15,7 +15,7 @@ export function uniqueSortedDates(values) {
 export function validateRequestedDates(dates, holidays = [], today = new Date()) {
   const uniqueDates = uniqueSortedDates(dates);
   if (!uniqueDates.length || uniqueDates.length > WFH_MAX_REQUEST_DAYS) return `Choose between 1 and ${WFH_MAX_REQUEST_DAYS} dates.`;
-  const todayIso = today.toISOString().slice(0, 10);
+  const todayIso = typeof today === "string" ? today : today.toISOString().slice(0, 10);
   if (uniqueDates.some((date) => date <= todayIso)) return "Choose dates after today.";
   if (uniqueDates.some((date) => !isWorkingWeekday(date, holidays))) return "Choose weekdays marked as working days.";
   return "";
