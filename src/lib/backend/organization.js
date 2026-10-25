@@ -89,6 +89,9 @@ async function storeEmployeePhoto(photo, currentPath, employeeId) {
   }
 
   const blob = await (await fetch(photo)).blob();
+  if (!/^image\/(jpeg|png|webp|gif)$/.test(blob.type) || blob.size <= 0 || blob.size > 5 * 1024 * 1024) {
+    throw new Error("Profile images must be JPEG, PNG, WebP, or GIF and no larger than 5 MB.");
+  }
   const extension = blob.type === "image/png" ? "png" : blob.type === "image/webp" ? "webp" : blob.type === "image/gif" ? "gif" : "jpg";
   const path = `employees/${employeeId}/${crypto.randomUUID()}.${extension}`;
   const { error } = await assertBackendConfigured().storage.from("runbook-private").upload(path, blob, { contentType: blob.type, upsert: false });

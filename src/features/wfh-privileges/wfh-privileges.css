@@ -71,3 +71,37 @@
 .wfh-approval-list article{scroll-margin:18px}
 @media(max-width:900px){.wfh-admin-reward-grid{grid-template-columns:minmax(0,1fr)}.wfh-admin-reward-grid .wfh-reward-panel{height:320px}.wfh-agent-balances{height:300px}}
 @media(max-width:520px){.wfh-admin-reward-grid .wfh-reward-panel{height:280px}.wfh-agent-balances{height:280px}.wfh-approval-list{max-height:48vh}.wfh-approval-card{max-height:520px}}
+.wfh-request-calendar{display:grid;width:100%;box-sizing:border-box;container-type:inline-size;gap:8px;margin-top:12px;padding:10px;border:1px solid var(--border);border-radius:12px;background:var(--background)}
+.wfh-request-calendar>header{display:grid;grid-template-columns:30px 1fr 30px;align-items:center;gap:5px}
+.wfh-request-calendar>header strong{display:flex;align-items:center;justify-content:center;gap:7px;font-size:12px}
+.wfh-calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.wfh-calendar-layout{display:grid;grid-template-columns:minmax(0,336px) minmax(170px,1fr);align-items:stretch;gap:12px;min-width:0}
+.wfh-calendar-main{width:100%;min-width:0}
+.wfh-calendar-selection{display:grid;grid-template-rows:minmax(0,1fr) auto;align-content:start;gap:8px;min-width:0;min-height:0;padding:9px;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
+.wfh-calendar-selection .wfh-staged-dates{grid-template-rows:auto minmax(0,1fr);min-height:0;margin:0}
+.wfh-calendar-selection .wfh-staged-dates>div{height:180px;max-height:180px;overflow-y:auto;overscroll-behavior:contain;align-content:flex-start;padding-right:4px;scrollbar-color:var(--muted-foreground) transparent;scrollbar-width:thin}
+.wfh-calendar-selection .wfh-staged-dates>div>p{margin:0;color:var(--muted-foreground);font-size:10px;line-height:1.5}
+.wfh-calendar-selection>button{width:100%}
+.wfh-calendar-weekday{display:grid;height:22px;place-items:center;color:var(--muted-foreground);font-size:9px;font-weight:700}
+.wfh-calendar-day{position:relative;display:grid;min-width:0;aspect-ratio:1;place-items:center;border:1px solid transparent;border-radius:7px;background:var(--surface);color:var(--foreground);font:inherit;font-size:10px;cursor:pointer;transition:background .14s,border-color .14s,color .14s}
+.wfh-calendar-day:hover{border-color:var(--ring);background:var(--muted)}
+.wfh-calendar-day.outside{color:var(--muted-foreground);opacity:.4}
+.wfh-calendar-day.unavailable{color:var(--muted-foreground);text-decoration:line-through;text-decoration-color:color-mix(in srgb,#d84f56 68%,transparent)}
+.wfh-calendar-day.selected{border-color:#07835f;background:color-mix(in srgb,#07835f 14%,var(--surface));color:#07835f;font-weight:750;text-decoration:none}
+.wfh-calendar-legend{display:flex;flex-wrap:wrap;gap:8px 12px;color:var(--muted-foreground);font-size:9px}
+.wfh-calendar-legend span{display:inline-flex;align-items:center;gap:5px}
+.wfh-calendar-legend i{width:7px;height:7px;border-radius:50%;background:var(--muted-foreground)}
+.wfh-calendar-legend i.available{background:#07835f}.wfh-calendar-legend i.unavailable{background:#d84f56}.wfh-calendar-legend i.selected{background:#07835f;outline:2px solid color-mix(in srgb,#07835f 24%,transparent)}
+.wfh-staged-dates{display:grid;gap:7px;padding:9px;border-radius:9px;background:color-mix(in srgb,#07835f 7%,var(--surface))}
+.wfh-staged-dates>strong,.wfh-selected-dates>strong{font-size:10px}
+.wfh-staged-dates>div{display:flex;flex-wrap:wrap;gap:6px}
+.wfh-staged-dates span{display:flex;align-items:center;gap:5px;padding:4px 6px;border:1px solid var(--border);border-radius:7px;background:var(--surface);font-size:10px}
+.wfh-staged-dates button,.wfh-selected-dates button{display:inline-flex;align-items:center;justify-content:center;padding:2px;border:0;background:transparent;color:var(--muted-foreground);cursor:pointer}
+.wfh-selected-dates{align-items:center}
+.wfh-calendar-day:focus-visible{outline:2px solid var(--ring);outline-offset:1px}
+@media(max-width:480px){.wfh-request-calendar{padding:8px}.wfh-calendar-grid{gap:2px}.wfh-calendar-day{border-radius:6px;font-size:10px}}
+@container (max-width:560px){.wfh-calendar-layout{grid-template-columns:minmax(0,1fr)}.wfh-calendar-main{max-width:336px}.wfh-calendar-selection .wfh-staged-dates>div{height:96px;max-height:96px}}
+.wfh-request-history-grid{display:grid;grid-template-columns:minmax(340px,.9fr) minmax(0,1.1fr);align-items:stretch;gap:14px;min-width:0}
+.wfh-request-history-grid>.wfh-history-card{display:grid;grid-template-rows:auto minmax(0,1fr);box-sizing:border-box;height:100%;min-height:0}
+.wfh-request-history-grid .wfh-history-scroll{height:auto;min-height:220px;max-height:min(560px,70vh)}
+@media(max-width:900px){.wfh-request-history-grid{grid-template-columns:minmax(0,1fr)}}

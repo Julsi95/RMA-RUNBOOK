@@ -1,7 +1,22 @@
 import * as XLSX from "xlsx";
 import { KPI_METRICS, emptyMetrics } from "@/features/kpi/kpi-data";
 
+const MAX_KPI_IMPORT_BYTES = 10 * 1024 * 1024;
+const MAX_KPI_IMPORT_SHEETS = 20;
+const MAX_KPI_IMPORT_CELLS = 250_000;
+const MAX_KPI_IMPORT_ROWS = 2_000;
+const MAX_KPI_IMPORT_COLUMNS = 100;
+
 const normalize = (value) => String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "").trim();
+function historicalMemberId(identity) {
+  const value = normalize(identity);
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `historical:${(hash >>> 0).toString(36)}`;
+}
 const shortNameKey = (value) => {
   const parts = String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(Boolean);
   return parts.length > 1 ? `${parts[0][0]}${parts.at(-1)}` : "";
@@ -132,6 +147,8 @@ export function normalizeImportedRows(rows, teamMembers) {
     if (!headers.some((header) => aliases.some((alias) => normalize(header).includes(alias)) && normalize(header).includes("weighted"))) missingColumns.push(`${metric.label} weighted score`);
   }
   const nameKey = findNameColumn(rows, teamMembers);
+  const roleKey = headers.find((header) => ["role", "position", "jobtitle", "title"].includes(normalize(header)));
+  const identityKey = headers.find((header) => ["employeeid", "agentid", "personnelid", "staffid", "employee number", "employeenumber"].includes(normalize(header)));
   const memberByName = new Map(teamMembers.map((member) => [normalize(member.name), member]));
   const membersByShortName = new Map();
   for (const member of teamMembers) {
@@ -151,9 +168,12 @@ export function normalizeImportedRows(rows, teamMembers) {
     const exactMatch = memberByName.get(normalize(name));
     const shortMatches = membersByShortName.get(shortNameKey(name)) ?? [];
     const member = exactMatch ?? (shortMatches.length === 1 ? shortMatches[0] : null);
+    const historicalIdentity = String(identityKey ? row[identityKey] ?? "" : "").trim() || name;
+    const memberId = member?.id ?? historicalMemberId(historicalIdentity);
+    const role = member?.role ?? String(roleKey ? row[roleKey] ?? "" : "").trim();
     if (!member) unmatched.push(name);
-    if (member && seen.has(member.id)) repeated.push(name);
-    if (member) seen.add(member.id);
+    if (seen.has(memberId)) repeated.push(name);
+    seen.add(memberId);
     const metrics = emptyMetrics();
     for (const metric of KPI_METRICS) {
       const rawValue = numericValue(findMetricCell(row, metric, "value"));
@@ -171,9 +191,10 @@ export function normalizeImportedRows(rows, teamMembers) {
     imported.push({
       importRowId: `${rowIndex}-${normalize(name)}`,
       sourceName: name,
-      memberId: member?.id ?? "",
+      memberId,
       memberName: member?.name ?? name,
-      role: member?.role ?? "",
+      role,
+      historical: !member,
       metrics,
       overallScore: overallHeader ? numericValue(row[overallHeader]) : null,
       evaluation: evaluationHeader ? String(row[evaluationHeader] ?? "").trim() : "",
@@ -184,12 +205,47 @@ export function normalizeImportedRows(rows, teamMembers) {
 }
 
 export async function readKpiFile(file, teamMembers) {
+  if (!file || file.size <= 0) throw new Error("Choose a non-empty CSV or Excel file.");
+  if (file.size > MAX_KPI_IMPORT_BYTES) throw new Error("KPI import files must be 10 MB or smaller.");
+  const extension = String(file.name ?? "").toLowerCase().match(/\.(csv|xlsx|xls)$/)?.[1];
+  if (!extension) throw new Error("Use a CSV, XLSX, or XLS file.");
   const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: false });
-  const tables = workbook.SheetNames.flatMap((sheetName) => {
-    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: "", raw: false });
-    return rowsToTables(rows).map(({ month, objects }) => ({ month: month ?? getMonthFromLabel(`${file.name} ${sheetName}`), ...normalizeImportedRows(objects, teamMembers) }));
+  const workbook = XLSX.read(buffer, {
+    type: "array",
+    cellDates: false,
+    cellFormula: false,
+    cellHTML: false,
+    cellStyles: false,
+    bookVBA: false,
+    sheetRows: MAX_KPI_IMPORT_ROWS + 1,
   });
+  if (workbook.SheetNames.length > MAX_KPI_IMPORT_SHEETS) throw new Error(`A workbook can contain up to ${MAX_KPI_IMPORT_SHEETS} sheets.`);
+  const tables = [];
+  let inspectedCells = 0;
+  let importedRows = 0;
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    const range = sheet?.["!fullref"] || sheet?.["!ref"];
+    if (!range) continue;
+    const bounds = XLSX.utils.decode_range(range);
+    const rowCount = bounds.e.r - bounds.s.r + 1;
+    const columnCount = bounds.e.c - bounds.s.c + 1;
+    if (rowCount > MAX_KPI_IMPORT_ROWS || columnCount > MAX_KPI_IMPORT_COLUMNS) {
+      throw new Error(`Each sheet must contain at most ${MAX_KPI_IMPORT_ROWS} rows and ${MAX_KPI_IMPORT_COLUMNS} columns.`);
+    }
+    inspectedCells += rowCount * columnCount;
+    if (inspectedCells > MAX_KPI_IMPORT_CELLS) {
+      throw new Error("This workbook has too many cells to import safely.");
+    }
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false, blankrows: false });
+    for (const { month, objects } of rowsToTables(rows)) {
+      const normalized = normalizeImportedRows(objects, teamMembers);
+      importedRows += normalized.imported.length;
+      if (importedRows > MAX_KPI_IMPORT_ROWS) throw new Error(`An import can contain up to ${MAX_KPI_IMPORT_ROWS} result rows.`);
+      tables.push({ month: month ?? getMonthFromLabel(`${file.name} ${sheetName}`), ...normalized });
+      if (tables.length > MAX_KPI_IMPORT_SHEETS) throw new Error(`An import can contain up to ${MAX_KPI_IMPORT_SHEETS} monthly tables.`);
+    }
+  }
   if (!tables.length) throw new Error("Could not find a usable data table. Use the provided CSV template or a spreadsheet with a Name column and KPI columns.");
   return { tables, fileName: file.name };
 }

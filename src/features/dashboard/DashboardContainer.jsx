@@ -1,9 +1,25 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowRight, ArrowUpRight, CalendarDays, ChevronLeft, ChevronRight, Quote } from "lucide-react";
 import { Link } from "react-router";
 import { getOverallScore, getKpiScoringSettings } from "@/features/kpi/kpi-data";
 import { useDashboardKpi } from "@/features/dashboard/dashboard-kpi-provider";
 import { safeAppHref, safeHttpUrl } from "@/lib/safe-url";
+
+function OverflowText({ as: Tag = "p", wrap = true, className = "", style, children }) {
+  const [scrolling, setScrolling] = useState(false);
+  const timer = useRef(0);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  return <Tag
+    className={`dashboard-overflow-text${className ? ` ${className}` : ""}`}
+    data-scrolling={scrolling ? "true" : undefined}
+    onScroll={() => {
+      setScrolling(true);
+      window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => setScrolling(false), 800);
+    }}
+    style={{ whiteSpace: wrap ? "pre-wrap" : "pre", ...style }}
+  >{children}</Tag>;
+}
 
 function safeImageSource(value) {
   if (typeof value !== "string" || !value) return "";
@@ -121,10 +137,10 @@ export default function DashboardContainer({ item, linksEnabled = true, containe
     {hasBaseText && <div className={"dashboard-card-inner" + (hasImage && item.textPosition && item.textPosition !== "below" ? " is-overlay" : "")} style={hasImage && item.textPosition && item.textPosition !== "below" ? { position: "absolute", zIndex: 2, background: item.textBackground === "none" ? "transparent" : undefined } : undefined}>
       {(item.eyebrow || (hasText && (item.title || item.description || item.body)) || item.type === "announcement") && <div className="dashboard-card-kicker-row">{(item.eyebrow || item.title || item.description || item.body) && <span className="dashboard-card-kicker">{item.eyebrow || typeLabel}</span>}{item.type === "announcement" && <span className="dashboard-announcement-spark" aria-hidden="true"><i /><i /><i /></span>}</div>}
       {item.title && <h2>{item.title}</h2>}
-      {item.description && <p className="dashboard-card-description">{item.description}</p>}
-      {item.type === "announcement" && item.body && <p className="dashboard-card-body">{item.body}</p>}
-      {item.type === "content" && item.body && <blockquote><Quote size={17} /><span>{item.body}</span></blockquote>}
-      {item.type === "feature" && item.body && <p className="dashboard-card-body">{item.body}</p>}
+      {item.description && <OverflowText className="dashboard-card-description" wrap={item.descriptionWrap !== false}>{item.description}</OverflowText>}
+      {item.type === "announcement" && item.body && <OverflowText className="dashboard-card-body" wrap={item.bodyWrap !== false}>{item.body}</OverflowText>}
+      {item.type === "content" && item.body && <blockquote><Quote size={17} /><OverflowText as="span" className="dashboard-card-body" wrap={item.bodyWrap !== false}>{item.body}</OverflowText></blockquote>}
+      {item.type === "feature" && item.body && <OverflowText className="dashboard-card-body" wrap={item.bodyWrap !== false}>{item.body}</OverflowText>}
       {item.type === "announcement" && item.showDate && item.date && <div className="dashboard-card-date"><CalendarDays size={14} />{formatDate(item.date)}</div>}
       {item.type === "quickLinks" && <div className="dashboard-quick-links">{(item.links ?? []).map((link) => <DashboardLink className="dashboard-quick-link" url={link.url} enabled={linksEnabled} key={link.id}><span>{link.label || "Open link"}</span><ChevronRight size={15} /></DashboardLink>)}</div>}
       {item.buttonLabel && item.buttonUrl && <DashboardLink className="dashboard-card-cta" url={item.buttonUrl} enabled={linksEnabled}>{item.buttonLabel}{item.buttonUrl.startsWith("/") ? <ArrowRight size={15} /> : <ArrowUpRight size={15} />}</DashboardLink>}
@@ -135,7 +151,7 @@ export default function DashboardContainer({ item, linksEnabled = true, containe
       const y = Math.min(100, Math.max(0, Number(layer.y) || 0));
       const translateX = anchor.endsWith("center") || anchor === "center" ? "-50%" : anchor.endsWith("right") ? "-100%" : "0";
       const translateY = anchor.startsWith("bottom") ? "-100%" : anchor.startsWith("center") || anchor === "center" ? "-50%" : "0";
-      return <div className="dashboard-custom-text-layer" key={layer.id} style={{ left: `${x}%`, top: `${y}%`, transform: `translate(${translateX}, ${translateY})`, color: layer.color || "#ffffff", fontSize: `${layer.fontSize || 24}px`, fontWeight: layer.fontWeight || 600, fontStyle: layer.fontStyle || "normal", fontFamily: layer.fontFamily || "sans-serif", textAlign: layer.align || "left" }}>{layer.text}</div>;
+      return <OverflowText as="div" className="dashboard-custom-text-layer" key={layer.id} wrap={layer.wrap !== false} style={{ left: `${x}%`, top: `${y}%`, width: `${Math.min(100, Math.max(10, Number(layer.width) || 55))}%`, height: `${Math.min(100, Math.max(10, Number(layer.height) || 45))}%`, transform: `translate(${translateX}, ${translateY})`, color: layer.color || "#ffffff", fontSize: `${layer.fontSize || 24}px`, fontWeight: layer.fontWeight || 600, fontStyle: layer.fontStyle || "normal", fontFamily: layer.fontFamily || "sans-serif", textAlign: layer.align || "left" }}>{layer.text}</OverflowText>;
     })}
     {item.type === "announcement" && hasText && <span className="dashboard-announcement-orbit" aria-hidden="true" />}
   </article>;

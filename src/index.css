@@ -255,6 +255,14 @@ h1 { margin: 0; font-size: clamp(27px, 3vw, 34px); font-weight: 620; letter-spac
 .history-entry-heading strong { font-size: 14px; font-weight: 600; }
 .history-entry-heading time, .history-entry-content p, .history-recoverable { color: var(--muted-foreground); font-size: 12px; }
 .history-entry-content p { margin: 5px 0; }
+.history-heading-actions { display: flex; align-items: center; gap: 8px; }
+.history-entry { align-items: flex-start; }
+.history-delete-button { flex: 0 0 auto; color: var(--muted-foreground); }
+.history-delete-button:hover { color: #c43d45; }
+.history-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding-top: 14px; border-top: 1px solid var(--border); color: var(--muted-foreground); font-size: 11px; }
+.history-pagination > div { display: flex; align-items: center; gap: 8px; }
+.history-pagination > div > span { min-width: 86px; text-align: center; }
+@media (max-width: 560px) { .history-heading-actions { align-items: flex-start; flex-direction: column; } .history-pagination { align-items: flex-start; flex-direction: column; } .history-pagination > div { width: 100%; justify-content: space-between; } }
 .history-recoverable { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; color: #1b8c5a; }
 .history-recoverable > span { display: inline-flex; align-items: center; gap: 5px; }
 .history-empty { display: grid; min-height: 210px; align-content: center; justify-items: center; gap: 10px; margin-top: 24px; padding: 24px; border: 1px dashed var(--border); border-radius: 14px; color: var(--muted-foreground); text-align: center; }

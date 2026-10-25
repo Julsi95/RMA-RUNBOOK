@@ -83,3 +83,28 @@ export async function saveKpiMonthResults(month, records) {
   throwIfError(error);
   return data;
 }
+
+export async function replaceKpiMonthResults(month, records) {
+  assertBackendConfigured();
+  if (!Array.isArray(records) || records.length === 0 || records.length > 2000) {
+    throw new Error("A replacement import must contain between 1 and 2,000 result rows.");
+  }
+  const results = records.map((record) => ({
+    employee_id: record.memberId,
+    employee_name_snapshot: record.memberName,
+    employee_role_snapshot: record.role ?? "",
+    metrics: record.metrics,
+    overall_score: record.overallScore,
+    evaluation: record.evaluation ?? "",
+    source: "import",
+  }));
+  if (new TextEncoder().encode(JSON.stringify(results)).byteLength > 5 * 1024 * 1024) {
+    throw new Error("The imported results exceed the 5 MB save limit. Reduce the rows or split the upload by month.");
+  }
+  const { data, error } = await supabase.rpc("replace_kpi_month_results", {
+    p_month: month,
+    p_results: results,
+  });
+  throwIfError(error);
+  return data;
+}
