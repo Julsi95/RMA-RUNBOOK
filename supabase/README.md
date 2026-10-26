@@ -34,8 +34,17 @@ The services retain the current UI-facing data shapes. Private photo URLs are re
    ```
 
    Add the same two public values to the Vercel project's Production, Preview, and Development environment variables when ready to deploy.
-3. In Supabase Auth settings, set the Site URL to the deployed Vercel URL and add that URL plus `http://localhost:5173/**` to the redirect allow-list. Configure a real SMTP provider before relying on password-reset emails. Turn off public sign-ups; accounts should be invited/created by the owner.
-4. Apply the versioned SQL files through the Supabase CLI. The CLI is pinned as a project dev dependency; authenticate and link the project once, then preview before applying:
+3. In Supabase Auth settings, set the Site URL to the deployed Vercel URL and add that URL plus `http://localhost:5173/**` to the redirect allow-list. Keep public sign-ups off; accounts should be invited/created by an administrator.
+4. To deliver Auth email through SendLiberty, first add these Edge Function secrets in Supabase Dashboard → Edge Functions → Secrets: `SENDLIBERTY_API_KEY`, `SENDLIBERTY_FROM_EMAIL` (the connected Gmail sender), and `SEND_EMAIL_HOOK_SECRET` (generated in Auth → Hooks when creating the Send Email Hook). Restrict the SendLiberty API key to that sender if its dashboard offers the restriction. Optionally set `RUNBOOK_APP_URL` to the production app URL and `RUNBOOK_ALLOWED_ORIGINS` to comma-separated approved app origins.
+
+   Deploy the function, then configure Auth → Hooks → Send Email to call `https://YOUR_PROJECT_REF.supabase.co/functions/v1/send-email`:
+
+   ```powershell
+   npx supabase functions deploy send-email --no-verify-jwt
+   ```
+
+   The function verifies Supabase's signed hook request itself. Do not enable the hook until the SendLiberty and hook secrets are set. Invitation emails contain a one-time code and a plain link to `/accept-invite`; the code is verified as an `invite` OTP before password setup. This avoids putting a consumable invitation token in the link that corporate scanners may visit. Recovery and email-change events retain Supabase verification links. The Send Email Hook replaces built-in delivery for all Auth emails, so test invite, resend, password recovery, and email-change flows after enabling it. Supabase's built-in sender is limited to project team addresses and two emails per hour; configure this hook or a mail provider before inviting external users.
+5. Apply the versioned SQL files through the Supabase CLI. The CLI is pinned as a project dev dependency; authenticate and link the project once, then preview before applying:
 
    ```powershell
    npx supabase login
@@ -47,7 +56,7 @@ The services retain the current UI-facing data shapes. Private photo URLs are re
    ```
 
    `supabase link` prompts for the database password. Enter it in the terminal only; do not put it in `.env.local`, the repository, or chat. `db:dry-run` should list the eleven migrations before the first push. `--include-seed` is for this new, empty project and applies the editable sample records once; omit it on later pushes. The seed intentionally does not import browser storage.
-5. Create the initial owner login in Supabase Auth. After the account row is created by the auth trigger, grant that one account edit access in the SQL Editor by matching its verified email to the auth UUID:
+6. Create the initial owner login in Supabase Auth. After the account row is created by the auth trigger, grant that one account edit access in the SQL Editor by matching its verified email to the auth UUID:
 
    ```sql
    update public.app_accounts a
@@ -58,7 +67,7 @@ The services retain the current UI-facing data shapes. Private photo URLs are re
 
    Confirm exactly one row was updated. The app does not contain a default account or password. The owner can change their password in Settings; password recovery uses Supabase Auth email delivery.
 
-6. After confirming the `pg_cron` extension is available for your Supabase plan, schedule daily retention cleanup from the SQL Editor as the database owner:
+7. After confirming the `pg_cron` extension is available for your Supabase plan, schedule daily retention cleanup from the SQL Editor as the database owner:
 
    ```sql
    select cron.schedule(

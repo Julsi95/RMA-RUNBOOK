@@ -26,3 +26,9 @@ otp_expiry = 86400
 [auth.email.template.invite]
 subject = "You are invited to RUNBOOK"
 content_path = "./supabase/templates/invite.html"
+
+# Supabase Auth calls this function using the signed Send Email Hook payload.
+# The function validates that signature itself; JWT verification is disabled here
+# because Auth does not send a user access token with hook requests.
+[functions.send-email]
+verify_jwt = false
