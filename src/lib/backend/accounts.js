@@ -3,6 +3,10 @@ import { assertBackendConfigured, throwIfError } from "./shared.js";
 export async function manageAccounts(payload) {
   const client = assertBackendConfigured();
   const { data, error } = await client.functions.invoke("manage-account", { body: payload });
+  if (error?.name === "FunctionsFetchError") {
+    const origin = typeof window === "undefined" ? "this site" : window.location.origin;
+    throw new Error(`Could not reach the account-management function from ${origin}. Check that the Supabase manage-account function is deployed and this site origin is allowed by its CORS settings.`);
+  }
   throwIfError(error);
   if (data?.error) throw new Error(data.error);
   return data;

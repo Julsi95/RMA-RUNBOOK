@@ -765,7 +765,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 @media (prefers-reduced-motion: reduce) { .page-content { animation: none; } .nav-link:hover, .profile-panel:hover, .profile-footer-link:hover { transform: none; } .profile-menu { animation: none; } }
 
 /* Keep chart sizing stable when save/status notices appear, and let the chart use the remaining viewport. */
-.organization-page{height:calc(100dvh - 171px);min-height:0;max-height:none;grid-template-rows:auto auto auto minmax(0,1fr);gap:16px}
+.organization-page{height:auto;min-height:calc(100dvh - 171px);max-height:none;grid-template-rows:auto auto auto minmax(70dvh,1fr);gap:16px}
 .organization-notices{display:grid;align-content:start;gap:5px;min-height:0}
 .organization-notices:empty{display:none}
 .organization-notices > p{margin:0}
@@ -778,4 +778,4 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .org-chart-viewport.is-panning *{user-select:none}
 .org-chart-live{gap:8px}
 .org-chart-live small{padding-left:8px;border-left:1px solid var(--border);font-size:10px;font-weight:450}
-@media(max-width:700px){.organization-page{height:calc(100dvh - 140px);gap:12px}.org-summary-row{min-height:0}.org-chart-heading p{max-width:62ch}.org-chart-heading-actions{width:100%;justify-content:space-between}.org-chart-live{white-space:normal}.org-chart-panel.is-expanded{inset:8px;width:auto;height:calc(100dvh - 16px);max-height:calc(100dvh - 16px)}.org-chart-viewport{touch-action:auto}}
+@media(max-width:700px){.organization-page{min-height:calc(100dvh - 140px);grid-template-rows:auto auto auto minmax(70dvh,1fr);gap:12px}.org-summary-row{min-height:0}.org-chart-heading p{max-width:62ch}.org-chart-heading-actions{width:100%;justify-content:space-between}.org-chart-live{white-space:normal}.org-chart-panel.is-expanded{inset:8px;width:auto;height:calc(100dvh - 16px);max-height:calc(100dvh - 16px)}.org-chart-viewport{touch-action:auto}}

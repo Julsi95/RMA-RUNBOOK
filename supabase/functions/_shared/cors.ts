@@ -9,7 +9,17 @@ function allowedOrigins() {
     ?.split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
-  return new Set(configured?.length ? configured : DEFAULT_ALLOWED_ORIGINS);
+  return new Set([...DEFAULT_ALLOWED_ORIGINS, ...(configured ?? [])]);
+}
+
+function isRunbookPreviewOrigin(origin: string | null) {
+  if (!origin) return false;
+  try {
+    const url = new URL(origin);
+    return url.protocol === "https:" && /^rma-runbook(?:-[a-z0-9-]+)?\.vercel\.app$/i.test(url.hostname);
+  } catch {
+    return false;
+  }
 }
 
 export function corsHeaders(request: Request) {
@@ -19,11 +29,11 @@ export function corsHeaders(request: Request) {
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Vary": "Origin",
   });
-  if (origin && allowedOrigins().has(origin)) headers.set("Access-Control-Allow-Origin", origin);
+  if (origin && (allowedOrigins().has(origin) || isRunbookPreviewOrigin(origin))) headers.set("Access-Control-Allow-Origin", origin);
   return headers;
 }
 
 export function isAllowedOrigin(request: Request) {
   const origin = request.headers.get("Origin");
-  return !origin || allowedOrigins().has(origin);
+  return !origin || allowedOrigins().has(origin) || isRunbookPreviewOrigin(origin);
 }
