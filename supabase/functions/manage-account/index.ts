@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { corsHeaders, isAllowedOrigin } from "../_shared/cors.ts";
+import { corsHeaders, isAllowedOrigin, isAllowedRunbookOrigin } from "../_shared/cors.ts";
 
 function response(request: Request, body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -14,8 +14,7 @@ function resolveInviteRedirect(value: unknown): string {
   if (typeof value !== "string") throw new Error("Invitation redirect is invalid.");
   let target: URL;
   try { target = new URL(value); } catch { throw new Error("Invitation redirect is invalid."); }
-  const allowedOrigins = new Set([productionOrigin, "https://rma-runbook.vercel.app", "http://localhost:5173", "http://127.0.0.1:5173"]);
-  if (!allowedOrigins.has(target.origin) || target.pathname !== "/accept-invite" || target.search || target.hash) {
+  if (!isAllowedRunbookOrigin(target.origin) || target.pathname !== "/accept-invite" || target.search || target.hash) {
     throw new Error("Invitation redirect must point to an approved RUNBOOK invitation page.");
   }
   return target.toString();

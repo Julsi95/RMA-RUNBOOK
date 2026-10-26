@@ -1,4 +1,5 @@
 import { Webhook } from "https://esm.sh/standardwebhooks@1.0.0";
+import { isAllowedRunbookOrigin } from "../_shared/cors.ts";
 import { buildActionEmail, createVerificationUrl } from "./email-template.js";
 
 type HookPayload = {
@@ -15,19 +16,11 @@ type HookPayload = {
 };
 
 const DEFAULT_APP_URL = "https://rma-runbook.vercel.app";
-const DEFAULT_ALLOWED_ORIGINS = [DEFAULT_APP_URL, "http://localhost:5173", "http://127.0.0.1:5173"];
 
-function allowedOrigins() {
-  return new Set([
-    ...DEFAULT_ALLOWED_ORIGINS,
-    ...(Deno.env.get("RUNBOOK_ALLOWED_ORIGINS") ?? "").split(",").map((value) => value.trim()).filter(Boolean),
-  ].map((value) => new URL(value).origin));
-}
-
-function resolveRedirect(value: string | undefined, fallback: string, allowed: Set<string>, invitation = false) {
+function resolveRedirect(value: string | undefined, fallback: string, invitation = false) {
   let target: URL;
   try { target = new URL(value || fallback); } catch { throw new Error("Invalid email redirect URL."); }
-  if (!allowed.has(target.origin) || target.username || target.password) throw new Error("Email redirect is not an approved RUNBOOK origin.");
+  if (!isAllowedRunbookOrigin(target.origin) || target.username || target.password) throw new Error("Email redirect is not an approved RUNBOOK origin.");
   if (invitation && (target.pathname !== "/accept-invite" || target.search || target.hash)) {
     throw new Error("Invitation email must point to the RUNBOOK invitation page.");
   }
@@ -76,10 +69,9 @@ Deno.serve(async (request: Request) => {
 
   try {
     const action = email.email_action_type;
-    const allowed = allowedOrigins();
     const appBase = Deno.env.get("RUNBOOK_APP_URL") ?? DEFAULT_APP_URL;
     const fallbackPath = action === "invite" ? "/accept-invite" : action === "recovery" ? "/reset-password" : "/login";
-    const appUrl = resolveRedirect(email.redirect_to, new URL(fallbackPath, appBase).toString(), allowed, action === "invite");
+    const appUrl = resolveRedirect(email.redirect_to, new URL(fallbackPath, appBase).toString(), action === "invite");
     const displayName = payload.user?.user_metadata?.display_name ?? payload.user?.user_metadata?.full_name;
 
     if (action === "email_change") {

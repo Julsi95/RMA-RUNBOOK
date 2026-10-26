@@ -9,7 +9,8 @@ function allowedOrigins() {
     ?.split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
-  return new Set([...DEFAULT_ALLOWED_ORIGINS, ...(configured ?? [])]);
+  const appUrl = Deno.env.get("RUNBOOK_APP_URL") ?? "https://rma-runbook.vercel.app";
+  return new Set([...DEFAULT_ALLOWED_ORIGINS, new URL(appUrl).origin, ...(configured ?? [])]);
 }
 
 function isRunbookPreviewOrigin(origin: string | null) {
@@ -22,6 +23,10 @@ function isRunbookPreviewOrigin(origin: string | null) {
   }
 }
 
+export function isAllowedRunbookOrigin(origin: string | null) {
+  return Boolean(origin && (allowedOrigins().has(origin) || isRunbookPreviewOrigin(origin)));
+}
+
 export function corsHeaders(request: Request) {
   const origin = request.headers.get("Origin");
   const headers = new Headers({
@@ -29,11 +34,11 @@ export function corsHeaders(request: Request) {
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Vary": "Origin",
   });
-  if (origin && (allowedOrigins().has(origin) || isRunbookPreviewOrigin(origin))) headers.set("Access-Control-Allow-Origin", origin);
+  if (isAllowedRunbookOrigin(origin)) headers.set("Access-Control-Allow-Origin", origin!);
   return headers;
 }
 
 export function isAllowedOrigin(request: Request) {
   const origin = request.headers.get("Origin");
-  return !origin || allowedOrigins().has(origin) || isRunbookPreviewOrigin(origin);
+  return !origin || isAllowedRunbookOrigin(origin);
 }
