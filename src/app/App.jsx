@@ -17,7 +17,7 @@ import AgentProfilesPage from "@/features/agents/AgentProfilesPage";
 import DashboardSettingsPage from "@/features/dashboard/DashboardSettingsPage";
 import RequireEditor from "@/app/RequireEditor";
 import RequireAuth from "@/app/RequireAuth";
-import { ForgotPasswordPage, InvitationPasswordSetupPage, LoginPage, ResetPasswordPage } from "@/pages/AuthPages";
+import { ForgotPasswordPage, InvitationAcceptPage, InvitationPasswordSetupPage, LoginPage, ResetPasswordPage } from "@/pages/AuthPages";
 import HistoryPage from "@/features/history/HistoryPage";
 import NotificationsPage from "@/features/notifications/NotificationsPage";
 import WfhPrivilegesPage from "@/features/wfh-privileges/WfhPrivilegesPage";
@@ -32,6 +32,7 @@ export default function App() {
       <Route path="login" element={<LoginPage />} />
       <Route path="forgot-password" element={<ForgotPasswordPage />} />
       <Route path="reset-password" element={<ResetPasswordPage />} />
+      <Route path="accept-invite" element={<InvitationAcceptPage />} />
       <Route path="setup-password" element={<InvitationPasswordSetupPage />} />
       <Route element={<AppShell publicWorkspace />}>
         <Route index element={<DashboardPage />} />

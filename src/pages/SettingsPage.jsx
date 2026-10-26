@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Clock3, Dices, ImagePlus, KeyRound, LogOut, RefreshCw, Shield, Trash2, UserPlus, UsersRound, X } from "lucide-react";
+import { AlertTriangle, Clock3, Dices, ImagePlus, KeyRound, LogOut, RefreshCw, Shield, Trash2, UserPlus, UsersRound, X, Mail } from "lucide-react";
 import { useTheme } from "@/app/theme-provider";
 import { useAuth } from "@/app/auth-provider";
 import { useOrganizationRoster } from "@/app/organization-provider";
@@ -197,13 +197,23 @@ export default function SettingsPage() {
   async function sendInvite(event) {
     event.preventDefault(); setAccountBusy(true); setAccountMessage(""); setAccountError("");
     try {
-      const result = await manageAccounts({ ...invite, action: "invite", redirectTo: window.location.origin + "/setup-password" });
+      const result = await manageAccounts({ ...invite, action: "invite", redirectTo: window.location.origin + "/accept-invite" });
       setInvite({ email: "", displayName: "", role: "user", employeeId: "", confirmAdmin: false });
       setAccountMessage(result.message || "Invitation sent.");
       // The invite is complete once the server accepts it. A slow directory
       // refresh must not keep the invite button locked or mask that success.
       void refreshAccounts().catch(() => {});
     } catch (error) { setAccountError(error.message || "Invitation could not be sent."); }
+    finally { setAccountBusy(false); }
+  }
+
+  async function resendInvite(accountRow) {
+    setAccountBusy(true); setAccountMessage(""); setAccountError("");
+    try {
+      const result = await manageAccounts({ action: "resend-invite", userId: accountRow.userId, redirectTo: window.location.origin + "/accept-invite" });
+      setAccountMessage(result.message || `Invitation resent to ${accountRow.email}.`);
+      void refreshAccounts().catch(() => {});
+    } catch (error) { setAccountError(error.message || "Invitation could not be resent."); }
     finally { setAccountBusy(false); }
   }
 
@@ -362,7 +372,7 @@ export default function SettingsPage() {
             {accounts.map((row) => {
               const linkedManager = rosterMembers.find((member) => member.id === row.employee_id);
               const accountMembers = linkedManager && !members.some((member) => member.id === linkedManager.id) ? [...members, linkedManager] : members;
-              return <AccountRow key={row.userId} row={row} members={accountMembers} busy={accountBusy} canSetPassword={account?.role === "super_admin"} canDelete={account?.role === "super_admin" || row.role !== "admin"} onSave={updateAccess} onToggleSuspend={toggleSuspend} onSetPassword={setAccountPassword} onDelete={requestAccountDeletion} />;
+              return <AccountRow key={row.userId} row={row} members={accountMembers} busy={accountBusy} canSetPassword={account?.role === "super_admin"} canDelete={account?.role === "super_admin" || row.role !== "admin"} onSave={updateAccess} onToggleSuspend={toggleSuspend} onSetPassword={setAccountPassword} onResendInvite={resendInvite} onDelete={requestAccountDeletion} />;
             })}
           </tbody></table></div>}
         </div>
@@ -404,7 +414,7 @@ function AccountDeletionDialog({ account, phrase, error, busy, onPhraseChange, o
   </div>;
 }
 
-function AccountRow({ row, members, busy, canSetPassword, canDelete, onSave, onToggleSuspend, onSetPassword, onDelete }) {
+function AccountRow({ row, members, busy, canSetPassword, canDelete, onSave, onToggleSuspend, onSetPassword, onResendInvite, onDelete }) {
   const [role, setRole] = useState(row.role ?? "user");
   const [employeeId, setEmployeeId] = useState(row.employee_id ?? "");
   const [passwordOpen, setPasswordOpen] = useState(false);
@@ -429,6 +439,7 @@ function AccountRow({ row, members, busy, canSetPassword, canDelete, onSave, onT
       <td><select aria-label={`Employee link for ${row.email}`} value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}><option value="">None</option>{members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></td>
       <td className="settings-account-last-signin">{lastSignIn}</td>
       <td><div className="settings-account-actions">
+        {!row.confirmed && !suspended && <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void onResendInvite(row)}><Mail size={14} />Resend invite</Button>}
         <Button size="sm" variant="outline" disabled={busy || (role === row.role && employeeId === (row.employee_id ?? ""))} onClick={() => onSave(row, role, employeeId)}>Save access</Button>
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => onToggleSuspend(row)}>{suspended ? "Reactivate" : "Suspend"}</Button>
         {canSetPassword && <Button size="sm" variant="outline" disabled={busy} onClick={() => { setPasswordOpen((open) => !open); setPasswordError(""); }}>Change password</Button>}

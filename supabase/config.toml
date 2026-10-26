@@ -22,3 +22,7 @@ additional_redirect_urls = ["http://localhost:5173/**", "http://127.0.0.1:5173/*
 [auth.email]
 # Invitation and other email links expire after 24 hours in local Supabase.
 otp_expiry = 86400
+
+[auth.email.template.invite]
+subject = "You are invited to RUNBOOK"
+content_path = "./supabase/templates/invite.html"
