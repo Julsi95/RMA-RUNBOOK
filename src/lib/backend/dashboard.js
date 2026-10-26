@@ -41,6 +41,16 @@ export async function discardDashboardDraft(ownerId) {
 
 const dashboardImageCache = new Map();
 
+function imageDataUrlToBlob(source) {
+  const match = /^data:(image\/(?:png|jpe?g|webp|gif));base64,([a-z\d+/=]+)$/i.exec(source);
+  if (!match) throw new Error("The uploaded image data is invalid. Please upload the image again.");
+  let binary;
+  try { binary = atob(match[2]); } catch { throw new Error("The uploaded image data could not be decoded. Please upload the image again."); }
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return new Blob([bytes], { type: match[1].toLowerCase() });
+}
+
 async function storeDashboardImages(content) {
   const uploaded = new Map();
   async function publicImage(source, containerId, index) {
@@ -51,7 +61,8 @@ async function storeDashboardImages(content) {
       uploaded.set(source, cached);
       return cached;
     }
-    const blob = await (await fetch(source)).blob();
+    // Decode locally: fetching a data: URL is blocked by the app's connect-src CSP.
+    const blob = imageDataUrlToBlob(source);
     const extension = blob.type === "image/png" ? "png" : blob.type === "image/gif" ? "gif" : blob.type === "image/jpeg" ? "jpg" : "webp";
     const path = `dashboard/${containerId}/${crypto.randomUUID()}-${index}.${extension}`;
     const { error } = await supabase.storage.from("runbook-public").upload(path, blob, { contentType: blob.type, upsert: false });
