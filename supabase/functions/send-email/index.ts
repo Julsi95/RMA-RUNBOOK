@@ -44,10 +44,12 @@ async function sendViaSendLiberty({ to, from, subject, html, text }: { to: strin
     console.error("SendLiberty delivery failed with status", response.status);
     throw new Error("Email delivery failed.");
   }
+  console.info("[send-email] SendLiberty accepted the email request");
 }
 
 Deno.serve(async (request: Request) => {
   if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+  console.info("[send-email] Auth hook request received");
 
   const secret = Deno.env.get("SEND_EMAIL_HOOK_SECRET")?.replace(/^v1,whsec_/, "");
   const from = Deno.env.get("SENDLIBERTY_FROM_EMAIL");
@@ -60,12 +62,14 @@ Deno.serve(async (request: Request) => {
     const webhook = new Webhook(secret);
     payload = webhook.verify(rawBody, Object.fromEntries(request.headers)) as HookPayload;
   } catch {
+    console.error("[send-email] Hook signature verification failed");
     return json({ error: "Invalid email hook signature." }, 401);
   }
 
   const recipient = payload.user?.email?.trim();
   const email = payload.email_data;
   if (!recipient || !email?.email_action_type) return json({ error: "Email event is missing required fields." }, 400);
+  console.info("[send-email] Hook signature verified", { action: email.email_action_type });
 
   try {
     const action = email.email_action_type;

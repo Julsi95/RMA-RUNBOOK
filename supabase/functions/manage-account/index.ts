@@ -63,8 +63,12 @@ Deno.serve(async (request) => {
     }
   }
 
+  let actionName = "unknown";
+  let failurePhase = "parse_request";
   try {
     const body = await request.json();
+    actionName = typeof body.action === "string" ? body.action : "unknown";
+    failurePhase = "process_request";
     if (body.action === "list") {
       const { data, error } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
       if (error) throw error;
@@ -96,6 +100,7 @@ Deno.serve(async (request) => {
         if (!employee) return response(request, { error: "Select an active employee record." }, 400);
       }
       const redirectTo = resolveInviteRedirect(body.redirectTo);
+      failurePhase = "supabase_auth_invite";
       const { data: invitation, error } = await admin.auth.admin.inviteUserByEmail(email, {
         data: { display_name: displayName },
         redirectTo,
@@ -123,6 +128,7 @@ Deno.serve(async (request) => {
       if (mappingError) throw mappingError;
       if (!mapping) return response(request, { error: "Account permissions could not be verified." }, 404);
       const redirectTo = resolveInviteRedirect(body.redirectTo);
+      failurePhase = "supabase_auth_resend_invite";
       const { error: inviteError } = await admin.auth.admin.inviteUserByEmail(target.user.email, {
         data: { display_name: mapping.display_name },
         redirectTo,
@@ -256,6 +262,9 @@ Deno.serve(async (request) => {
     return response(request, { error: "Unsupported account action." }, 400);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Account management failed.";
-    return response(request, { error: message }, /rate|too many|429/i.test(message) ? 429 : 400);
+    const status = /rate|too many|429/i.test(message) ? 429 : 400;
+    const safeMessage = message.replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted email]");
+    console.error("[manage-account] Request failed", { action: actionName, phase: failurePhase, status, message: safeMessage });
+    return response(request, { error: message }, status);
   }
 });
