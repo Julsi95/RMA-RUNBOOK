@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router";
 import { ArrowLeft, KeyRound, LockKeyhole, Mail } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { useAuth } from "@/app/auth-provider";
 import { supabase } from "@/lib/supabase";
+import { invitationOtpErrorMessage, isValidInvitationOtp, normalizeInvitationEmail, normalizeInvitationOtp } from "@/lib/invitation-otp";
 
 function AuthFrame({ eyebrow, title, description, children }) {
   return <main className="auth-page"><section className="auth-card"><Link className="auth-brand" to="/">VF <span>RUNBOOK</span></Link><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p className="page-description">{description}</p>{children}</section></main>;
@@ -57,6 +58,55 @@ export function ForgotPasswordPage() {
   }
   return <AuthFrame eyebrow="ACCOUNT RECOVERY" title="Reset your password" description="We’ll email a secure reset link if an account matches that address.">
     {!configured ? <p className="auth-notice">Password recovery becomes available after Supabase is configured.</p> : sent ? <p className="auth-success" role="status">If the address is registered, a password reset link is on its way.</p> : <form className="auth-form" onSubmit={submit}><label>Email address<span className="auth-input"><Mail size={16} /><input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></span></label>{error && <p className="auth-error" role="alert">{error}</p>}<Button type="submit" disabled={busy}>{busy ? "Sending…" : "Send reset link"}</Button></form>}
+    <Link className="auth-back-link" to="/login"><ArrowLeft size={15} /> Back to sign in</Link>
+  </AuthFrame>;
+}
+
+export function InvitationAcceptPage() {
+  const { configured, user, sessionStatus, loading, sessionNotice, sessionCheckError } = useAuth();
+  const navigate = useNavigate();
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [verifiedEmail, setVerifiedEmail] = useState("");
+
+  useEffect(() => {
+    if (verifiedEmail && user?.email?.toLowerCase() === verifiedEmail && sessionStatus?.active) {
+      navigate("/setup-password", { replace: true });
+    }
+  }, [navigate, sessionStatus?.active, user?.email, verifiedEmail]);
+
+  async function submit(event) {
+    event.preventDefault();
+    setError("");
+    const normalizedEmail = normalizeInvitationEmail(email);
+    const normalizedCode = normalizeInvitationOtp(code);
+    if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) { setError("Enter the email address that received the invitation."); return; }
+    if (!isValidInvitationOtp(normalizedCode)) { setError("Enter the one-time code from the invitation email."); return; }
+    if (!supabase) { setError("Invitation verification is unavailable until Supabase is configured."); return; }
+    setBusy(true);
+    try {
+      const { data, error: verifyError } = await supabase.auth.verifyOtp({ email: normalizedEmail, token: normalizedCode, type: "invite" });
+      if (verifyError) throw verifyError;
+      if (!data.user?.email || data.user.email.toLowerCase() !== normalizedEmail) {
+        await supabase.auth.signOut({ scope: "local" });
+        throw new Error("The invitation code did not verify this email address. Ask an administrator to send a new invitation.");
+      }
+      setVerifiedEmail(normalizedEmail);
+    } catch (cause) {
+      setError(invitationOtpErrorMessage(cause));
+    } finally { setBusy(false); }
+  }
+
+  return <AuthFrame eyebrow="SECURE INVITATION" title="Accept your invitation" description="Enter the one-time code from your RUNBOOK invitation email. Opening this page does not consume the code.">
+    {!configured ? <p className="auth-notice">Invitation verification becomes available after Supabase is configured.</p> : verifiedEmail ? <p className={sessionCheckError || sessionNotice ? "auth-error" : "auth-notice"} role={sessionCheckError || sessionNotice ? "alert" : "status"}>{sessionCheckError || sessionNotice || "Code verified. Securing your account session…"}</p> : <form className="auth-form" onSubmit={submit}>
+      <label>Email address<span className="auth-input"><Mail size={16} /><input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></span></label>
+      <label>Invitation code<span className="auth-input"><KeyRound size={16} /><input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6,8}" maxLength={8} required value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 8))} /></span></label>
+      {error && <p className="auth-error" role="alert">{error}</p>}
+      <Button type="submit" disabled={busy || loading}>{busy ? "Verifying code…" : "Verify invitation"}</Button>
+      <p className="auth-notice">If the code has expired, contact your administrator to resend the invitation.</p>
+    </form>}
     <Link className="auth-back-link" to="/login"><ArrowLeft size={15} /> Back to sign in</Link>
   </AuthFrame>;
 }

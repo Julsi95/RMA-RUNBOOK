@@ -4,7 +4,7 @@ import { useAuth } from "@/app/auth-provider";
 import { ORGANIZATION_STORAGE_KEY, getOrganizationMembers } from "@/features/organization/organization-data";
 import { loadRemoteRoster, saveRemoteEmployeeProfile, saveRemoteMembers, saveRemoteProfileFieldDefinitions } from "@/lib/backend/organization";
 import { createPrivateSignedUrlMap, retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
-import { fetchCachedQuery, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
+import { fetchCachedQuery, queryClient, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
 
 const OrganizationContext = createContext(null);
 
@@ -129,8 +129,14 @@ export function OrganizationProvider({ children }) {
     }
     if (!canEdit) throw new Error("Sign in with an editor account to change employees.");
     await saveRemoteMembers(members, nextMembers, deletedId);
+    await queryClient.cancelQueries({ queryKey: rosterKey, exact: true });
+    const cached = readCachedQuery(rosterKey);
+    const optimisticRoster = { members: nextMembers, profiles: cached?.profiles ?? profiles, definitions: cached?.definitions ?? customFieldDefinitions };
+    queryClient.setQueryData(rosterKey, optimisticRoster);
+    setMembers(nextMembers);
+    try { localStorage.setItem(ORGANIZATION_STORAGE_KEY, JSON.stringify(nextMembers)); } catch { /* server remains source of truth */ }
     await refresh({ force: true });
-  }, [canEdit, configured, members, refresh]);
+  }, [canEdit, configured, customFieldDefinitions, members, profiles, refresh, rosterKey]);
 
   const saveEmployeeProfile = useCallback(async (employeeId, profile) => {
     if (!configured) {

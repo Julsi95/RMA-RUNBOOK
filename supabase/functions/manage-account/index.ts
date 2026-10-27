@@ -1,11 +1,23 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { corsHeaders, isAllowedOrigin } from "../_shared/cors.ts";
+import { corsHeaders, isAllowedOrigin, isAllowedRunbookOrigin } from "../_shared/cors.ts";
 
 function response(request: Request, body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { ...Object.fromEntries(corsHeaders(request)), "Content-Type": "application/json" },
   });
+}
+
+function resolveInviteRedirect(value: unknown): string {
+  const productionOrigin = new URL(Deno.env.get("RUNBOOK_APP_URL") ?? "https://rma-runbook.vercel.app").origin;
+  if (value === undefined || value === null || value === "") return `${productionOrigin}/accept-invite`;
+  if (typeof value !== "string") throw new Error("Invitation redirect is invalid.");
+  let target: URL;
+  try { target = new URL(value); } catch { throw new Error("Invitation redirect is invalid."); }
+  if (!isAllowedRunbookOrigin(target.origin) || target.pathname !== "/accept-invite" || target.search || target.hash) {
+    throw new Error("Invitation redirect must point to an approved RUNBOOK invitation page.");
+  }
+  return target.toString();
 }
 
 Deno.serve(async (request) => {
@@ -51,8 +63,12 @@ Deno.serve(async (request) => {
     }
   }
 
+  let actionName = "unknown";
+  let failurePhase = "parse_request";
   try {
     const body = await request.json();
+    actionName = typeof body.action === "string" ? body.action : "unknown";
+    failurePhase = "process_request";
     if (body.action === "list") {
       const { data, error } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
       if (error) throw error;
@@ -83,9 +99,11 @@ Deno.serve(async (request) => {
         if (error) throw error;
         if (!employee) return response(request, { error: "Select an active employee record." }, 400);
       }
+      const redirectTo = resolveInviteRedirect(body.redirectTo);
+      failurePhase = "supabase_auth_invite";
       const { data: invitation, error } = await admin.auth.admin.inviteUserByEmail(email, {
         data: { display_name: displayName },
-        redirectTo: typeof body.redirectTo === "string" ? body.redirectTo : undefined,
+        redirectTo,
       });
       if (error) throw error;
       if (!invitation.user) throw new Error("The invitation did not return an account.");
@@ -96,6 +114,28 @@ Deno.serve(async (request) => {
       if (mappingError) throw mappingError;
       await recordAccessEvent("create", invitation.user.id, `Invited ${email} with ${role} access.`);
       return response(request, { userId: invitation.user.id, message: "Invitation sent. The employee will set their password from the email." }, 201);
+    }
+
+    if (body.action === "resend-invite") {
+      const userId = String(body.userId ?? "");
+      if (!userId) return response(request, { error: "Account ID is required." }, 400);
+      const { data: target, error: targetError } = await admin.auth.admin.getUserById(userId);
+      if (targetError) throw targetError;
+      if (!target.user?.email) return response(request, { error: "Account was not found." }, 404);
+      if (target.user.email_confirmed_at) return response(request, { error: "This account has already accepted its invitation." }, 409);
+      if (target.user.banned_until && new Date(target.user.banned_until).getTime() > Date.now()) return response(request, { error: "This account is suspended. Restore sign-in access before resending its invitation." }, 409);
+      const { data: mapping, error: mappingError } = await admin.from("app_accounts").select("display_name").eq("user_id", userId).maybeSingle();
+      if (mappingError) throw mappingError;
+      if (!mapping) return response(request, { error: "Account permissions could not be verified." }, 404);
+      const redirectTo = resolveInviteRedirect(body.redirectTo);
+      failurePhase = "supabase_auth_resend_invite";
+      const { error: inviteError } = await admin.auth.admin.inviteUserByEmail(target.user.email, {
+        data: { display_name: mapping.display_name },
+        redirectTo,
+      });
+      if (inviteError) throw inviteError;
+      await recordAccessEvent("update", userId, `Resent the pending invitation to ${target.user.email}.`);
+      return response(request, { message: `A new invitation code was sent to ${target.user.email}.` });
     }
 
     if (body.action === "create-with-password") {
@@ -221,6 +261,10 @@ Deno.serve(async (request) => {
 
     return response(request, { error: "Unsupported account action." }, 400);
   } catch (error) {
-    return response(request, { error: error instanceof Error ? error.message : "Account management failed." }, 400);
+    const message = error instanceof Error ? error.message : "Account management failed.";
+    const status = /rate|too many|429/i.test(message) ? 429 : 400;
+    const safeMessage = message.replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted email]");
+    console.error("[manage-account] Request failed", { action: actionName, phase: failurePhase, status, message: safeMessage });
+    return response(request, { error: message }, status);
   }
 });

@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { Network, Plus, UsersRound } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Maximize2, Minimize2, Network, Plus, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import OrgBranch from "@/features/organization/OrgBranch";
 import OrgMemberDialog from "@/features/organization/OrgMemberDialog";
@@ -18,9 +18,22 @@ export default function OrganizationPage() {
   const chartRef = useRef(null);
   const panRef = useRef(null);
   const [isPanning, setIsPanning] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const tree = buildOrganizationTree(members);
   const roleCounts = organizationHierarchyRoles.map((role) => ({ role, count: members.filter((member) => getHierarchyRoles(member).includes(role)).length }));
+
+  useEffect(() => {
+    if (!expanded) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    function closeOnEscape(event) { if (event.key === "Escape") setExpanded(false); }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [expanded]);
 
   function startChartPan(event) {
     if (event.pointerType !== "mouse" || event.button !== 0 || event.target.closest("button, a, input, textarea, select, .org-person-card")) return;
@@ -91,8 +104,11 @@ export default function OrganizationPage() {
         </div>
         {canEdit && <Button onClick={openAddDialog}><Plus size={17} /> Add employee</Button>}
       </div>
-      {loading && <p className="page-description" role="status">Loading team directory…</p>}
-      {(error || saveError) && <p className="auth-error" role="alert">{saveError || error}</p>}{saveMessage && <p className="auth-success" role="status">{saveMessage}</p>}
+      <div className="organization-notices">
+        {loading && <p className="page-description" role="status">Loading team directory…</p>}
+        {(error || saveError) && <p className="auth-error" role="alert">{saveError || error}</p>}
+        {saveMessage && <p className="auth-success" role="status">{saveMessage}</p>}
+      </div>
 
       <div className="org-summary-row">
         <div className="org-total-card">
@@ -107,10 +123,15 @@ export default function OrganizationPage() {
         </div>
       </div>
 
-      <div className="org-chart-panel">
+      <div className={`org-chart-panel${expanded ? " is-expanded" : ""}`}>
         <div className="org-chart-heading">
           <div><span className="org-chart-icon"><Network size={17} /></span><div><h2>Team structure</h2><p>Reporting lines follow the manager selection. Role chips show each person’s hierarchy assignment.</p></div></div>
-          <span className="org-chart-live"><span /> Updated as you edit <small>Drag empty space or scroll to explore</small></span>
+          <div className="org-chart-heading-actions">
+            <span className="org-chart-live"><span /> Updated as you edit <small>Drag empty space or scroll to explore</small></span>
+            <Button type="button" size="sm" variant="outline" aria-pressed={expanded} aria-label={expanded ? "Restore chart size" : "Expand chart to screen"} title={expanded ? "Restore chart size" : "Expand chart to screen"} onClick={() => setExpanded((value) => !value)}>
+              {expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}{expanded ? "Restore" : "Expand"}
+            </Button>
+          </div>
         </div>
         {tree.length > 0 ? (
           <div ref={chartRef} className={`org-chart-viewport${isPanning ? " is-panning" : ""}`} role="region" aria-label="Organizational chart. Scroll or drag the empty chart area to explore." tabIndex={0} onPointerDown={startChartPan} onPointerMove={moveChartPan} onPointerUp={stopChartPan} onPointerCancel={stopChartPan}>

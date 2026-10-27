@@ -764,13 +764,18 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 @media (max-width: 600px) { .settings-page-heading { align-items: flex-start; flex-direction: column; gap: 12px; } .settings-quick-nav { top: 60px; width: 100%; } .settings-admin-section { padding: 18px; } .profile-hero-main { align-items: flex-start; flex-direction: column; } .profile-info-list { grid-template-columns: 1fr; } .profile-avatar-large { width: 82px; height: 82px; border-radius: 23px; } .profile-edit-button { width: 100%; } }
 @media (prefers-reduced-motion: reduce) { .page-content { animation: none; } .nav-link:hover, .profile-panel:hover, .profile-footer-link:hover { transform: none; } .profile-menu { animation: none; } }
 
-/* Keep the chart inside the space below the page heading and summary. */
-.organization-page{height:calc(100dvh - 85px);min-height:0;max-height:1000px;grid-template-rows:auto auto minmax(0,1fr);gap:16px}
-.org-chart-panel{display:grid;grid-template-rows:auto minmax(0,1fr);min-height:0}
+/* Keep chart sizing stable when save/status notices appear, and let the chart use the remaining viewport. */
+.organization-page{height:auto;min-height:calc(100dvh - 171px);max-height:none;grid-template-rows:auto auto auto minmax(70dvh,1fr);gap:16px}
+.organization-notices{display:grid;align-content:start;gap:5px;min-height:0}
+.organization-notices:empty{display:none}
+.organization-notices > p{margin:0}
+.org-chart-panel{position:relative;display:grid;grid-template-rows:auto minmax(0,1fr);min-height:0}
+.org-chart-panel.is-expanded{position:fixed;z-index:80;inset:12px;width:auto;height:calc(100dvh - 24px);max-height:calc(100dvh - 24px);border-radius:16px;box-shadow:0 24px 100px rgb(0 0 0 / .3)}
+.org-chart-heading-actions{display:flex;min-width:0;align-items:center;justify-content:flex-end;gap:10px}
 .org-chart-viewport{height:100%;min-height:0;overflow:auto;overscroll-behavior:contain;cursor:grab;touch-action:pan-x pan-y;scrollbar-color:var(--muted-foreground) transparent;scrollbar-width:thin}
 .org-chart-viewport:focus-visible{outline:2px solid var(--ring);outline-offset:-3px}
 .org-chart-viewport.is-panning{cursor:grabbing;user-select:none}
 .org-chart-viewport.is-panning *{user-select:none}
 .org-chart-live{gap:8px}
 .org-chart-live small{padding-left:8px;border-left:1px solid var(--border);font-size:10px;font-weight:450}
-@media(max-width:700px){.organization-page{height:calc(100dvh - 95px);gap:12px}.org-summary-row{min-height:0}.org-chart-heading p{max-width:62ch}.org-chart-viewport{touch-action:auto}}
+@media(max-width:700px){.organization-page{min-height:calc(100dvh - 140px);grid-template-rows:auto auto auto minmax(70dvh,1fr);gap:12px}.org-summary-row{min-height:0}.org-chart-heading p{max-width:62ch}.org-chart-heading-actions{width:100%;justify-content:space-between}.org-chart-live{white-space:normal}.org-chart-panel.is-expanded{inset:8px;width:auto;height:calc(100dvh - 16px);max-height:calc(100dvh - 16px)}.org-chart-viewport{touch-action:auto}}
