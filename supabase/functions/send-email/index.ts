@@ -21,8 +21,13 @@ function resolveRedirect(value: string | undefined, fallback: string, invitation
   let target: URL;
   try { target = new URL(value || fallback); } catch { throw new Error("Invalid email redirect URL."); }
   if (!isAllowedRunbookOrigin(target.origin) || target.username || target.password) throw new Error("Email redirect is not an approved RUNBOOK origin.");
-  if (invitation && (target.pathname !== "/accept-invite" || target.search || target.hash)) {
-    throw new Error("Invitation email must point to the RUNBOOK invitation page.");
+  if (invitation) {
+    // Auth may append query/hash data or a trailing slash to redirect_to. Invite
+    // emails use an OTP, so only the approved origin matters; always canonicalize
+    // the destination to the invitation page and discard unrelated URL state.
+    target.pathname = "/accept-invite";
+    target.search = "";
+    target.hash = "";
   }
   return target.toString();
 }
