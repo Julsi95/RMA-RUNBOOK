@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from "react";
-import { Award, CalendarDays, Clock3, Gift, Settings2, Shield, UsersRound } from "lucide-react";
+import { Award, CalendarDays, ChevronLeft, ChevronRight, Clock3, Gift, Settings2, Shield, UsersRound } from "lucide-react";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/app/auth-provider";
@@ -19,10 +19,15 @@ import "./wfh-privileges.css";
 function dateToday() { return new Date().toISOString().slice(0, 10); }
 
 function RewardList({ title, rewards, employeeName, busy, onRevoke }) {
+  const pageSize = 8;
+  const [page, setPage] = useState(0);
+  const pageCount = Math.max(1, Math.ceil(rewards.length / pageSize));
+  const currentPage = Math.min(page, pageCount - 1);
+  const visibleRewards = rewards.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
   return <section className="wfh-reward-panel">
     <header><h3>{title}</h3><span>{rewards.length}</span></header>
     <div className="wfh-reward-scroll">
-      {rewards.length === 0 ? <p className="wfh-reward-empty">Nothing to show yet.</p> : rewards.map((reward) => {
+      {rewards.length === 0 ? <p className="wfh-reward-empty">Nothing to show yet.</p> : visibleRewards.map((reward) => {
         const expired = reward.expires_on < dateToday();
         return <article key={reward.id}>
           <div className="wfh-reward-person"><strong>{employeeName(reward.employee_id)}</strong><small>{reward.days_available}/{reward.days_awarded} days · expires {reward.expires_on}{reward.note ? " · " + reward.note : ""}</small></div>
@@ -32,6 +37,7 @@ function RewardList({ title, rewards, employeeName, busy, onRevoke }) {
         </article>;
       })}
     </div>
+    {pageCount > 1 && <nav className="wfh-pagination" aria-label={`${title} pages`}><span>{currentPage * pageSize + 1}–{Math.min((currentPage + 1) * pageSize, rewards.length)} of {rewards.length}</span><div><Button variant="outline" size="sm" aria-label="Previous page" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}><ChevronLeft size={14} /></Button><Button variant="outline" size="sm" aria-label="Next page" disabled={currentPage + 1 >= pageCount} onClick={() => setPage(currentPage + 1)}><ChevronRight size={14} /></Button></div></nav>}
   </section>;
 }
 
@@ -153,7 +159,7 @@ export default function WfhPrivilegesPage() {
     {employeeId && !canReview && !isAdmin && <div className="wfh-request-history-grid"><PrivilegeRequestForm holidays={holidays} allocations={ownAllocations} requests={ownRequests} onSubmit={sendRequest} busy={busy} /><PrivilegeHistory requests={ownRequests} audit={myAudit} employeeName={employeeName} /></div>}
     {(employeeId && (canReview || isAdmin) || canReview) && <div className={`wfh-main-grid${!employeeId || !canReview ? " wfh-main-grid-single" : ""}`}>{employeeId && <PrivilegeRequestForm holidays={holidays} allocations={ownAllocations} requests={ownRequests} onSubmit={sendRequest} busy={busy} />}{canReview && <PrivilegeApprovalPanel requests={reviewableRequests} employeeName={employeeName} onDecide={review} />}</div>}
     {isAdmin && <AdminControls members={roster} settings={settings} rewards={rewards} onRefresh={() => refresh(true)} />}
-    {(employeeId || isAdmin) && !(employeeId && !canReview && !isAdmin) && <PrivilegeHistory requests={ownRequests} audit={myAudit} employeeName={employeeName} />}
+    {(employeeId || isAdmin) && !(employeeId && !canReview && !isAdmin) && <PrivilegeHistory requests={isAdmin ? requests : ownRequests} audit={myAudit} employeeName={employeeName} isAdmin={isAdmin} />}
     {!employeeId && isAdmin && <div className="wfh-empty-card"><UsersRound size={22} /><strong>Administrator actions are available.</strong><span>Link your own account to an employee record to request personal WFH days.</span></div>}
   </section>;
 }

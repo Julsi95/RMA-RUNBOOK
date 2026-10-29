@@ -53,7 +53,7 @@
 .inbound-lane { position: relative; display: flex; height: 28px; min-width: 0; align-items: center; }
 .inbound-lane-base { position: absolute; right: 0; left: 0; height: 5px; border-radius: 99px; background: var(--muted); }
 .inbound-lane-fill { position: absolute; height: 7px; min-width: 3px; border-radius: 99px; background: var(--foreground); }
-.inbound-lane-label { position: absolute; overflow: hidden; padding-top: 15px; color: var(--muted-foreground); font-size: 9px; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.inbound-lane-label { position: absolute; top: 16px; z-index: 1; max-width: min(168px, calc(100% - 8px)); overflow: hidden; padding: 2px 6px; transform: translateX(-50%); border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--foreground); font-size: 10px; font-weight: 600; line-height: 1.35; text-align: center; text-overflow: ellipsis; white-space: nowrap; box-shadow: 0 2px 6px rgb(0 0 0 / .12); }
 .inbound-remove-button { width: 32px; height: 32px; color: var(--muted-foreground); }
 .inbound-remove-button:hover { color: #d14343; }
 .inbound-empty { display: grid; min-height: 98px; justify-items: center; align-content: center; gap: 7px; margin-top: 14px; border: 1px dashed var(--border); border-radius: 10px; color: var(--muted-foreground); }

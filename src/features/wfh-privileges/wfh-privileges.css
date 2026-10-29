@@ -30,7 +30,7 @@
 .wfh-admin-primary,.wfh-admin-side{display:grid;align-content:start;gap:12px;min-width:0}
 .wfh-admin-primary>.auth-error,.wfh-admin-primary>.wfh-success{margin:0;padding:0 2px}
 .wfh-admin-side .wfh-policy-form{border:1px solid var(--border);padding:16px}
-.wfh-reward-panel{display:grid;grid-template-rows:auto minmax(0,1fr);gap:10px;min-width:0;height:320px;padding:13px;border:1px solid var(--border);border-radius:14px;background:var(--surface)}
+.wfh-reward-panel{display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:10px;min-width:0;height:320px;padding:13px;border:1px solid var(--border);border-radius:14px;background:var(--surface)}
 .wfh-reward-panel>header{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .wfh-reward-panel>header h3{margin:0;font-size:12px;font-weight:650}
 .wfh-reward-panel>header>span{display:grid;min-width:23px;height:23px;place-items:center;border:1px solid var(--border);border-radius:7px;background:var(--background);color:var(--muted-foreground);font-size:10px;font-variant-numeric:tabular-nums}
@@ -45,7 +45,10 @@
 .wfh-history-scroll{height:280px;overflow:auto;overscroll-behavior:contain;padding-right:3px;scrollbar-color:var(--muted-foreground) transparent;scrollbar-width:thin}
 .wfh-history-scroll>.wfh-empty{display:grid;height:100%;place-items:center;text-align:center}
 .wfh-history-scroll .wfh-history-list{margin-top:0}
-.wfh-history-card{min-width:0}
+.wfh-history-card{display:grid;grid-template-rows:auto minmax(0,1fr) auto;min-width:0}
+.wfh-pagination{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:8px;color:var(--muted-foreground);font-size:10px;font-variant-numeric:tabular-nums}
+.wfh-pagination>div{display:flex;gap:5px}
+.wfh-pagination button{min-width:30px;min-height:30px;padding:5px}
 .wfh-approval-list article[data-notification-target="true"]{border-color:var(--ring);box-shadow:0 0 0 3px color-mix(in srgb,var(--ring) 18%,transparent);transition:border-color .2s,box-shadow .2s}
 @media(max-width:900px){.wfh-admin-bento{grid-template-columns:minmax(0,1fr)}.wfh-user-rewards{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:520px){.wfh-reward-panel{height:280px;padding:11px}.wfh-reward-scroll article{grid-template-columns:minmax(0,1fr) auto;gap:6px}.wfh-reward-scroll article>button,.wfh-reward-scroll article>.wfh-status{grid-column:2}.wfh-reward-person small{white-space:normal}.wfh-history-card{padding:14px}.wfh-history-scroll{height:240px}}

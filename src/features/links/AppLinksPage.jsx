@@ -106,7 +106,7 @@ export default function AppLinksPage() {
   function openEditor(item = null) {
     if (!canManage) return;
     setSaveError(""); setSaveMessage("");
-    setEditor(item ? { ...item } : { id: "", name: "", url: "", application: "", group: activeGroup === "All" ? DEFAULT_GROUPS[0] : activeGroup, description: "", publicVisible: true });
+    setEditor(item ? { ...item, group: DEFAULT_GROUPS.includes(item.group) ? item.group : DEFAULT_GROUPS[0] } : { id: "", name: "", url: "", application: "", group: activeGroup === "All" || !DEFAULT_GROUPS.includes(activeGroup) ? DEFAULT_GROUPS[0] : activeGroup, description: "", publicVisible: true });
   }
 
   async function saveResource(event) {
@@ -173,7 +173,7 @@ export default function AppLinksPage() {
       <div className="app-links-dialog-heading"><div><p className="app-links-kicker">{editor.id ? "EDIT RESOURCE" : "NEW RESOURCE"}</p><h2 id="app-links-dialog-title">{editor.id ? "Update resource" : "Add to your launchpad"}</h2><p>Set the link and choose how it appears in the library.</p></div><Button type="button" variant="ghost" size="icon" aria-label="Close resource form" onClick={() => setEditor(null)}><X size={17} /></Button></div>
       <div className="app-links-form-grid">
         <label className="app-links-field"><span>Resource name</span><input autoFocus value={editor.name} onChange={(event) => setEditor((current) => ({ ...current, name: event.target.value }))} placeholder="e.g. Okta" required /></label>
-        <label className="app-links-field"><span>Collection</span><input list="app-links-known-groups" value={editor.group} onChange={(event) => setEditor((current) => ({ ...current, group: event.target.value }))} placeholder="e.g. VF Web base" required /><datalist id="app-links-known-groups">{groups.map((group) => <option value={group} key={group} />)}</datalist></label>
+        <label className="app-links-field"><span>Collection</span><select value={editor.group} onChange={(event) => setEditor((current) => ({ ...current, group: event.target.value }))} required>{DEFAULT_GROUPS.map((group) => <option value={group} key={group}>{group}</option>)}</select></label>
         <label className="app-links-field app-links-field-wide"><span>URL</span><input type="url" value={editor.url} onChange={(event) => setEditor((current) => ({ ...current, url: event.target.value }))} placeholder="https://…" required /></label>
         <label className="app-links-field app-links-field-wide"><span>Application or service <small>Optional</small></span><input value={editor.application} onChange={(event) => setEditor((current) => ({ ...current, application: event.target.value }))} placeholder="e.g. Microsoft Teams" /></label>
         <label className="app-links-field app-links-field-wide"><span>Short note <small>Optional</small></span><input value={editor.description} onChange={(event) => setEditor((current) => ({ ...current, description: event.target.value }))} placeholder="What this resource is for" /></label>

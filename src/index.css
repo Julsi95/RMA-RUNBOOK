@@ -772,7 +772,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .org-chart-panel{position:relative;display:grid;grid-template-rows:auto minmax(0,1fr);min-height:0}
 .org-chart-panel.is-expanded{position:fixed;z-index:80;inset:12px;width:auto;height:calc(100dvh - 24px);max-height:calc(100dvh - 24px);border-radius:16px;box-shadow:0 24px 100px rgb(0 0 0 / .3)}
 .org-chart-heading-actions{display:flex;min-width:0;align-items:center;justify-content:flex-end;gap:10px}
-.org-chart-viewport{height:100%;min-height:0;overflow:auto;overscroll-behavior:contain;cursor:grab;touch-action:pan-x pan-y;scrollbar-color:var(--muted-foreground) transparent;scrollbar-width:thin}
+.org-chart-viewport{height:100%;min-height:0;overflow:auto;overscroll-behavior-x:contain;overscroll-behavior-y:auto;cursor:grab;touch-action:pan-x pan-y;scrollbar-color:var(--muted-foreground) transparent;scrollbar-width:thin}
 .org-chart-viewport:focus-visible{outline:2px solid var(--ring);outline-offset:-3px}
 .org-chart-viewport.is-panning{cursor:grabbing;user-select:none}
 .org-chart-viewport.is-panning *{user-select:none}

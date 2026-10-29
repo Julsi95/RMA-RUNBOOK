@@ -14,6 +14,12 @@ function canSuperviseCampaignOrSenior(member) {
   return hierarchyRoles.includes("Team Lead (TL)") || hierarchyRoles.includes("Senior Team Lead (STL)");
 }
 
+function canManageRole(role, manager) {
+  if (role === "Campaign Specialist") return canSuperviseCampaignOrSenior(manager);
+  if (role === "Senior Agent") return canSuperviseCampaignOrSenior(manager) || manager?.role === "Campaign Specialist";
+  return true;
+}
+
 function resizePhoto(file) {
   return new Promise((resolve, reject) => {
     if (file.type === "image/gif") {
@@ -45,12 +51,14 @@ function resizePhoto(file) {
 export default function OrgMemberDialog({ member, members, onClose, onSave }) {
   const defaultRole = member?.role ?? "Customer Rep";
   const currentManager = members.find((person) => person.id === member?.managerId);
-  const existingManagerIsAllowed = !restrictedReportingRoles.has(defaultRole) || canSuperviseCampaignOrSenior(currentManager);
+  const existingManagerIsAllowed = !restrictedReportingRoles.has(defaultRole) || canManageRole(defaultRole, currentManager);
   const defaultManagerId = member?.managerId && existingManagerIsAllowed
     ? member.managerId
-    : defaultRole === "Customer Rep"
-      ? members.find((person) => person.role === "Senior Agent")?.id ?? ""
-      : "";
+    : defaultRole === "Senior Agent"
+      ? members.find((person) => person.role === "Campaign Specialist")?.id ?? members.find(canSuperviseCampaignOrSenior)?.id ?? ""
+      : defaultRole === "Customer Rep"
+        ? members.find((person) => person.role === "Senior Agent")?.id ?? ""
+        : "";
   const [name, setName] = useState(member?.name ?? "");
   const [role, setRole] = useState(defaultRole);
   const [hierarchyRoles, setHierarchyRoles] = useState(() => getHierarchyRoles(member));
@@ -67,7 +75,7 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
   const managerOptions = members.filter((person) => person.id !== member?.id
     && !excludedManagerIds.has(person.id)
     && (restrictedReportingRoles.has(role)
-      ? canSuperviseCampaignOrSenior(person)
+      ? canManageRole(role, person)
       : (person.id === member?.managerId || Math.min(...getHierarchyRoles(person).map((item) => roleLevels[item] ?? 4), roleLevels[person.role] ?? 4) < selectedRank)));
 
   useEffect(() => {
@@ -97,7 +105,7 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
     setRole(nextRole);
     if (restrictedReportingRoles.has(nextRole)) {
       const selectedManager = members.find((person) => person.id === managerId);
-      if (!canSuperviseCampaignOrSenior(selectedManager)) setManagerId("");
+      if (!canManageRole(nextRole, selectedManager)) setManagerId("");
     }
     if (nextRole === "Customer Rep" && !managerId) {
       setManagerId(members.find((person) => person.role === "Senior Agent")?.id ?? "");
@@ -108,8 +116,10 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
     event.preventDefault();
     const cleanedName = name.trim();
     if (!cleanedName) return;
-    if (restrictedReportingRoles.has(role) && !canSuperviseCampaignOrSenior(members.find((person) => person.id === managerId))) {
-      setSaveError("Campaign Specialists and Senior Agents must report directly to a Team Lead or Senior Team Lead (STL).");
+    if (restrictedReportingRoles.has(role) && !canManageRole(role, members.find((person) => person.id === managerId))) {
+      setSaveError(role === "Senior Agent"
+        ? "Senior Agents must report to a Team Lead, STL, or Campaign Specialist."
+        : "Campaign Specialists must report directly to a Team Lead or Senior Team Lead (STL).");
       return;
     }
     setSaving(true); setSaveError("");
@@ -179,12 +189,12 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
             </div>
           </fieldset>
           <label className="form-field">
-            <span>Reports to {restrictedReportingRoles.has(role) && <small>(Team Lead or STL required)</small>}</span>
+            <span>Reports to {role === "Senior Agent" ? <small>(Team Lead, STL, or Campaign Specialist)</small> : role === "Campaign Specialist" && <small>(Team Lead or STL required)</small>}</span>
             <select value={managerId} onChange={(event) => setManagerId(event.target.value)}>
-              <option value="">{restrictedReportingRoles.has(role) ? "Select a Team Lead or STL" : "No manager"}</option>
+              <option value="">{role === "Senior Agent" ? "Select a Team Lead, STL, or Campaign Specialist" : role === "Campaign Specialist" ? "Select a Team Lead or STL" : "No manager"}</option>
               {managerOptions.map((person) => <option key={person.id} value={person.id}>{person.name} · {getOrganizationRoleLabels(person).join(" / ")}</option>)}
             </select>
-            {restrictedReportingRoles.has(role) && managerOptions.length === 0 && <small className="form-field-hint">Add or assign a Team Lead / STL before saving this role.</small>}
+            {restrictedReportingRoles.has(role) && managerOptions.length === 0 && <small className="form-field-hint">{role === "Senior Agent" ? "Add a Campaign Specialist or assign a Team Lead / STL before saving." : "Add or assign a Team Lead / STL before saving this role."}</small>}
           </label>
           {role === "Customer Rep" && (
             <label className="form-field">

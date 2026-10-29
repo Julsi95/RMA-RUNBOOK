@@ -373,7 +373,7 @@ export default function InboundSchedulePage() {
                     <label><span>End · Manila</span><input type="time" value={assignment.end} onChange={(event) => updateCallAssignment(assignment.id, { end: event.target.value })} aria-label={`${member.name} inbound call end time, Manila time`} disabled={!canManage} /></label>
                     <div className={`inbound-converted-time ${timeView === "us" ? "is-primary" : ""}`}><small>{timezoneLabel} · {durationLabel(assignment.start, assignment.end)}</small><strong>{equivalent}</strong></div>
                   </div>
-                  <div className="inbound-lane"><span className="inbound-lane-base" /><span className="inbound-lane-fill" style={{ left: `${left}%`, width: `${width}%` }} /><span className="inbound-lane-label" style={{ left: `${left}%`, width: `${width}%` }}>{rangeLabel(assignment.start, assignment.end)}</span></div>
+                  <div className="inbound-lane"><span className="inbound-lane-base" /><span className="inbound-lane-fill" style={{ left: `${left}%`, width: `${width}%` }} /><span className="inbound-lane-label" style={{ left: left + width / 2 < 20 ? "4px" : left + width / 2 > 80 ? "calc(100% - 4px)" : `${left + width / 2}%`, transform: left + width / 2 < 20 ? "none" : left + width / 2 > 80 ? "translateX(-100%)" : "translateX(-50%)" }}>{rangeLabel(assignment.start, assignment.end)}</span></div>
                   {canManage && <Button type="button" variant="ghost" size="icon" className="inbound-remove-button" aria-label={`Remove ${member.name} inbound call time`} onClick={() => removeCallAssignment(assignment.id)}><Trash2 size={15} /></Button>}
                 </article>
               );
