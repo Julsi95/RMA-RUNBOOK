@@ -58,7 +58,7 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
     : defaultRole === "Senior Agent"
       ? members.find((person) => person.role === "Campaign Specialist")?.id ?? members.find(canSuperviseCampaignOrSenior)?.id ?? ""
       : defaultRole === "Customer Rep"
-        ? members.find((person) => person.role === "Senior Agent")?.id ?? ""
+        ? members.find((person) => person.role === "Senior Agent")?.id ?? members.find((person) => person.role === "Campaign Specialist")?.id ?? ""
         : "";
   const [name, setName] = useState(member?.name ?? "");
   const [role, setRole] = useState(defaultRole);
@@ -85,7 +85,8 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
   const primaryManager = members.find((person) => person.id === managerId);
   const coManagerOptions = members.filter((person) => person.id !== member?.id && person.id !== managerId && !excludedManagerIds.has(person.id)
     && role === "Customer Rep" && primaryManager
-    && ((primaryManager.role === "Senior Agent" && person.role === "Campaign Specialist") || (primaryManager.role === "Campaign Specialist" && person.role === "Senior Agent")));
+    && ((primaryManager.role === "Senior Agent" && person.role === "Campaign Specialist")
+      || (primaryManager.role === "Campaign Specialist" && ["Senior Agent", "Campaign Specialist"].includes(person.role))));
 
   useEffect(() => {
     function closeOnEscape(event) {
@@ -117,7 +118,7 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
       if (!canManageRole(nextRole, selectedManager)) setManagerId("");
     }
     if (nextRole === "Customer Rep" && !managerId) {
-      setManagerId(members.find((person) => person.role === "Senior Agent")?.id ?? "");
+      setManagerId(members.find((person) => person.role === "Senior Agent")?.id ?? members.find((person) => person.role === "Campaign Specialist")?.id ?? "");
     }
     if (nextRole !== "Customer Rep") setCoManagerId("");
   }
@@ -132,8 +133,8 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
         : "Campaign Specialists must report directly to a Team Lead or Senior Team Lead (STL).");
       return;
     }
-    if (role === "Customer Rep" && (!coManagerId || !coManagerOptions.some((person) => person.id === coManagerId))) {
-      setSaveError("Choose a Campaign Specialist and Senior Agent to share management of this Customer Representative.");
+    if (role === "Customer Rep" && coManagerId && !coManagerOptions.some((person) => person.id === coManagerId)) {
+      setSaveError("Choose an active manager who can share this Customer Representative’s reporting line.");
       return;
     }
     setSaving(true); setSaveError("");
@@ -207,7 +208,7 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
           </fieldset>
           <label className="form-field">
             <span>Reports to {role === "Senior Agent" ? <small>(Team Lead, STL, or Campaign Specialist)</small> : role === "Campaign Specialist" && <small>(Team Lead or STL required)</small>}</span>
-            <select value={managerId} onChange={(event) => setManagerId(event.target.value)}>
+            <select value={managerId} onChange={(event) => { const nextManagerId = event.target.value; setManagerId(nextManagerId); if (nextManagerId === coManagerId) setCoManagerId(""); }}>
               <option value="">{role === "Senior Agent" ? "Select a Team Lead, STL, or Campaign Specialist" : role === "Campaign Specialist" ? "Select a Team Lead or STL" : "No manager"}</option>
               {managerOptions.map((person) => <option key={person.id} value={person.id}>{person.name} · {getOrganizationRoleLabels(person).join(" / ")}</option>)}
             </select>
@@ -215,7 +216,7 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
           </label>
           {role === "Customer Rep" && (
             <>
-            <label className="form-field"><span>Shared manager <small>(required · pair Campaign Specialist with Senior Agent)</small></span><select value={coManagerId} onChange={(event) => setCoManagerId(event.target.value)} disabled={!primaryManager || !["Senior Agent", "Campaign Specialist"].includes(primaryManager.role)}><option value="">Select paired manager</option>{coManagerOptions.map((person) => <option key={person.id} value={person.id}>{person.name} · {person.role}</option>)}</select></label>
+            <label className="form-field"><span>Shared manager <small>(optional · adds a second reporting line)</small></span><select value={coManagerId} onChange={(event) => setCoManagerId(event.target.value)} disabled={!primaryManager || !["Senior Agent", "Campaign Specialist"].includes(primaryManager.role)}><option value="">No shared manager</option>{coManagerOptions.map((person) => <option key={person.id} value={person.id}>{person.name} · {person.role}</option>)}</select><small className="form-field-hint">A Customer Rep can share management between a Senior Agent and Campaign Specialist, or between two Campaign Specialists when no Senior Agent is assigned.</small></label>
             <label className="form-field">
               <span>Mentor <small>(optional)</small></span>
               <select value={mentorId} onChange={(event) => setMentorId(event.target.value)}>
