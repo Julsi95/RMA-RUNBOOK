@@ -820,6 +820,19 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .terms-check-card h1{margin:0 0 10px;font-size:20px;letter-spacing:-.025em}
 .terms-check-error{margin:0 0 18px;color:var(--muted-foreground);font-size:14px;line-height:1.6;overflow-wrap:anywhere}
 @media(max-width:700px){.org-person-card{min-width:245px;max-width:280px}.org-person-role-list{gap:4px}}
+
+/* Give the leadership counts a readable footprint beside the organization totals. */
+.org-summary-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) minmax(430px,1.45fr);align-items:stretch;gap:12px}
+.org-total-card{min-width:0;flex:none}
+.org-role-counts{min-width:0;grid-template-columns:repeat(2,minmax(0,1fr));align-content:stretch;gap:9px;padding:14px}
+.org-role-counts-caption{align-items:center;justify-content:space-between;gap:4px 10px;line-height:1.4}
+.org-role-counts-caption small{white-space:normal}
+.org-role-count{min-width:0;min-height:74px;display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px}
+.org-role-count-label{flex:1;align-items:center;gap:7px;font-size:11px;line-height:1.35;overflow-wrap:anywhere}
+.org-role-count-label small{min-width:28px;text-align:center}
+.org-role-count strong{flex:0 0 auto;font-size:23px}
+@media(max-width:1150px){.org-summary-row{grid-template-columns:repeat(2,minmax(0,1fr))}.org-role-counts{grid-column:1/-1}}
+@media(max-width:700px){.org-summary-row{grid-template-columns:minmax(0,1fr)}.org-role-counts{grid-column:auto;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:12px}.org-role-count{min-height:68px;padding:9px}.org-role-count-label{font-size:10px}.org-role-count strong{font-size:20px}}
 .org-chart-live{gap:8px}
 .org-chart-live small{padding-left:8px;border-left:1px solid var(--border);font-size:10px;font-weight:450}
 @media(max-width:700px){.organization-page{min-height:calc(100dvh - 140px);grid-template-rows:auto auto auto minmax(70dvh,1fr);gap:12px}.org-summary-row{min-height:0}.org-chart-heading p{max-width:62ch}.org-chart-heading-actions{width:100%;justify-content:space-between}.org-chart-live{white-space:normal}.org-chart-panel.is-expanded{inset:8px;width:auto;height:calc(100dvh - 16px);max-height:calc(100dvh - 16px)}.org-chart-viewport{touch-action:auto}}
