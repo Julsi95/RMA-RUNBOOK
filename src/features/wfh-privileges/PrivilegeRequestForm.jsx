@@ -27,7 +27,7 @@ function prettyDate(value) {
   return new Intl.DateTimeFormat(undefined, { timeZone: "UTC", weekday: "short", month: "short", day: "numeric", year: "numeric" }).format(new Date(`${value}T00:00:00Z`));
 }
 
-export function PrivilegeRequestForm({ holidays, allocations, requests = [], onSubmit, busy }) {
+export function PrivilegeRequestForm({ holidays, allocations, requests = [], availableDays = 0, onSubmit, busy }) {
   const [mode, setMode] = useState("use");
   const today = runbookToday();
   const [month, setMonth] = useState(() => { const [year, monthNumber] = runbookToday().split("-").map(Number); return new Date(Date.UTC(year, monthNumber - 1, 1)); });
@@ -48,6 +48,7 @@ export function PrivilegeRequestForm({ holidays, allocations, requests = [], onS
     if (pendingDates.has(date) || activeDates.has(date)) return `${prettyDate(date)} is already filed or scheduled for WFH.`;
     if (!isWorkingWeekday(date, holidays)) return `${prettyDate(date)} is not a working weekday.`;
     if (dates.includes(date) || stagedDates.includes(date)) return `${prettyDate(date)} is already selected.`;
+    if (dates.length + stagedDates.length >= availableDays) return `You only have ${availableDays} WFH day${availableDays === 1 ? "" : "s"} available. Remove or change a selected date, or ask an admin for more days.`;
     if (dates.length + stagedDates.length >= 30) return "You can select up to 30 WFH dates per request.";
     return "";
   }
@@ -71,6 +72,7 @@ export function PrivilegeRequestForm({ holidays, allocations, requests = [], onS
     event.preventDefault();
     setMessage("");
     if (mode === "use") {
+      if (selectedDates.length > availableDays) { setError(`You only have ${availableDays} WFH day${availableDays === 1 ? "" : "s"} available. Remove dates or ask an admin for more days.`); return; }
       const issue = validateRequestedDates(selectedDates, holidays, today);
       if (issue) { setError(issue); return; }
       const conflict = selectedDates.find((date) => pendingDates.has(date) || activeDates.has(date));

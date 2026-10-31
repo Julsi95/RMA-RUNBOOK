@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Activity, ChevronLeft, ChevronRight, Clock3, RotateCcw, Trash2 } from "lucide-react";
 import { isSupabaseConfigured } from "@/lib/supabase";
-import { deleteHistoryEvent, isHistoryEventRestorable, loadHistoryEvents, resetHistory, restoreHistoryEvent } from "@/lib/backend/history";
+import { deleteHistoryEvent, isHistoryEventRestorable, loadHistoryEvents, pruneOldestHistory, restoreHistoryEvent } from "@/lib/backend/history";
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 import { useAuth } from "@/app/auth-provider";
 import { Button } from "@/components/ui/Button";
@@ -22,7 +22,9 @@ export default function HistoryPage() {
   const [total, setTotal] = useState(cached?.total ?? 0);
   const [loading, setLoading] = useState(isSupabaseConfigured && !cached);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [busyId, setBusyId] = useState("");
+  const [keepNewest, setKeepNewest] = useState("100");
 
   const loadEvents = useCallback(async ({ force = false } = {}) => {
     const result = await fetchCachedQuery(resourceKey, () => retryDataLoad(() => loadHistoryEvents(canEdit, page, PAGE_SIZE)), { force });
@@ -64,16 +66,16 @@ export default function HistoryPage() {
   }
 
   async function clearHistory() {
-    if (!isAdmin || !window.confirm("Permanently delete all RUNBOOK history records and recovery snapshots? This cannot be undone.")) return;
-    if (window.prompt('Type "reset history" to confirm.') !== "reset history") return;
-    setBusyId("reset"); setError("");
+    const keep = Number(keepNewest);
+    if (!isAdmin || !Number.isInteger(keep) || keep < 1 || keep > 100000) { setError("Choose how many newest records to keep (1–100,000)."); return; }
+    if (!window.confirm(`Delete the oldest history records and keep the newest ${keep.toLocaleString()}? This cannot be undone.`)) return;
+    setBusyId("reset"); setError(""); setSuccess("");
     try {
-      await resetHistory();
+      const removed = await pruneOldestHistory(keep);
       await invalidateCachedQueries(["history"]);
-      setPage(0);
-      setEvents([]);
-      setTotal(0);
-      if (page === 0) await loadEvents({ force: true });
+      setSuccess(`Deleted ${removed.toLocaleString()} oldest record${removed === 1 ? "" : "s"}; kept the newest ${keep.toLocaleString()}.`);
+      if (page !== 0) setPage(0);
+      else await loadEvents({ force: true });
     } catch (cause) { setError(cause.message || "History could not be reset."); }
     finally { setBusyId(""); }
   }
@@ -83,8 +85,8 @@ export default function HistoryPage() {
   const lastRecord = Math.min(total, (page + 1) * PAGE_SIZE);
 
   return <section className="page-content history-page">
-    <header className="page-heading"><div><p className="eyebrow">WORKSPACE · RECENT CHANGES</p><h1>History</h1><p className="page-description">A timeline of changes across the workspace. Recoverable changes are kept for 30 days.</p></div><div className="history-heading-actions"><span className="history-retention"><Clock3 size={15} /> Last 30 days</span>{isAdmin && isSupabaseConfigured && <Button type="button" variant="outline" onClick={() => void clearHistory()} disabled={busyId === "reset"}><Trash2 size={14} />{busyId === "reset" ? "Resetting…" : "Reset history"}</Button>}</div></header>
-    {error && <p className="auth-error" role="alert">{error}</p>}
+    <header className="page-heading"><div><p className="eyebrow">WORKSPACE · RECENT CHANGES</p><h1>History</h1><p className="page-description">A timeline of changes across the workspace. Recoverable changes are kept for 30 days.</p></div><div className="history-heading-actions"><span className="history-retention"><Clock3 size={15} /> Last 30 days</span>{isAdmin && isSupabaseConfigured && <div className="history-prune-control"><label>Keep newest <input type="number" min="1" max="100000" value={keepNewest} onChange={(event) => setKeepNewest(event.target.value)} aria-label="Number of newest history records to keep" /></label><Button type="button" variant="outline" onClick={() => void clearHistory()} disabled={busyId === "reset"}><Trash2 size={14} />{busyId === "reset" ? "Deleting…" : "Delete oldest"}</Button></div>}</div></header>
+    {error && <p className="auth-error" role="alert">{error}</p>}{success && <p className="auth-success" role="status">{success}</p>}
     {!isSupabaseConfigured ? <div className="history-empty"><Activity size={22} /><strong>History will appear when Supabase is connected</strong><span>This browser-only prototype does not have a shared change log.</span></div>
       : loading ? <div className="history-empty"><span>Loading recent activity…</span></div>
       : events.length ? <>

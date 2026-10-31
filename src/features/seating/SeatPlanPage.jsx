@@ -80,6 +80,7 @@ export default function SeatPlanPage() {
   const resourceKey = useMemo(() => queryKeys.seatPlans(user?.id ?? "anonymous", canEdit), [canEdit, user?.id]);
   const cachedPlans = readCachedQuery(resourceKey);
   const [selectedDate, setSelectedDate] = useState(getLocalDate);
+  const [planScope, setPlanScope] = useState("date");
   const [plans, setPlans] = useState(() => isSupabaseConfigured ? cachedPlans ?? {} : getSavedPlans());
   const [remoteReady, setRemoteReady] = useState(Boolean(cachedPlans));
   const [syncError, setSyncError] = useState("");
@@ -92,7 +93,8 @@ export default function SeatPlanPage() {
   const [dragPreviewPosition, setDragPreviewPosition] = useState(null);
   const dragRef = useRef(null);
   const suppressClickRef = useRef(false);
-  const activePlan = plans[selectedDate] ?? emptyPlan;
+  const activePlanKey = planScope === "month" ? selectedDate.slice(0, 7) : selectedDate;
+  const activePlan = plans[activePlanKey] ?? (planScope === "date" ? plans[selectedDate.slice(0, 7)] : null) ?? emptyPlan;
   const assignments = activePlan.assignments ?? {};
   const seatIds = activePlan.seatIds ?? initialSeatIds;
   const leadershipSeatIds = activePlan.leadershipSeatIds ?? initialLeadershipSeatIds;
@@ -118,7 +120,7 @@ export default function SeatPlanPage() {
     if (!isSupabaseConfigured) return undefined;
     let active = true;
     let timer;
-    const unsubscribe = subscribeToTables(["seat_plans", "seat_positions", "seat_assignments"], () => {
+    const unsubscribe = subscribeToTables(["seat_plans", "seat_positions", "seat_assignments", "seat_month_plans"], () => {
       window.clearTimeout(timer);
       timer = window.setTimeout(() => { void fetchCachedQuery(resourceKey, () => retryDataLoad(loadSeatPlans), { force: true }).then((saved) => {
         if (!active) return;
@@ -169,8 +171,8 @@ export default function SeatPlanPage() {
   function updateActivePlan(updater) {
     if (!canManage) return;
     setPlans((current) => {
-      const plan = current[selectedDate] ?? emptyPlan;
-      return { ...current, [selectedDate]: updater(plan) };
+      const plan = current[activePlanKey] ?? (planScope === "date" ? current[selectedDate.slice(0, 7)] : null) ?? emptyPlan;
+      return { ...current, [activePlanKey]: updater(plan) };
     });
   }
 
@@ -362,6 +364,8 @@ export default function SeatPlanPage() {
   }
 
   const printableDate = new Intl.DateTimeFormat(undefined, { dateStyle: "long" }).format(new Date(`${selectedDate}T12:00:00`));
+  const monthLabel = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(new Date(`${selectedDate.slice(0, 7)}-01T12:00:00`));
+  const activePlanLabel = planScope === "month" ? monthLabel : printableDate;
 
   return (
     <section className="page-content seat-plan-page" onPointerMove={updatePointerDrag} onPointerUp={finishPointerDrag} onPointerCancel={() => { dragRef.current = null; setDraggingMemberId(null); setDragPreviewPosition(null); }}>
@@ -388,6 +392,7 @@ export default function SeatPlanPage() {
           <span className="seat-control-icon"><CalendarDays size={17} /></span>
           <span><small>Seat plan for</small><input type="date" value={selectedDate} onChange={(event) => { if (event.target.value) setSelectedDate(event.target.value); setSelectedSeatId(null); setSelectedMemberId(null); }} /></span>
         </label>
+        <div className="seat-plan-scope" role="group" aria-label="Seat plan scope"><button type="button" className={planScope === "date" ? "active" : ""} onClick={() => setPlanScope("date")}>Specific date</button><button type="button" className={planScope === "month" ? "active" : ""} onClick={() => setPlanScope("month")}>Whole month</button></div>
         <div className="seat-plan-status"><span className="seat-status-dot" />{syncError ? "Sync issue" : isSupabaseConfigured ? remoteReady ? canEdit ? "Synced with workspace" : "Shared workspace" : "Loading plans…" : "Saved in this browser"}</div>
       </div>
       {syncError && <p className="auth-error" role="alert">{syncError}</p>}
@@ -401,7 +406,7 @@ export default function SeatPlanPage() {
       <div className="seat-plan-layout">
         <section className="seat-map-panel">
           <div className="seat-panel-heading">
-            <div><p className="eyebrow">FLOOR LAYOUT</p><h2>Seat plan for {printableDate}</h2></div>
+            <div><p className="eyebrow">FLOOR LAYOUT</p><h2>Seat plan for {activePlanLabel}</h2></div>
           <div className="seat-map-actions"><span className="seat-layout-badge">{allSeatIds.length} seats <i /> Leadership + team</span>{canManage && <Button variant="outline" className="seat-add-button" onClick={addSeat}><Plus size={15} /> Add team seat</Button>}</div>
           </div>
           <div className="seat-map-legend"><span><i className="legend-chair-icon" /> Chair</span><span><i className="legend-desk-icon" /> Desk & assigned teammate</span><span><i className="legend-open-icon" /> Open seat</span></div>
@@ -433,9 +438,9 @@ export default function SeatPlanPage() {
         </section>
 
         <aside className="seat-note-panel">
-          <div className="seat-note-heading"><span className="seat-note-icon"><CalendarDays size={16} /></span><div><h2>Plan notes</h2><p>Saved separately for each date.</p></div></div>
-          <label className="seat-note-label" htmlFor="seat-plan-note">Notes for {printableDate}</label>
-          <textarea id="seat-plan-note" value={activePlan.note ?? ""} onChange={(event) => setNote(event.target.value)} placeholder={canManage ? "Add a note for this day…&#10;Example: Training at the front row" : "No notes for this day"} maxLength={500} readOnly={!canManage} />
+          <div className="seat-note-heading"><span className="seat-note-icon"><CalendarDays size={16} /></span><div><h2>Plan notes</h2><p>{planScope === "month" ? "Saved for the entire month." : "Saved for this specific date."}</p></div></div>
+          <label className="seat-note-label" htmlFor="seat-plan-note">Notes for {activePlanLabel}</label>
+          <textarea id="seat-plan-note" value={activePlan.note ?? ""} onChange={(event) => setNote(event.target.value)} placeholder={canManage ? (planScope === "month" ? "Add a note for this month…" : "Add a note for this day…") : "No notes for this plan"} maxLength={500} readOnly={!canManage} />
           <div className="seat-note-footer"><span>{(activePlan.note ?? "").length}/500</span><span>Autosaved</span></div>
         </aside>
       </div>

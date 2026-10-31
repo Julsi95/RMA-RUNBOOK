@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ImagePlus, X } from "lucide-react";
-import { getDescendantIds, getHierarchyRoles, getOrganizationRoleLabels, organizationHierarchyRoles, organizationRoles } from "@/features/organization/organization-data";
+import { getDescendantIds, getHierarchyRoles, getOrganizationRoleLabels, organizationHierarchyRoles, organizationRoles, organizationTeams } from "@/features/organization/organization-data";
 import { Button } from "@/components/ui/Button";
 
 function getInitials(name) {
@@ -52,7 +52,8 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
   const defaultRole = member?.role ?? "Customer Rep";
   const currentManager = members.find((person) => person.id === member?.managerId);
   const existingManagerIsAllowed = !restrictedReportingRoles.has(defaultRole) || canManageRole(defaultRole, currentManager);
-  const defaultManagerId = member?.managerId && existingManagerIsAllowed
+  const customerManagerAllowed = !member || ["Senior Agent", "Campaign Specialist"].includes(currentManager?.role);
+  const defaultManagerId = member?.managerId && existingManagerIsAllowed && (defaultRole !== "Customer Rep" || customerManagerAllowed)
     ? member.managerId
     : defaultRole === "Senior Agent"
       ? members.find((person) => person.role === "Campaign Specialist")?.id ?? members.find(canSuperviseCampaignOrSenior)?.id ?? ""
@@ -63,6 +64,8 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
   const [role, setRole] = useState(defaultRole);
   const [hierarchyRoles, setHierarchyRoles] = useState(() => getHierarchyRoles(member));
   const [managerId, setManagerId] = useState(defaultManagerId);
+  const [coManagerId, setCoManagerId] = useState(member?.coManagerId ?? "");
+  const [team, setTeam] = useState(member?.team ?? "");
   const campaignSpecialists = members.filter((person) => person.role === "Campaign Specialist" && person.id !== member?.id);
   const [mentorId, setMentorId] = useState(member?.mentorId ?? "");
   const [photo, setPhoto] = useState(member?.photo ?? "");
@@ -76,7 +79,13 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
     && !excludedManagerIds.has(person.id)
     && (restrictedReportingRoles.has(role)
       ? canManageRole(role, person)
-      : (person.id === member?.managerId || Math.min(...getHierarchyRoles(person).map((item) => roleLevels[item] ?? 4), roleLevels[person.role] ?? 4) < selectedRank)));
+      : role === "Customer Rep"
+        ? ["Senior Agent", "Campaign Specialist"].includes(person.role)
+        : (person.id === member?.managerId || Math.min(...getHierarchyRoles(person).map((item) => roleLevels[item] ?? 4), roleLevels[person.role] ?? 4) < selectedRank)));
+  const primaryManager = members.find((person) => person.id === managerId);
+  const coManagerOptions = members.filter((person) => person.id !== member?.id && person.id !== managerId && !excludedManagerIds.has(person.id)
+    && role === "Customer Rep" && primaryManager
+    && ((primaryManager.role === "Senior Agent" && person.role === "Campaign Specialist") || (primaryManager.role === "Campaign Specialist" && person.role === "Senior Agent")));
 
   useEffect(() => {
     function closeOnEscape(event) {
@@ -110,6 +119,7 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
     if (nextRole === "Customer Rep" && !managerId) {
       setManagerId(members.find((person) => person.role === "Senior Agent")?.id ?? "");
     }
+    if (nextRole !== "Customer Rep") setCoManagerId("");
   }
 
   async function handleSubmit(event) {
@@ -122,14 +132,20 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
         : "Campaign Specialists must report directly to a Team Lead or Senior Team Lead (STL).");
       return;
     }
+    if (role === "Customer Rep" && (!coManagerId || !coManagerOptions.some((person) => person.id === coManagerId))) {
+      setSaveError("Choose a Campaign Specialist and Senior Agent to share management of this Customer Representative.");
+      return;
+    }
     setSaving(true); setSaveError("");
     try {
       await onSave({
         ...(member?.id ? { id: member.id } : {}),
         name: cleanedName,
         role,
+        team: team || null,
         hierarchyRoles,
         managerId: managerId || null,
+        coManagerId: role === "Customer Rep" ? (coManagerId || null) : null,
         mentorId: role === "Customer Rep" ? (mentorId || null) : null,
         photo,
         photoPath: member?.photoPath ?? "",
@@ -171,6 +187,7 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
             <span>Name</span>
             <input autoFocus required maxLength={80} value={name} onChange={(event) => setName(event.target.value)} placeholder="Enter full name" />
           </label>
+          <label className="form-field"><span>Team</span><select value={team} onChange={(event) => setTeam(event.target.value)}><option value="">No team selected</option>{organizationTeams.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
           <label className="form-field">
             <span>Operational role <small>(optional for OM/TM)</small></span>
             <select value={role} onChange={handleRoleChange}>
@@ -197,6 +214,8 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
             {restrictedReportingRoles.has(role) && managerOptions.length === 0 && <small className="form-field-hint">{role === "Senior Agent" ? "Add a Campaign Specialist or assign a Team Lead / STL before saving." : "Add or assign a Team Lead / STL before saving this role."}</small>}
           </label>
           {role === "Customer Rep" && (
+            <>
+            <label className="form-field"><span>Shared manager <small>(required · pair Campaign Specialist with Senior Agent)</small></span><select value={coManagerId} onChange={(event) => setCoManagerId(event.target.value)} disabled={!primaryManager || !["Senior Agent", "Campaign Specialist"].includes(primaryManager.role)}><option value="">Select paired manager</option>{coManagerOptions.map((person) => <option key={person.id} value={person.id}>{person.name} · {person.role}</option>)}</select></label>
             <label className="form-field">
               <span>Mentor <small>(optional)</small></span>
               <select value={mentorId} onChange={(event) => setMentorId(event.target.value)}>
@@ -204,6 +223,7 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
                 {campaignSpecialists.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
               </select>
             </label>
+            </>
           )}
           {saveError && <p className="form-error" role="alert">{saveError}</p>}
           <div className="dialog-actions">

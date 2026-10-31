@@ -108,3 +108,23 @@
 .wfh-request-history-grid>.wfh-history-card{display:grid;grid-template-rows:auto minmax(0,1fr);box-sizing:border-box;height:100%;min-height:0}
 .wfh-request-history-grid .wfh-history-scroll{height:auto;min-height:220px;max-height:min(560px,70vh)}
 @media(max-width:900px){.wfh-request-history-grid{grid-template-columns:minmax(0,1fr)}}
+.wfh-selected-dates{position:relative;flex-wrap:nowrap;max-width:100%;height:54px;overflow-x:auto;overflow-y:hidden;overscroll-behavior-inline:contain;scrollbar-width:thin;scrollbar-color:var(--muted-foreground) transparent;white-space:nowrap;mask-image:linear-gradient(90deg,transparent 0,#000 10px,#000 calc(100% - 10px),transparent 100%)}
+.wfh-selected-dates>strong{position:sticky;left:0;z-index:1;flex:0 0 auto;padding:8px 7px 8px 3px;background:var(--surface)}
+.wfh-selected-dates span{flex:0 0 auto}
+.wfh-admin-reward-filters{display:flex;gap:6px;width:max-content;max-width:100%;padding:3px;border:1px solid var(--border);border-radius:9px;background:var(--surface)}
+.wfh-admin-reward-filters button{padding:7px 10px;border:0;border-radius:6px;background:transparent;color:var(--muted-foreground);font-size:11px;cursor:pointer}
+.wfh-admin-reward-filters button.active{background:var(--foreground);color:var(--background);font-weight:650}
+.wfh-approved-date-list{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+.wfh-approved-date-list label{display:flex;align-items:center;gap:5px;padding:4px 6px;border:1px solid color-mix(in srgb,#129a73 30%,var(--border));border-radius:7px;background:color-mix(in srgb,#129a73 8%,var(--surface));font-size:10px;color:var(--foreground)}
+.wfh-approved-date-list label.is-revoked{opacity:.6;text-decoration:line-through}
+.wfh-approved-date-list label>span{display:grid;gap:2px}
+.wfh-approved-date-list small{color:var(--muted-foreground);font-size:9px}
+.wfh-approved-date-list input{accent-color:#087f65}
+.wfh-reward-person{min-width:0;flex:1}
+.wfh-reward-scroll{max-height:400px;overflow:auto}
+.wfh-approval-card{grid-template-rows:auto minmax(0,1fr);height:min(470px,58vh);max-height:none;}
+.wfh-approval-list{max-height:none;height:100%;min-height:0;padding:1px 5px 5px 1px;}
+.wfh-approval-list article{padding:9px 10px;border-radius:10px;}
+.wfh-approval-dates{gap:6px;margin:8px 0;}
+.wfh-approval-dates input{width:132px;min-height:31px;}
+@media(max-width:520px){.wfh-approval-card{height:min(430px,52vh)}.wfh-approved-date-list{max-width:100%}}

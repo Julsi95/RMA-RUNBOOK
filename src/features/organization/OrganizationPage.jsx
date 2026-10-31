@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/Button";
 import OrgBranch from "@/features/organization/OrgBranch";
 import OrgMemberDialog from "@/features/organization/OrgMemberDialog";
 import OrgProfileDialog from "@/features/organization/OrgProfileDialog";
-import { buildOrganizationTree, createMemberId, getHierarchyRoles, organizationHierarchyRoles } from "@/features/organization/organization-data";
+import { buildOrganizationTree, createMemberId, getHierarchyRoles, getOperationalRoster, organizationHierarchyRoles } from "@/features/organization/organization-data";
 import { useOrganizationRoster } from "@/app/organization-provider";
 import { useAuth } from "@/app/auth-provider";
 
@@ -19,9 +19,45 @@ export default function OrganizationPage() {
   const panRef = useRef(null);
   const [isPanning, setIsPanning] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [sharedLines, setSharedLines] = useState([]);
 
   const tree = buildOrganizationTree(members);
   const roleCounts = organizationHierarchyRoles.map((role) => ({ role, count: members.filter((member) => getHierarchyRoles(member).includes(role)).length }));
+  const seniorAgentCount = members.filter((member) => member.role === "Senior Agent").length;
+  const teamPeopleCount = getOperationalRoster(members).length;
+
+  useEffect(() => {
+    const viewport = chartRef.current;
+    if (!viewport) return undefined;
+    let frame = 0;
+    const measure = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const cards = new Map([...viewport.querySelectorAll("[data-org-person-id]")].map((card) => [card.dataset.orgPersonId, card]));
+        const rect = viewport.getBoundingClientRect();
+        const lines = members.flatMap((member) => {
+          const manager = member.coManagerId && cards.get(member.coManagerId);
+          const report = cards.get(member.id);
+          if (!manager || !report) return [];
+          const a = manager.getBoundingClientRect();
+          const b = report.getBoundingClientRect();
+          const x1 = a.left + a.width / 2 - rect.left + viewport.scrollLeft;
+          const y1 = a.bottom - rect.top + viewport.scrollTop;
+          const x2 = b.left + b.width / 2 - rect.left + viewport.scrollLeft;
+          const y2 = b.top - rect.top + viewport.scrollTop;
+          const mid = y1 + (y2 - y1) / 2;
+          return [{ id: member.id, d: `M ${x1} ${y1} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${y2}` }];
+        });
+        setSharedLines(lines);
+      });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(viewport);
+    const treeNode = viewport.querySelector(".org-tree");
+    if (treeNode) observer.observe(treeNode);
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); };
+  }, [members, loading]);
 
   useEffect(() => {
     if (!expanded) return undefined;
@@ -88,6 +124,7 @@ export default function OrganizationPage() {
       .map((person) => ({
         ...person,
         managerId: person.managerId === member.id ? member.managerId ?? null : person.managerId,
+        coManagerId: person.coManagerId === member.id || person.managerId === member.id ? null : person.coManagerId,
         mentorId: person.mentorId === member.id ? null : person.mentorId,
       }));
     try { await saveMembers(next, { deletedId: member.id }); setSaveError(""); }
@@ -113,7 +150,15 @@ export default function OrganizationPage() {
       <div className="org-summary-row">
         <div className="org-total-card">
           <span className="org-total-icon"><UsersRound size={18} /></span>
-          <span><strong>{members.length}</strong><small>people in your team</small></span>
+          <span><strong>{members.length}</strong><small>people in organization</small></span>
+        </div>
+        <div className="org-total-card">
+          <span className="org-total-icon"><UsersRound size={18} /></span>
+          <span><strong>{teamPeopleCount}</strong><small>people in your team · TL/STL and below</small></span>
+        </div>
+        <div className="org-total-card">
+          <span className="org-total-icon"><UsersRound size={18} /></span>
+          <span><strong>{seniorAgentCount}</strong><small>senior agents</small></span>
         </div>
         <div className="org-role-counts">
           <span className="org-role-counts-caption">LEADERSHIP HIERARCHY <small>People may hold more than one role</small></span>
@@ -135,6 +180,7 @@ export default function OrganizationPage() {
         </div>
         {tree.length > 0 ? (
           <div ref={chartRef} className={`org-chart-viewport${isPanning ? " is-panning" : ""}`} role="region" aria-label="Organizational chart. Scroll or drag the empty chart area to explore." tabIndex={0} onPointerDown={startChartPan} onPointerMove={moveChartPan} onPointerUp={stopChartPan} onPointerCancel={stopChartPan}>
+            <svg className="org-shared-reporting-lines" aria-hidden="true" width={chartRef.current?.scrollWidth ?? "100%"} height={chartRef.current?.scrollHeight ?? "100%"}>{sharedLines.map((line) => <path key={line.id} d={line.d} />)}</svg>
             <div className="org-tree">
               {tree.map((root) => <OrgBranch key={root.id} member={root} onEdit={(member) => setDialog({ open: true, member })} onRemove={removeMember} onOpenProfile={setProfileMember} canEdit={canEdit} />)}
             </div>

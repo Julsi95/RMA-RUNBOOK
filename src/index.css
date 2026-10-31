@@ -256,6 +256,9 @@ h1 { margin: 0; font-size: clamp(27px, 3vw, 34px); font-weight: 620; letter-spac
 .history-entry-heading time, .history-entry-content p, .history-recoverable { color: var(--muted-foreground); font-size: 12px; }
 .history-entry-content p { margin: 5px 0; }
 .history-heading-actions { display: flex; align-items: center; gap: 8px; }
+.history-prune-control { display:flex; align-items:end; gap:8px; }
+.history-prune-control label { display:grid; gap:4px; color:var(--muted-foreground); font-size:11px; }
+.history-prune-control input { width:110px; min-height:36px; border:1px solid var(--border); border-radius:8px; padding:6px 9px; background:var(--surface); color:var(--foreground); font:inherit; }
 .history-entry { align-items: flex-start; }
 .history-delete-button { flex: 0 0 auto; color: var(--muted-foreground); }
 .history-delete-button:hover { color: #c43d45; }
@@ -263,6 +266,32 @@ h1 { margin: 0; font-size: clamp(27px, 3vw, 34px); font-weight: 620; letter-spac
 .history-pagination > div { display: flex; align-items: center; gap: 8px; }
 .history-pagination > div > span { min-width: 86px; text-align: center; }
 @media (max-width: 560px) { .history-heading-actions { align-items: flex-start; flex-direction: column; } .history-pagination { align-items: flex-start; flex-direction: column; } .history-pagination > div { width: 100%; justify-content: space-between; } }
+.org-shared-reporting-lines { position:absolute; z-index:0; top:0; left:0; overflow:visible; pointer-events:none; }
+.org-shared-reporting-lines path { fill:none; stroke:color-mix(in srgb,var(--primary) 58%,transparent); stroke-width:2; stroke-dasharray:5 5; }
+.org-tree { position:relative; z-index:1; }
+.org-person-card { position:relative; z-index:1; }
+.work-view-toggle { display:inline-flex; align-items:center; gap:3px; padding:3px; border:1px solid var(--border); border-radius:9px; background:var(--background); }
+.work-view-toggle button { display:grid; width:31px; height:29px; place-items:center; border:0; border-radius:6px; background:transparent; color:var(--muted-foreground); cursor:pointer; }
+.work-view-toggle button.active { background:var(--muted); color:var(--foreground); }
+.work-table-scroll { width:100%; overflow:auto; margin-top:14px; border:1px solid var(--border); border-radius:10px; }
+.work-schedule-table { width:100%; border-collapse:collapse; font-size:12px; }
+.work-schedule-table th,.work-schedule-table td { padding:9px 11px; border-bottom:1px solid var(--border); text-align:left; white-space:nowrap; }
+.work-schedule-table th { color:var(--muted-foreground); font-size:10px; text-transform:uppercase; letter-spacing:.06em; }
+.work-schedule-table input { min-height:32px; border:1px solid var(--border); border-radius:7px; padding:4px 7px; background:var(--background); color:var(--foreground); }
+.work-schedule-table tr:last-child td { border-bottom:0; }
+.terms-backdrop { position:fixed; z-index:1000; inset:0; display:grid; place-items:center; overflow:auto; padding:20px; background:rgb(7 10 14 / .64); backdrop-filter:blur(5px); }
+.terms-dialog { width:min(560px,100%); max-height:min(82dvh,760px); overflow:auto; padding:24px; border:1px solid var(--border); border-radius:18px; background:var(--surface); box-shadow:0 24px 80px rgb(0 0 0 / .28); }
+.terms-dialog h2 { margin:0 0 14px; font-size:23px; }
+.terms-copy { display:grid; gap:8px; color:var(--muted-foreground); font-size:13px; line-height:1.65; }
+.terms-copy p { margin:0; }
+.terms-acknowledge { display:flex; align-items:center; gap:9px; margin:18px 0; font-size:12px; }
+.terms-link-button { border:0; padding:0; background:transparent; font:inherit; cursor:pointer; }
+.org-chart-viewport { position:relative; }
+.org-summary-row { flex-wrap:wrap; }
+.org-total-card { flex:1 1 205px; }
+.seat-plan-scope { display:inline-flex; gap:3px; align-items:center; padding:3px; border:1px solid var(--border); border-radius:9px; background:var(--surface); }
+.seat-plan-scope button { min-height:31px; padding:0 10px; border:0; border-radius:6px; background:transparent; color:var(--muted-foreground); font-size:11px; cursor:pointer; }
+.seat-plan-scope button.active { background:var(--foreground); color:var(--background); }
 .history-recoverable { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; color: #1b8c5a; }
 .history-recoverable > span { display: inline-flex; align-items: center; gap: 5px; }
 .history-empty { display: grid; min-height: 210px; align-content: center; justify-items: center; gap: 10px; margin-top: 24px; padding: 24px; border: 1px dashed var(--border); border-radius: 14px; color: var(--muted-foreground); text-align: center; }

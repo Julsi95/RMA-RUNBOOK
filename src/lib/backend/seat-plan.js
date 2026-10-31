@@ -3,12 +3,13 @@ import { supabase } from "@/lib/supabase";
 
 export async function loadSeatPlans() {
   assertBackendConfigured();
-  const [plansResult, positionsResult, assignmentsResult] = await Promise.all([
+  const [plansResult, positionsResult, assignmentsResult, monthlyResult] = await Promise.all([
     supabase.from("seat_plans").select("plan_date,note"),
     supabase.from("seat_positions").select("plan_date,seat_id,seat_type,sort_order").order("sort_order"),
     supabase.from("seat_assignments").select("plan_date,seat_id,employee_id"),
+    supabase.from("seat_month_plans").select("month_start,plan"),
   ]);
-  throwIfErrors([plansResult, positionsResult, assignmentsResult]);
+  throwIfErrors([plansResult, positionsResult, assignmentsResult, monthlyResult]);
   const plans = Object.fromEntries((plansResult.data ?? []).map((row) => [row.plan_date, { note: row.note ?? "", seatIds: [], leadershipSeatIds: [], assignments: {} }]));
   for (const row of positionsResult.data ?? []) {
     const plan = plans[row.plan_date];
@@ -18,11 +19,17 @@ export async function loadSeatPlans() {
   for (const row of assignmentsResult.data ?? []) {
     if (plans[row.plan_date]) plans[row.plan_date].assignments[row.seat_id] = row.employee_id;
   }
+  for (const row of monthlyResult.data ?? []) plans[row.month_start.slice(0, 7)] = row.plan;
   return plans;
 }
 
 export async function saveSeatPlan(date, plan) {
   assertBackendConfigured();
+  if (/^\d{4}-\d{2}$/.test(date)) {
+    const { error } = await supabase.rpc("save_seat_month_plan", { p_month: `${date}-01`, p_plan: plan });
+    throwIfError(error);
+    return;
+  }
   const { error } = await supabase.rpc("save_seat_plan", {
     p_plan_date: date,
     p_plan: {

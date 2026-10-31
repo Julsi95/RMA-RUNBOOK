@@ -9,7 +9,7 @@ function getInitials(name) {
 export default function OrgBranch({ member, onEdit, onRemove, onOpenProfile, canEdit = true }) {
   return (
     <div className="org-branch">
-      <article className="org-person-card">
+      <article className="org-person-card" data-org-person-id={member.id}>
         <button className="org-person-card-main" type="button" onClick={() => onOpenProfile(member)} aria-label={`View ${member.name}'s profile`} title={`View ${member.name}'s profile`}>
           <span className="member-avatar">
             {member.photo ? <img src={member.photo} alt="" /> : <span>{getInitials(member.name)}</span>}
@@ -18,6 +18,7 @@ export default function OrgBranch({ member, onEdit, onRemove, onOpenProfile, can
             <span className="org-person-name" title={member.name}>{member.name}</span>
             <span className="org-person-role-list">{getOrganizationRoleLabels(member).map((role, index) => <span className={`org-role-chip org-role-chip-${getHierarchyRoles(member).includes(role) ? getHierarchyRoles(member).indexOf(role) + 1 : 5}`} key={`${role}-${index}`}>{role}</span>)}</span>
             {member.role === "Customer Rep" && member.mentorName && <span className="org-person-mentor">Mentor: <strong>{member.mentorName}</strong></span>}
+            {member.role === "Customer Rep" && member.coManagerName && <span className="org-person-mentor">Shared with: <strong>{member.coManagerName}</strong></span>}
           </span>
         </button>
         {canEdit && <div className="org-card-actions">

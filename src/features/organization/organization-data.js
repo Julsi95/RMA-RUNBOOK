@@ -4,6 +4,7 @@ export const organizationRoles = [
   "Senior Agent",
   "Customer Rep",
 ];
+export const organizationTeams = ["RMA", "Contracts", "OM", "Petro Admin"];
 
 export const organizationHierarchyRoles = [
   "Operational Manager (OM)",
@@ -82,6 +83,7 @@ export function buildOrganizationTree(members) {
     const manager = node.managerId ? nodes.get(node.managerId) : null;
     node.managerName = manager?.name ?? null;
     node.mentorName = node.mentorId ? nodes.get(node.mentorId)?.name ?? null : null;
+    node.coManagerName = node.coManagerId ? nodes.get(node.coManagerId)?.name ?? null : null;
     if (manager && manager.id !== node.id) manager.children.push(node);
     else roots.push(node);
   }

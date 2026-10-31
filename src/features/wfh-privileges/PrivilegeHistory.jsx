@@ -5,10 +5,12 @@ import { PrivilegeStatusBadge } from "./PrivilegeStatusBadge";
 
 const ACTION_NAMES = { awarded: "Awarded", revoked: "Revoked", requested: "WFH requested", approved: "WFH approved", rejected: "Request rejected", cancellation_requested: "Cancellation requested", cancellation_approved: "Cancellation approved", cancellation_rejected: "Cancellation rejected", policy_updated: "Company policy updated" };
 
-export function PrivilegeHistory({ requests, audit, employeeName }) {
+export function PrivilegeHistory({ requests, audit, employeeName, isAdmin = false }) {
   const [page, setPage] = useState(0);
   const pageSize = 12;
-  const rows = [...requests.map((row) => ({ ...row, kind: "request" })), ...audit.map((row) => ({ ...row, kind: "audit" }))].sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const currentRequests = requests.filter((row) => row.status === "pending" || row.status === "approved");
+  const currentAudit = isAdmin ? audit : [];
+  const rows = [...currentRequests.map((row) => ({ ...row, kind: "request" })), ...currentAudit.map((row) => ({ ...row, kind: "audit" }))].sort((a, b) => b.created_at.localeCompare(a.created_at));
   const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
   const currentPage = Math.min(page, pageCount - 1);
   const visibleRows = rows.slice(currentPage * pageSize, (currentPage + 1) * pageSize);

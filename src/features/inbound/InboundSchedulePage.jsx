@@ -9,19 +9,11 @@ import { isSupabaseConfigured } from "@/lib/supabase";
 import { loadCallSchedules, saveCallScheduleMonth } from "@/lib/backend-repositories";
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 import { fetchCachedQuery, queryClient, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
+import { WORLD_TIME_ZONES } from "@/lib/timezones";
 import "@/features/inbound/inbound-schedule.css";
 
 const STORAGE_KEY = "starter-app-inbound-schedule-v1";
 const MANILA_ZONE = "Asia/Manila";
-const NORTH_AMERICA_ZONES = [
-  { id: "America/New_York", label: "Eastern · New York / Toronto" },
-  { id: "America/Chicago", label: "Central · Chicago / Winnipeg" },
-  { id: "America/Denver", label: "Mountain · Denver" },
-  { id: "America/Phoenix", label: "Arizona · Phoenix" },
-  { id: "America/Los_Angeles", label: "Pacific · Los Angeles / Vancouver" },
-  { id: "America/Anchorage", label: "Alaska · Anchorage" },
-  { id: "Pacific/Honolulu", label: "Hawaii · Honolulu" },
-];
 function currentMonth() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -167,6 +159,7 @@ export default function InboundSchedulePage() {
   const [newCallMemberId, setNewCallMemberId] = useState("");
   const [newCallStart, setNewCallStart] = useState("21:00");
   const [newCallEnd, setNewCallEnd] = useState("22:30");
+  const laneDragRef = useRef(null);
 
   const monthSchedule = savedSchedules[month] ?? createMonthSchedule(members);
   const callAssignments = monthSchedule.callAssignments ?? [];
@@ -257,6 +250,34 @@ export default function InboundSchedulePage() {
     }));
   }
 
+  function startLaneDrag(event, assignment, edge) {
+    if (!canEdit || !canManage || event.button !== 0) return;
+    event.preventDefault(); event.stopPropagation();
+    laneDragRef.current = { pointerId: event.pointerId, assignmentId: assignment.id, edge };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }
+
+  function moveLaneDrag(event) {
+    const drag = laneDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const lane = event.currentTarget;
+    const rect = lane.getBoundingClientRect();
+    const duration = rangeMinutes(callWindow.start, callWindow.end);
+    const cursorOffset = Math.max(0, Math.min(duration, Math.round(((event.clientX - rect.left) / rect.width * duration) / 15) * 15));
+    const assignment = callAssignments.find((item) => item.id === drag.assignmentId);
+    if (!assignment) return;
+    let startOffset = offsetFrom(callWindow.start, assignment.start);
+    let endOffset = offsetFrom(callWindow.start, assignment.end);
+    if (endOffset <= startOffset) endOffset += 1440;
+    if (drag.edge === "start") startOffset = Math.max(0, Math.min(cursorOffset, endOffset - 15));
+    else endOffset = Math.max(startOffset + 15, Math.min(duration, cursorOffset));
+    updateCallAssignment(assignment.id, { start: timeAfter(callWindow.start, startOffset), end: timeAfter(callWindow.start, endOffset) });
+  }
+
+  function stopLaneDrag(event) {
+    if (laneDragRef.current?.pointerId === event.pointerId) laneDragRef.current = null;
+  }
+
   function changeCallAssignee(assignmentId, nextMemberId) {
     if (!canEdit) return;
     const selectedAssignment = callAssignments.find((item) => item.id === assignmentId);
@@ -308,7 +329,7 @@ export default function InboundSchedulePage() {
 
   const callWindowDuration = rangeMinutes(callWindow.start, callWindow.end);
   const timelineLabels = [timeLabel(callWindow.start), timeAfter(callWindow.start, callWindowDuration / 3), timeAfter(callWindow.start, callWindowDuration * 2 / 3), timeLabel(callWindow.end)];
-  const timezoneLabel = NORTH_AMERICA_ZONES.find((zone) => zone.id === northAmericaZone)?.label.split(" · ")[0] ?? "North America";
+  const timezoneLabel = WORLD_TIME_ZONES.find((zone) => zone.id === northAmericaZone)?.id ?? northAmericaZone;
 
   return (
     <section className="page-content inbound-page">
@@ -319,7 +340,7 @@ export default function InboundSchedulePage() {
 
       <div className="inbound-toolbar">
         <label className="inbound-control inbound-month-control"><CalendarDays size={16} /><span>Month</span><input type="month" value={month} onChange={(event) => changeMonth(event.target.value)} aria-label="Schedule month" /></label>
-        <label className="inbound-control inbound-zone-control"><span>North America</span><Select value={northAmericaZone} onValueChange={setNorthAmericaZone}><SelectTrigger aria-label="North American timezone"><SelectValue /></SelectTrigger><SelectContent>{NORTH_AMERICA_ZONES.map((zone) => <SelectItem key={zone.id} value={zone.id}>{zone.label}</SelectItem>)}</SelectContent></Select></label>
+        <label className="inbound-control inbound-zone-control"><span>Time zone</span><Select value={northAmericaZone} onValueChange={setNorthAmericaZone}><SelectTrigger aria-label="World time zone"><SelectValue /></SelectTrigger><SelectContent>{WORLD_TIME_ZONES.map((zone) => <SelectItem key={zone.id} value={zone.id}>{zone.label}</SelectItem>)}</SelectContent></Select></label>
         <label className="inbound-control inbound-date-control"><span>Preview date</span><input type="date" value={previewDate} min={`${month}-01`} max={`${month}-${new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()}`} onChange={(event) => setPreviewDate(event.target.value)} aria-label="Timezone conversion preview date" /></label>
         <div className="inbound-view-toggle" role="group" aria-label="Primary time display">
           <button type="button" className={timeView === "ph" ? "active" : ""} onClick={() => setTimeView("ph")}>PH time</button>
@@ -373,7 +394,7 @@ export default function InboundSchedulePage() {
                     <label><span>End · Manila</span><input type="time" value={assignment.end} onChange={(event) => updateCallAssignment(assignment.id, { end: event.target.value })} aria-label={`${member.name} inbound call end time, Manila time`} disabled={!canManage} /></label>
                     <div className={`inbound-converted-time ${timeView === "us" ? "is-primary" : ""}`}><small>{timezoneLabel} · {durationLabel(assignment.start, assignment.end)}</small><strong>{equivalent}</strong></div>
                   </div>
-                  <div className="inbound-lane"><span className="inbound-lane-base" /><span className="inbound-lane-fill" style={{ left: `${left}%`, width: `${width}%` }} /><span className="inbound-lane-label" style={{ left: left + width / 2 < 20 ? "4px" : left + width / 2 > 80 ? "calc(100% - 4px)" : `${left + width / 2}%`, transform: left + width / 2 < 20 ? "none" : left + width / 2 > 80 ? "translateX(-100%)" : "translateX(-50%)" }}>{rangeLabel(assignment.start, assignment.end)}</span></div>
+                  <div className="inbound-lane" onPointerMove={moveLaneDrag} onPointerUp={stopLaneDrag} onPointerCancel={stopLaneDrag}><span className="inbound-lane-base" /><span className="inbound-lane-fill" style={{ left: `${left}%`, width: `${width}%` }} />{canManage && <><button type="button" className="inbound-lane-handle start" style={{ left: `${left}%` }} aria-label={`Drag start time for ${member.name}`} onPointerDown={(event) => startLaneDrag(event, assignment, "start")} /><button type="button" className="inbound-lane-handle end" style={{ left: `${left + width}%` }} aria-label={`Drag end time for ${member.name}`} onPointerDown={(event) => startLaneDrag(event, assignment, "end")} /></>}<span className="inbound-lane-label" style={{ left: left + width / 2 < 20 ? "4px" : left + width / 2 > 80 ? "calc(100% - 4px)" : `${left + width / 2}%`, transform: left + width / 2 < 20 ? "none" : left + width / 2 > 80 ? "translateX(-100%)" : "translateX(-50%)" }}>{rangeLabel(assignment.start, assignment.end)}</span></div>
                   {canManage && <Button type="button" variant="ghost" size="icon" className="inbound-remove-button" aria-label={`Remove ${member.name} inbound call time`} onClick={() => removeCallAssignment(assignment.id)}><Trash2 size={15} /></Button>}
                 </article>
               );
