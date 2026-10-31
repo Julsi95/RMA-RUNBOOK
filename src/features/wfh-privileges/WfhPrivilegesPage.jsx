@@ -46,8 +46,6 @@ function RewardList({ title, rewards, employeeName, busy, allocations = [], onRe
 
 function EmployeeBalances({ members, rewards }) {
   const today = dateToday();
-  const pendingUseCount = ownRequests.filter((request) => request.request_type === "use" && request.status === "pending").reduce((sum, request) => sum + (request.requested_dates?.length ?? 0), 0);
-  const availableDays = Math.max(0, balanceForEmployee(rewards, employeeId, new Date(`${today}T12:00:00`)) - pendingUseCount);
   const rows = [...members].sort((a, b) => a.name.localeCompare(b.name));
   const totalDays = rows.reduce((total, member) => total + balanceForEmployee(rewards, member.id, new Date(`${today}T12:00:00`)), 0);
   return <section className="wfh-agent-balances">

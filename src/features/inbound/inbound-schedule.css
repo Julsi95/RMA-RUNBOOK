@@ -53,11 +53,14 @@
 .inbound-lane { position: relative; display: flex; height: 28px; min-width: 0; align-items: center; }
 .inbound-lane-base { position: absolute; right: 0; left: 0; height: 9px; border:1px solid color-mix(in srgb,var(--border) 75%,transparent); border-radius: 99px; background:repeating-linear-gradient(90deg,transparent 0 calc(16.66% - 1px),color-mix(in srgb,var(--muted-foreground) 30%,transparent) calc(16.66% - 1px) 16.66%),color-mix(in srgb,var(--muted) 82%,var(--background)); box-shadow:inset 0 1px 2px rgb(0 0 0 / .08); }
 .inbound-lane-fill { position: absolute; height: 10px; min-width: 6px; border:1px solid color-mix(in srgb,#12a87d 65%,var(--foreground)); border-radius: 99px; background:linear-gradient(90deg,#087f65,#1bb58c); box-shadow:0 2px 7px color-mix(in srgb,#0b9b75 28%,transparent); }
+.inbound-lane-fill { z-index: 1; cursor: grab; touch-action: none; }
+.inbound-lane.is-dragging .inbound-lane-fill { cursor: grabbing; }
+.inbound-lane.is-dragging .inbound-lane-label { pointer-events: none; }
 .inbound-lane-handle { position:absolute; z-index:2; top:50%; width:13px; height:19px; padding:0; transform:translate(-50%,-50%); border:2px solid var(--surface); border-radius:6px; background:#087f65; box-shadow:0 0 0 1px #087f65,0 2px 5px rgb(0 0 0 / .2); cursor:ew-resize; touch-action:none; }
 .inbound-lane-handle.start { left:var(--lane-start,0%); }
 .inbound-lane-handle.end { left:var(--lane-end,100%); }
 .inbound-lane:has(.inbound-lane-handle) { touch-action:none; }
-.inbound-lane-label { position: absolute; top: 16px; z-index: 1; max-width: min(168px, calc(100% - 8px)); overflow: hidden; padding: 2px 6px; transform: translateX(-50%); border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--foreground); font-size: 10px; font-weight: 600; line-height: 1.35; text-align: center; text-overflow: ellipsis; white-space: nowrap; box-shadow: 0 2px 6px rgb(0 0 0 / .12); }
+.inbound-lane-label { position: absolute; top: 16px; z-index: 1; max-width: min(168px, calc(100% - 8px)); overflow: hidden; padding: 2px 6px; transform: translateX(-50%); border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--foreground); font-size: 10px; font-weight: 600; line-height: 1.35; text-align: center; text-overflow: ellipsis; white-space: nowrap; box-shadow: 0 2px 6px rgb(0 0 0 / .12); pointer-events: none; }
 .inbound-remove-button { width: 32px; height: 32px; color: var(--muted-foreground); }
 .inbound-remove-button:hover { color: #d14343; }
 .inbound-empty { display: grid; min-height: 98px; justify-items: center; align-content: center; gap: 7px; margin-top: 14px; border: 1px dashed var(--border); border-radius: 10px; color: var(--muted-foreground); }

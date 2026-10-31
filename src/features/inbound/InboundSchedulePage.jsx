@@ -75,7 +75,11 @@ function offsetFrom(start, value) {
 
 function timeAfter(start, minutes) {
   const total = (timeMinutes(start) + Math.round(minutes)) % 1440;
-  return timeLabel(`${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`);
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+function displayTimeAfter(start, minutes) {
+  return timeLabel(timeAfter(start, minutes));
 }
 
 function datePlusOne(dateString) {
@@ -160,6 +164,7 @@ export default function InboundSchedulePage() {
   const [newCallStart, setNewCallStart] = useState("21:00");
   const [newCallEnd, setNewCallEnd] = useState("22:30");
   const laneDragRef = useRef(null);
+  const [draggingLaneId, setDraggingLaneId] = useState(null);
 
   const monthSchedule = savedSchedules[month] ?? createMonthSchedule(members);
   const callAssignments = monthSchedule.callAssignments ?? [];
@@ -253,8 +258,24 @@ export default function InboundSchedulePage() {
   function startLaneDrag(event, assignment, edge) {
     if (!canEdit || !canManage || event.button !== 0) return;
     event.preventDefault(); event.stopPropagation();
-    laneDragRef.current = { pointerId: event.pointerId, assignmentId: assignment.id, edge };
+    const lane = event.currentTarget.closest(".inbound-lane");
+    if (!lane) return;
+    const rect = lane.getBoundingClientRect();
+    const duration = rangeMinutes(callWindow.start, callWindow.end);
+    const pointerOffset = Math.max(0, Math.min(duration, (event.clientX - rect.left) / Math.max(1, rect.width) * duration));
+    const startOffset = offsetFrom(callWindow.start, assignment.start);
+    let endOffset = offsetFrom(callWindow.start, assignment.end);
+    if (endOffset <= startOffset) endOffset += 1440;
+    laneDragRef.current = {
+      pointerId: event.pointerId,
+      assignmentId: assignment.id,
+      edge,
+      startOffset,
+      endOffset,
+      grabOffset: pointerOffset - startOffset,
+    };
     event.currentTarget.setPointerCapture?.(event.pointerId);
+    setDraggingLaneId(assignment.id);
   }
 
   function moveLaneDrag(event) {
@@ -263,19 +284,25 @@ export default function InboundSchedulePage() {
     const lane = event.currentTarget;
     const rect = lane.getBoundingClientRect();
     const duration = rangeMinutes(callWindow.start, callWindow.end);
-    const cursorOffset = Math.max(0, Math.min(duration, Math.round(((event.clientX - rect.left) / rect.width * duration) / 15) * 15));
-    const assignment = callAssignments.find((item) => item.id === drag.assignmentId);
-    if (!assignment) return;
-    let startOffset = offsetFrom(callWindow.start, assignment.start);
-    let endOffset = offsetFrom(callWindow.start, assignment.end);
-    if (endOffset <= startOffset) endOffset += 1440;
+    if (!rect.width) return;
+    const cursorOffset = Math.max(0, Math.min(duration, Math.round(((event.clientX - rect.left) / rect.width * duration) / 5) * 5));
+    let startOffset = drag.startOffset;
+    let endOffset = drag.endOffset;
     if (drag.edge === "start") startOffset = Math.max(0, Math.min(cursorOffset, endOffset - 15));
-    else endOffset = Math.max(startOffset + 15, Math.min(duration, cursorOffset));
-    updateCallAssignment(assignment.id, { start: timeAfter(callWindow.start, startOffset), end: timeAfter(callWindow.start, endOffset) });
+    else if (drag.edge === "end") endOffset = Math.max(startOffset + 15, Math.min(duration, cursorOffset));
+    else {
+      const span = endOffset - startOffset;
+      startOffset = Math.max(0, Math.min(duration - span, cursorOffset - drag.grabOffset));
+      endOffset = startOffset + span;
+    }
+    updateCallAssignment(drag.assignmentId, { start: timeAfter(callWindow.start, startOffset), end: timeAfter(callWindow.start, endOffset) });
   }
 
   function stopLaneDrag(event) {
-    if (laneDragRef.current?.pointerId === event.pointerId) laneDragRef.current = null;
+    if (laneDragRef.current?.pointerId === event.pointerId) {
+      laneDragRef.current = null;
+      setDraggingLaneId(null);
+    }
   }
 
   function changeCallAssignee(assignmentId, nextMemberId) {
@@ -328,7 +355,7 @@ export default function InboundSchedulePage() {
   }
 
   const callWindowDuration = rangeMinutes(callWindow.start, callWindow.end);
-  const timelineLabels = [timeLabel(callWindow.start), timeAfter(callWindow.start, callWindowDuration / 3), timeAfter(callWindow.start, callWindowDuration * 2 / 3), timeLabel(callWindow.end)];
+  const timelineLabels = [timeLabel(callWindow.start), displayTimeAfter(callWindow.start, callWindowDuration / 3), displayTimeAfter(callWindow.start, callWindowDuration * 2 / 3), timeLabel(callWindow.end)];
   const timezoneLabel = WORLD_TIME_ZONES.find((zone) => zone.id === northAmericaZone)?.id ?? northAmericaZone;
 
   return (
@@ -394,7 +421,12 @@ export default function InboundSchedulePage() {
                     <label><span>End · Manila</span><input type="time" value={assignment.end} onChange={(event) => updateCallAssignment(assignment.id, { end: event.target.value })} aria-label={`${member.name} inbound call end time, Manila time`} disabled={!canManage} /></label>
                     <div className={`inbound-converted-time ${timeView === "us" ? "is-primary" : ""}`}><small>{timezoneLabel} · {durationLabel(assignment.start, assignment.end)}</small><strong>{equivalent}</strong></div>
                   </div>
-                  <div className="inbound-lane" onPointerMove={moveLaneDrag} onPointerUp={stopLaneDrag} onPointerCancel={stopLaneDrag}><span className="inbound-lane-base" /><span className="inbound-lane-fill" style={{ left: `${left}%`, width: `${width}%` }} />{canManage && <><button type="button" className="inbound-lane-handle start" style={{ left: `${left}%` }} aria-label={`Drag start time for ${member.name}`} onPointerDown={(event) => startLaneDrag(event, assignment, "start")} /><button type="button" className="inbound-lane-handle end" style={{ left: `${left + width}%` }} aria-label={`Drag end time for ${member.name}`} onPointerDown={(event) => startLaneDrag(event, assignment, "end")} /></>}<span className="inbound-lane-label" style={{ left: left + width / 2 < 20 ? "4px" : left + width / 2 > 80 ? "calc(100% - 4px)" : `${left + width / 2}%`, transform: left + width / 2 < 20 ? "none" : left + width / 2 > 80 ? "translateX(-100%)" : "translateX(-50%)" }}>{rangeLabel(assignment.start, assignment.end)}</span></div>
+                  <div className={`inbound-lane${draggingLaneId === assignment.id ? " is-dragging" : ""}`} onPointerMove={moveLaneDrag} onPointerUp={stopLaneDrag} onPointerCancel={stopLaneDrag}>
+                    <span className="inbound-lane-base" />
+                    <span className="inbound-lane-fill" style={{ left: `${left}%`, width: `${width}%` }} onPointerDown={canManage ? (event) => startLaneDrag(event, assignment, "range") : undefined} />
+                    {canManage && <><button type="button" className="inbound-lane-handle start" style={{ left: `${left}%` }} aria-label={`Drag start time for ${member.name}`} onPointerDown={(event) => startLaneDrag(event, assignment, "start")} /><button type="button" className="inbound-lane-handle end" style={{ left: `${left + width}%` }} aria-label={`Drag end time for ${member.name}`} onPointerDown={(event) => startLaneDrag(event, assignment, "end")} /></>}
+                    <span className="inbound-lane-label" style={{ left: left + width / 2 < 20 ? "4px" : left + width / 2 > 80 ? "calc(100% - 4px)" : `${left + width / 2}%`, transform: left + width / 2 < 20 ? "none" : left + width / 2 > 80 ? "translateX(-100%)" : "translateX(-50%)" }}>{rangeLabel(assignment.start, assignment.end)}</span>
+                  </div>
                   {canManage && <Button type="button" variant="ghost" size="icon" className="inbound-remove-button" aria-label={`Remove ${member.name} inbound call time`} onClick={() => removeCallAssignment(assignment.id)}><Trash2 size={15} /></Button>}
                 </article>
               );
