@@ -805,6 +805,21 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .org-chart-viewport:focus-visible{outline:2px solid var(--ring);outline-offset:-3px}
 .org-chart-viewport.is-panning{cursor:grabbing;user-select:none}
 .org-chart-viewport.is-panning *{user-select:none}
+
+/* Keep organization cards stable when names, multiple roles, or reporting labels are long. */
+.org-person-card{box-sizing:border-box;min-width:270px;max-width:310px;align-items:center}
+.org-person-card-main{width:auto;min-width:0;align-items:center}
+.org-person-details{display:flex;min-width:0;flex:1 1 auto;flex-direction:column;align-items:flex-start;gap:5px}
+.org-person-name{width:100%;min-width:0;line-height:1.35;overflow-wrap:anywhere}
+.org-person-role-list{width:100%;min-width:0;gap:5px;margin-top:2px;align-items:flex-start}
+.org-role-chip{flex:0 1 auto;white-space:normal;overflow-wrap:anywhere}
+.org-person-mentor{display:block;width:100%;min-width:0;margin-top:0;line-height:1.35;overflow-wrap:anywhere}
+.org-person-mentor strong{font-weight:600}
+.org-card-actions{align-self:center}
+.terms-check-card{width:min(100%,520px);text-align:left}
+.terms-check-card h1{margin:0 0 10px;font-size:20px;letter-spacing:-.025em}
+.terms-check-error{margin:0 0 18px;color:var(--muted-foreground);font-size:14px;line-height:1.6;overflow-wrap:anywhere}
+@media(max-width:700px){.org-person-card{min-width:245px;max-width:280px}.org-person-role-list{gap:4px}}
 .org-chart-live{gap:8px}
 .org-chart-live small{padding-left:8px;border-left:1px solid var(--border);font-size:10px;font-weight:450}
 @media(max-width:700px){.organization-page{min-height:calc(100dvh - 140px);grid-template-rows:auto auto auto minmax(70dvh,1fr);gap:12px}.org-summary-row{min-height:0}.org-chart-heading p{max-width:62ch}.org-chart-heading-actions{width:100%;justify-content:space-between}.org-chart-live{white-space:normal}.org-chart-panel.is-expanded{inset:8px;width:auto;height:calc(100dvh - 16px);max-height:calc(100dvh - 16px)}.org-chart-viewport{touch-action:auto}}

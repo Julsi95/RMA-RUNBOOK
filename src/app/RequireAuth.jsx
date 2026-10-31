@@ -14,7 +14,13 @@ function TermsAcceptanceGate({ children }) {
   async function load() {
     setError("");
     const { data, error: queryError } = await supabase.rpc("runbook_terms_accepted", { p_version: RUNBOOK_TERMS_VERSION });
-    if (queryError) { setError("Could not verify terms acceptance. Try again or contact an administrator."); return; }
+    if (queryError) {
+      const missingFunction = queryError.code === "PGRST202" || queryError.code === "42883" || /runbook_terms_accepted/i.test(queryError.message || "");
+      setError(missingFunction
+        ? `The terms database migration is missing from the Supabase project this app is using. Apply supabase/migrations/202611010003_terms_and_wfh_request_limits.sql, then retry. No terms acceptance was saved.`
+        : `Terms acceptance could not be verified (${queryError.message || queryError.code || "database request failed"}). Check the Supabase connection and session, then retry.`);
+      return;
+    }
     setAccepted(Boolean(data));
   }
   useEffect(() => { setAccepted(null); void load(); }, [user?.id]);
@@ -24,7 +30,7 @@ function TermsAcceptanceGate({ children }) {
     if (saveError) setError(saveError.message || "Could not save your acceptance."); else setAccepted(true);
     setBusy(false);
   }
-  if (accepted === null) return <main className="session-loading-screen"><section className="session-loading-card"><p className="page-description">Verifying account terms…</p>{error && <><p className="auth-error" role="alert">{error}</p><Button onClick={() => void load()}>Retry</Button></>}</section></main>;
+  if (accepted === null) return <main className="session-loading-screen"><section className="session-loading-card terms-check-card"><p className="eyebrow">ACCOUNT TERMS</p><h1>{error ? "Terms check needs attention" : "Verifying account terms…"}</h1>{error ? <><p className="terms-check-error" role="alert">{error}</p><Button onClick={() => void load()}>Retry verification</Button></> : <><p className="page-description">Checking whether you have accepted the current RUNBOOK terms.</p><div className="session-loading-track" aria-hidden="true"><i /></div></>}</section></main>;
   return <>{children}{!accepted && <TermsDialog required onAccept={() => void accept()} busy={busy} error={error} />}</>;
 }
 
