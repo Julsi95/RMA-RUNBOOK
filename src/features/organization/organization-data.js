@@ -94,9 +94,27 @@ export function buildOrganizationTree(members) {
     return selected.length ? Math.min(...selected) : organizationHierarchyRoles.length;
   };
   const sortBranches = (branches) => {
-    branches.sort((left, right) => rank(left) - rank(right) || Number(left.sortOrder ?? 0) - Number(right.sortOrder ?? 0) || left.name.localeCompare(right.name));
+    branches.sort((left, right) => rank(left) - rank(right) || Number(left.sortOrder ?? 0) - Number(right.sortOrder ?? 0));
     branches.forEach((branch) => sortBranches(branch.children));
   };
+  for (const report of nodes.values()) {
+    if (!["Customer Rep", "Senior Agent"].includes(report.role) || !report.coManagerId || report.coManagerId === report.managerId) continue;
+    const primaryManager = nodes.get(report.managerId);
+    const coManager = nodes.get(report.coManagerId);
+    if (primaryManager?.role !== "Campaign Specialist" || coManager?.role !== "Campaign Specialist") continue;
+    if (!primaryManager.managerId || primaryManager.managerId !== coManager.managerId) continue;
+    const commonManager = nodes.get(primaryManager.managerId);
+    if (!commonManager) continue;
+    const managerIds = [primaryManager.id, coManager.id].sort();
+    const key = managerIds.join(":");
+    commonManager.coManagedGroups ??= [];
+    let group = commonManager.coManagedGroups.find((item) => item.key === key);
+    if (!group) {
+      group = { key, managerIds, reports: [] };
+      commonManager.coManagedGroups.push(group);
+    }
+    group.reports.push(report);
+  }
   sortBranches(roots);
 
   return roots;

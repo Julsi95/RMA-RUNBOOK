@@ -35,15 +35,15 @@ export default function OrganizationPage() {
       frame = requestAnimationFrame(() => {
         const cards = new Map([...viewport.querySelectorAll("[data-org-person-id]")].map((card) => [card.dataset.orgPersonId, card]));
         const rect = viewport.getBoundingClientRect();
-        const sharedGroups = new Map();
+        const coManagedGroups = new Map();
         const directGroups = new Map();
         for (const member of members) {
           if (!member.managerId) continue;
           if (member.coManagerId) {
             const managerIds = [member.managerId, member.coManagerId].sort();
             const key = managerIds.join(":");
-            if (!sharedGroups.has(key)) sharedGroups.set(key, { key, managerIds, reports: [] });
-            sharedGroups.get(key).reports.push(member.id);
+            if (!coManagedGroups.has(key)) coManagedGroups.set(key, { key, managerIds, reports: [] });
+            coManagedGroups.get(key).reports.push(member.id);
           } else {
             if (!directGroups.has(member.managerId)) directGroups.set(member.managerId, { key: member.managerId, reports: [] });
             directGroups.get(member.managerId).reports.push(member.id);
@@ -73,48 +73,22 @@ export default function OrganizationPage() {
           reports.forEach(({ x, top }, index) => paths.push({ id: `${group.key}-direct-report-${index}`, d: `M ${x} ${branchY} V ${top}` }));
           return paths;
         });
-        const coManagementLines = [...sharedGroups.values()].flatMap((group) => {
-          const managers = group.managerIds.map((id) => cards.get(id)).filter(Boolean).map(point);
-          const reports = group.reports.map((id) => cards.get(id)).filter(Boolean).map(point);
+        const coManagementLines = [...coManagedGroups.values()].flatMap((group) => {
+          const managers = group.managerIds.map((id) => cards.get(id)).filter(Boolean).map(point).sort((left, right) => left.x - right.x);
+          const reports = group.reports.map((id) => cards.get(id)).filter(Boolean).map(point).sort((left, right) => left.x - right.x);
           if (managers.length !== 2 || !reports.length) return [];
 
+          const managerBottom = Math.max(...managers.map(({ bottom }) => bottom));
           const reportBranchY = Math.min(...reports.map(({ top }) => top)) - 18;
-          const reportLeft = Math.min(...reports.map(({ x }) => x));
-          const reportRight = Math.max(...reports.map(({ x }) => x));
-          const horizontalOverlap = Math.abs(managers[0].x - managers[1].x) < (managers[0].right - managers[0].left + managers[1].right - managers[1].left) / 2 + 12;
-          if (horizontalOverlap) {
-            const routeX = Math.max(...managers.map(({ right }) => right)) + 20;
-            const topManagerY = Math.min(...managers.map(({ centerY }) => centerY));
-            const lowerManagerY = Math.max(...managers.map(({ centerY }) => centerY));
-            const paths = managers.map(({ right, centerY }, index) => ({ id: `${group.key}-manager-${index}`, d: `M ${right} ${centerY} H ${routeX}` }));
-            paths.push({ id: `${group.key}-pair`, d: `M ${routeX} ${topManagerY} V ${lowerManagerY}` });
-            if (reportBranchY > lowerManagerY) {
-              paths.push({ id: `${group.key}-trunk`, d: `M ${routeX} ${lowerManagerY} V ${reportBranchY}` });
-              paths.push({ id: `${group.key}-report-branch`, d: `M ${reportLeft} ${reportBranchY} H ${reportRight}` });
-              reports.forEach(({ x, top }, index) => paths.push({ id: `${group.key}-report-${index}`, d: `M ${x} ${reportBranchY} V ${top}` }));
-            } else {
-              reports.forEach(({ x, top }, index) => paths.push({ id: `${group.key}-report-${index}`, d: `M ${routeX} ${lowerManagerY} V ${top - 8} H ${x} V ${top}` }));
-            }
-            return paths;
-          }
-
-          const managerLeft = Math.min(...managers.map(({ x }) => x));
-          const managerRight = Math.max(...managers.map(({ x }) => x));
-          const managerCenter = (managerLeft + managerRight) / 2;
-          const pairY = Math.max(...managers.map(({ bottom }) => bottom)) + 20;
+          const pairY = managerBottom + 20;
+          const managerCenter = (managers[0].x + managers[1].x) / 2;
+          const reportLeft = reports[0].x;
+          const reportRight = reports[reports.length - 1].x;
           const paths = managers.map(({ x, bottom }, index) => ({ id: `${group.key}-manager-${index}`, d: `M ${x} ${bottom} V ${pairY}` }));
-          paths.push({ id: `${group.key}-pair`, d: `M ${managerLeft} ${pairY} H ${managerRight}` });
-
-          if (reportBranchY > pairY) {
-            paths.push({ id: `${group.key}-trunk`, d: `M ${managerCenter} ${pairY} V ${reportBranchY}` });
-            paths.push({ id: `${group.key}-report-branch`, d: `M ${reportLeft} ${reportBranchY} H ${reportRight}` });
-            reports.forEach(({ x, top }, index) => paths.push({ id: `${group.key}-report-${index}`, d: `M ${x} ${reportBranchY} V ${top}` }));
-          } else {
-            reports.forEach(({ x, top }, index) => {
-              const routingY = top - 8;
-              paths.push({ id: `${group.key}-report-${index}`, d: `M ${managerCenter} ${pairY} V ${routingY} H ${x} V ${top}` });
-            });
-          }
+          paths.push({ id: `${group.key}-pair`, d: `M ${managers[0].x} ${pairY} H ${managers[1].x}` });
+          paths.push({ id: `${group.key}-trunk`, d: `M ${managerCenter} ${pairY} V ${reportBranchY}` });
+          paths.push({ id: `${group.key}-report-branch`, d: `M ${reportLeft} ${reportBranchY} H ${reportRight}` });
+          reports.forEach(({ x, top }, index) => paths.push({ id: `${group.key}-report-${index}`, d: `M ${x} ${reportBranchY} V ${top}` }));
           return paths;
         });
         setChartLines([...directLines, ...coManagementLines]);
@@ -186,14 +160,14 @@ export default function OrganizationPage() {
   }
 
   async function removeMember(member) {
-    const confirmed = window.confirm(`Remove ${member.name}? The employee and linked records can be recovered for 30 days. Direct reports will move to ${member.managerId ? "their manager" : "the top level"}.`);
+    const confirmed = window.confirm(`Remove ${member.name}? The employee and linked records can be recovered for 30 days. Direct reports will be reassigned to an available manager.`);
     if (!confirmed) return;
     const next = members
       .filter((person) => person.id !== member.id)
       .map((person) => ({
         ...person,
-        managerId: person.managerId === member.id ? member.managerId ?? null : person.managerId,
-        coManagerId: person.coManagerId === member.id || person.managerId === member.id ? null : person.coManagerId,
+        managerId: person.managerId === member.id ? (person.coManagerId && person.coManagerId !== member.id ? person.coManagerId : member.managerId ?? null) : person.managerId,
+        coManagerId: person.managerId === member.id || person.coManagerId === member.id ? null : person.coManagerId,
         mentorId: person.mentorId === member.id ? null : person.mentorId,
       }));
     try { await saveMembers(next, { deletedId: member.id }); setSaveError(""); }

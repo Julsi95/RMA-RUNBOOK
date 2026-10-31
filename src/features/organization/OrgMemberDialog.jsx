@@ -84,9 +84,10 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
         : (person.id === member?.managerId || Math.min(...getHierarchyRoles(person).map((item) => roleLevels[item] ?? 4), roleLevels[person.role] ?? 4) < selectedRank)));
   const primaryManager = members.find((person) => person.id === managerId);
   const coManagerOptions = members.filter((person) => person.id !== member?.id && person.id !== managerId && !excludedManagerIds.has(person.id)
-    && role === "Customer Rep" && primaryManager
-    && ((primaryManager.role === "Senior Agent" && person.role === "Campaign Specialist")
-      || (primaryManager.role === "Campaign Specialist" && ["Senior Agent", "Campaign Specialist"].includes(person.role))));
+    && primaryManager
+    && ((role === "Senior Agent" && primaryManager.role === "Campaign Specialist" && person.role === "Campaign Specialist")
+      || (role === "Customer Rep" && ((primaryManager.role === "Senior Agent" && person.role === "Campaign Specialist")
+        || (primaryManager.role === "Campaign Specialist" && ["Senior Agent", "Campaign Specialist"].includes(person.role))))));
 
   useEffect(() => {
     function closeOnEscape(event) {
@@ -120,7 +121,7 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
     if (nextRole === "Customer Rep" && !managerId) {
       setManagerId(members.find((person) => person.role === "Senior Agent")?.id ?? members.find((person) => person.role === "Campaign Specialist")?.id ?? "");
     }
-    if (nextRole !== "Customer Rep") setCoManagerId("");
+    if (nextRole !== role) setCoManagerId("");
   }
 
   async function handleSubmit(event) {
@@ -133,8 +134,8 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
         : "Campaign Specialists must report directly to a Team Lead or Senior Team Lead (STL).");
       return;
     }
-    if (role === "Customer Rep" && coManagerId && !coManagerOptions.some((person) => person.id === coManagerId)) {
-      setSaveError("Choose an active manager who can share this Customer Representative’s reporting line.");
+    if (coManagerId && !coManagerOptions.some((person) => person.id === coManagerId)) {
+      setSaveError("Choose a valid active second reporting manager for this employee.");
       return;
     }
     setSaving(true); setSaveError("");
@@ -146,7 +147,7 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
         team: team || null,
         hierarchyRoles,
         managerId: managerId || null,
-        coManagerId: role === "Customer Rep" ? (coManagerId || null) : null,
+        coManagerId: ["Customer Rep", "Senior Agent"].includes(role) ? (coManagerId || null) : null,
         mentorId: role === "Customer Rep" ? (mentorId || null) : null,
         photo,
         photoPath: member?.photoPath ?? "",
@@ -214,16 +215,16 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
             </select>
             {restrictedReportingRoles.has(role) && managerOptions.length === 0 && <small className="form-field-hint">{role === "Senior Agent" ? "Add a Campaign Specialist or assign a Team Lead / STL before saving." : "Add or assign a Team Lead / STL before saving this role."}</small>}
           </label>
-          {role === "Customer Rep" && (
+          {["Customer Rep", "Senior Agent"].includes(role) && (
             <>
-            <label className="form-field"><span>Shared manager <small>(optional · adds a second reporting line)</small></span><select value={coManagerId} onChange={(event) => setCoManagerId(event.target.value)} disabled={!primaryManager || !["Senior Agent", "Campaign Specialist"].includes(primaryManager.role)}><option value="">No shared manager</option>{coManagerOptions.map((person) => <option key={person.id} value={person.id}>{person.name} · {person.role}</option>)}</select><small className="form-field-hint">A Customer Rep can share management between a Senior Agent and Campaign Specialist, or between two Campaign Specialists when no Senior Agent is assigned.</small></label>
-            <label className="form-field">
+            <label className="form-field"><span>Second reporting manager <small>(optional)</small></span><select value={coManagerId} onChange={(event) => setCoManagerId(event.target.value)} disabled={!primaryManager || !["Customer Rep", "Senior Agent"].includes(role)}><option value="">No second reporting manager</option>{coManagerOptions.map((person) => <option key={person.id} value={person.id}>{person.name} · {person.role}</option>)}</select><small className="form-field-hint">Senior Agents may report to two Campaign Specialists. Customer Reps can use an additional Campaign Specialist or Senior Agent where the reporting rules allow.</small></label>
+{role === "Customer Rep" && (<label className="form-field">
               <span>Mentor <small>(optional)</small></span>
               <select value={mentorId} onChange={(event) => setMentorId(event.target.value)}>
                 <option value="">No mentor selected</option>
                 {campaignSpecialists.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
               </select>
-            </label>
+            </label>)}
             </>
           )}
           {saveError && <p className="form-error" role="alert">{saveError}</p>}

@@ -6,11 +6,13 @@ function getInitials(name) {
   return name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "?";
 }
 
-export default function OrgBranch({ member, onEdit, onRemove, onOpenProfile, canEdit = true }) {
+export default function OrgBranch({ member, onEdit, onRemove, onOpenProfile, canEdit = true, suppressedReportIds = new Set() }) {
   const managerNames = [member.managerName, member.coManagerName].filter((name, index, names) => name && names.indexOf(name) === index).sort((a, b) => a.localeCompare(b));
-  const hasBothManagers = member.role === "Customer Rep" && Boolean(member.coManagerId);
+  const hasBothManagers = ["Customer Rep", "Senior Agent"].includes(member.role) && Boolean(member.coManagerId);
   const mentorIsManager = member.mentorId && [member.managerId, member.coManagerId].includes(member.mentorId);
   const reportingLabel = hasBothManagers ? `Reports to: ${managerNames.join(" · ")}` : "";
+  const hiddenReports = new Set([...(suppressedReportIds ?? []), ...(member.coManagedGroups ?? []).flatMap((group) => group.reports.map((report) => report.id))]);
+  const children = member.children.filter((child) => !hiddenReports.has(child.id));
   return (
     <div className="org-branch">
       <article className="org-person-card" data-org-person-id={member.id}>
@@ -30,13 +32,16 @@ export default function OrgBranch({ member, onEdit, onRemove, onOpenProfile, can
           <Button variant="ghost" size="icon" aria-label={`Remove ${member.name}`} title="Remove person" onClick={() => onRemove(member)}><Trash2 size={15} /></Button>
         </div>}
       </article>
-      {member.children.length > 0 && (
-        <div className={`org-children ${member.children.length > 1 ? "org-children-many" : ""}`}>
-          {member.children.map((child) => (
-            <OrgBranch key={child.id} member={child} onEdit={onEdit} onRemove={onRemove} onOpenProfile={onOpenProfile} canEdit={canEdit} />
-          ))}
+      {children.length > 0 && (
+        <div className={`org-children ${children.length > 1 ? "org-children-many" : ""}`}>
+          {children.map((child) => <OrgBranch key={child.id} member={child} onEdit={onEdit} onRemove={onRemove} onOpenProfile={onOpenProfile} canEdit={canEdit} suppressedReportIds={hiddenReports} />)}
         </div>
       )}
+      {!!member.coManagedGroups?.length && <div className="org-co-managed-groups">
+        {member.coManagedGroups.map((group) => <div className="org-co-managed-reports" key={group.key}>
+          {group.reports.map((report) => <OrgBranch key={report.id} member={report} onEdit={onEdit} onRemove={onRemove} onOpenProfile={onOpenProfile} canEdit={canEdit} />)}
+        </div>)}
+      </div>}
     </div>
   );
 }
