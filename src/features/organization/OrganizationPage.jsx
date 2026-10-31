@@ -35,18 +35,68 @@ export default function OrganizationPage() {
       frame = requestAnimationFrame(() => {
         const cards = new Map([...viewport.querySelectorAll("[data-org-person-id]")].map((card) => [card.dataset.orgPersonId, card]));
         const rect = viewport.getBoundingClientRect();
-        const lines = members.flatMap((member) => {
-          const manager = member.coManagerId && cards.get(member.coManagerId);
-          const report = cards.get(member.id);
-          if (!manager || !report) return [];
-          const a = manager.getBoundingClientRect();
-          const b = report.getBoundingClientRect();
-          const x1 = a.left + a.width / 2 - rect.left + viewport.scrollLeft;
-          const y1 = a.bottom - rect.top + viewport.scrollTop;
-          const x2 = b.left + b.width / 2 - rect.left + viewport.scrollLeft;
-          const y2 = b.top - rect.top + viewport.scrollTop;
-          const mid = y1 + (y2 - y1) / 2;
-          return [{ id: member.id, d: `M ${x1} ${y1} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${y2}` }];
+        const groups = new Map();
+        for (const member of members) {
+          if (!member.managerId || !member.coManagerId) continue;
+          const managerIds = [member.managerId, member.coManagerId].sort();
+          const key = managerIds.join(":");
+          if (!groups.has(key)) groups.set(key, { key, managerIds, reports: [] });
+          groups.get(key).reports.push(member.id);
+        }
+        const point = (element) => {
+          const bounds = element.getBoundingClientRect();
+          return {
+            x: bounds.left + bounds.width / 2 - rect.left + viewport.scrollLeft,
+            left: bounds.left - rect.left + viewport.scrollLeft,
+            right: bounds.right - rect.left + viewport.scrollLeft,
+            top: bounds.top - rect.top + viewport.scrollTop,
+            bottom: bounds.bottom - rect.top + viewport.scrollTop,
+            centerY: bounds.top + bounds.height / 2 - rect.top + viewport.scrollTop,
+          };
+        };
+        const lines = [...groups.values()].flatMap((group) => {
+          const managers = group.managerIds.map((id) => cards.get(id)).filter(Boolean).map(point);
+          const reports = group.reports.map((id) => cards.get(id)).filter(Boolean).map(point);
+          if (managers.length !== 2 || !reports.length) return [];
+
+          const reportBranchY = Math.min(...reports.map(({ top }) => top)) - 18;
+          const reportLeft = Math.min(...reports.map(({ x }) => x));
+          const reportRight = Math.max(...reports.map(({ x }) => x));
+          const horizontalOverlap = Math.abs(managers[0].x - managers[1].x) < (managers[0].right - managers[0].left + managers[1].right - managers[1].left) / 2 + 12;
+          if (horizontalOverlap) {
+            const routeX = Math.max(...managers.map(({ right }) => right)) + 20;
+            const topManagerY = Math.min(...managers.map(({ centerY }) => centerY));
+            const lowerManagerY = Math.max(...managers.map(({ centerY }) => centerY));
+            const paths = managers.map(({ right, centerY }, index) => ({ id: `${group.key}-manager-${index}`, d: `M ${right} ${centerY} H ${routeX}` }));
+            paths.push({ id: `${group.key}-pair`, d: `M ${routeX} ${topManagerY} V ${lowerManagerY}` });
+            if (reportBranchY > lowerManagerY) {
+              paths.push({ id: `${group.key}-trunk`, d: `M ${routeX} ${lowerManagerY} V ${reportBranchY}` });
+              paths.push({ id: `${group.key}-report-branch`, d: `M ${reportLeft} ${reportBranchY} H ${reportRight}` });
+              reports.forEach(({ x, top }, index) => paths.push({ id: `${group.key}-report-${index}`, d: `M ${x} ${reportBranchY} V ${top}` }));
+            } else {
+              reports.forEach(({ x, top }, index) => paths.push({ id: `${group.key}-report-${index}`, d: `M ${routeX} ${lowerManagerY} V ${top - 8} H ${x} V ${top}` }));
+            }
+            return paths;
+          }
+
+          const managerLeft = Math.min(...managers.map(({ x }) => x));
+          const managerRight = Math.max(...managers.map(({ x }) => x));
+          const managerCenter = (managerLeft + managerRight) / 2;
+          const pairY = Math.max(...managers.map(({ bottom }) => bottom)) + 20;
+          const paths = managers.map(({ x, bottom }, index) => ({ id: `${group.key}-manager-${index}`, d: `M ${x} ${bottom} V ${pairY}` }));
+          paths.push({ id: `${group.key}-pair`, d: `M ${managerLeft} ${pairY} H ${managerRight}` });
+
+          if (reportBranchY > pairY) {
+            paths.push({ id: `${group.key}-trunk`, d: `M ${managerCenter} ${pairY} V ${reportBranchY}` });
+            paths.push({ id: `${group.key}-report-branch`, d: `M ${reportLeft} ${reportBranchY} H ${reportRight}` });
+            reports.forEach(({ x, top }, index) => paths.push({ id: `${group.key}-report-${index}`, d: `M ${x} ${reportBranchY} V ${top}` }));
+          } else {
+            reports.forEach(({ x, top }, index) => {
+              const routingY = top - 8;
+              paths.push({ id: `${group.key}-report-${index}`, d: `M ${managerCenter} ${pairY} V ${routingY} H ${x} V ${top}` });
+            });
+          }
+          return paths;
         });
         setSharedLines(lines);
       });

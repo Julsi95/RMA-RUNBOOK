@@ -267,7 +267,7 @@ h1 { margin: 0; font-size: clamp(27px, 3vw, 34px); font-weight: 620; letter-spac
 .history-pagination > div > span { min-width: 86px; text-align: center; }
 @media (max-width: 560px) { .history-heading-actions { align-items: flex-start; flex-direction: column; } .history-pagination { align-items: flex-start; flex-direction: column; } .history-pagination > div { width: 100%; justify-content: space-between; } }
 .org-shared-reporting-lines { position:absolute; z-index:0; top:0; left:0; overflow:visible; pointer-events:none; }
-.org-shared-reporting-lines path { fill:none; stroke:color-mix(in srgb,var(--primary) 58%,transparent); stroke-width:2; stroke-dasharray:5 5; }
+.org-shared-reporting-lines path { fill:none; stroke:color-mix(in srgb,var(--primary) 66%,var(--muted-foreground)); stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
 .org-tree { position:relative; z-index:1; }
 .org-person-card { position:relative; z-index:1; }
 .work-view-toggle { display:inline-flex; align-items:center; gap:3px; padding:3px; border:1px solid var(--border); border-radius:9px; background:var(--background); }
