@@ -7,6 +7,10 @@ function getInitials(name) {
 }
 
 export default function OrgBranch({ member, onEdit, onRemove, onOpenProfile, canEdit = true }) {
+  const managerNames = [member.managerName, member.coManagerName].filter((name, index, names) => name && names.indexOf(name) === index).sort((a, b) => a.localeCompare(b));
+  const hasBothManagers = member.role === "Customer Rep" && Boolean(member.coManagerId);
+  const mentorIsManager = member.mentorId && [member.managerId, member.coManagerId].includes(member.mentorId);
+  const reportingLabel = hasBothManagers ? `Reports to: ${managerNames.join(" · ")}` : "";
   return (
     <div className="org-branch">
       <article className="org-person-card" data-org-person-id={member.id}>
@@ -17,8 +21,8 @@ export default function OrgBranch({ member, onEdit, onRemove, onOpenProfile, can
           <span className="org-person-details">
             <span className="org-person-name" title={member.name}>{member.name}</span>
             <span className="org-person-role-list">{getOrganizationRoleLabels(member).map((role, index) => <span className={`org-role-chip org-role-chip-${getHierarchyRoles(member).includes(role) ? getHierarchyRoles(member).indexOf(role) + 1 : 5}`} key={`${role}-${index}`}>{role}</span>)}</span>
-            {member.role === "Customer Rep" && member.mentorName && <span className="org-person-mentor">Mentor: <strong>{member.mentorName}</strong></span>}
-            {member.role === "Customer Rep" && member.coManagerName && <span className="org-person-mentor">Shared with: <strong>{member.coManagerName}</strong></span>}
+            {reportingLabel && <span className="org-person-relationship" title={reportingLabel}>{reportingLabel}</span>}
+            {member.role === "Customer Rep" && member.mentorName && !mentorIsManager && <span className="org-person-mentor" title={`Mentor: ${member.mentorName}`}>Mentor: <strong>{member.mentorName}</strong></span>}
           </span>
         </button>
         {canEdit && <div className="org-card-actions">

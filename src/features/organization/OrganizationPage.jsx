@@ -19,7 +19,7 @@ export default function OrganizationPage() {
   const panRef = useRef(null);
   const [isPanning, setIsPanning] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [sharedLines, setSharedLines] = useState([]);
+  const [chartLines, setChartLines] = useState([]);
 
   const tree = buildOrganizationTree(members);
   const roleCounts = organizationHierarchyRoles.map((role) => ({ role, count: members.filter((member) => getHierarchyRoles(member).includes(role)).length }));
@@ -35,13 +35,19 @@ export default function OrganizationPage() {
       frame = requestAnimationFrame(() => {
         const cards = new Map([...viewport.querySelectorAll("[data-org-person-id]")].map((card) => [card.dataset.orgPersonId, card]));
         const rect = viewport.getBoundingClientRect();
-        const groups = new Map();
+        const sharedGroups = new Map();
+        const directGroups = new Map();
         for (const member of members) {
-          if (!member.managerId || !member.coManagerId) continue;
-          const managerIds = [member.managerId, member.coManagerId].sort();
-          const key = managerIds.join(":");
-          if (!groups.has(key)) groups.set(key, { key, managerIds, reports: [] });
-          groups.get(key).reports.push(member.id);
+          if (!member.managerId) continue;
+          if (member.coManagerId) {
+            const managerIds = [member.managerId, member.coManagerId].sort();
+            const key = managerIds.join(":");
+            if (!sharedGroups.has(key)) sharedGroups.set(key, { key, managerIds, reports: [] });
+            sharedGroups.get(key).reports.push(member.id);
+          } else {
+            if (!directGroups.has(member.managerId)) directGroups.set(member.managerId, { key: member.managerId, reports: [] });
+            directGroups.get(member.managerId).reports.push(member.id);
+          }
         }
         const point = (element) => {
           const bounds = element.getBoundingClientRect();
@@ -54,7 +60,20 @@ export default function OrganizationPage() {
             centerY: bounds.top + bounds.height / 2 - rect.top + viewport.scrollTop,
           };
         };
-        const lines = [...groups.values()].flatMap((group) => {
+        const directLines = [...directGroups.values()].flatMap((group) => {
+          const managerCard = cards.get(group.key);
+          const reports = group.reports.map((id) => cards.get(id)).filter(Boolean).map(point);
+          if (!managerCard || !reports.length) return [];
+          const manager = point(managerCard);
+          const reportLeft = Math.min(...reports.map(({ x }) => x));
+          const reportRight = Math.max(...reports.map(({ x }) => x));
+          const branchY = Math.min(...reports.map(({ top }) => top)) - 18;
+          const paths = [{ id: `${group.key}-direct-stem`, d: `M ${manager.x} ${manager.bottom} V ${branchY}` }];
+          if (reports.length > 1) paths.push({ id: `${group.key}-direct-branch`, d: `M ${reportLeft} ${branchY} H ${reportRight}` });
+          reports.forEach(({ x, top }, index) => paths.push({ id: `${group.key}-direct-report-${index}`, d: `M ${x} ${branchY} V ${top}` }));
+          return paths;
+        });
+        const coManagementLines = [...sharedGroups.values()].flatMap((group) => {
           const managers = group.managerIds.map((id) => cards.get(id)).filter(Boolean).map(point);
           const reports = group.reports.map((id) => cards.get(id)).filter(Boolean).map(point);
           if (managers.length !== 2 || !reports.length) return [];
@@ -98,7 +117,7 @@ export default function OrganizationPage() {
           }
           return paths;
         });
-        setSharedLines(lines);
+        setChartLines([...directLines, ...coManagementLines]);
       });
     };
     measure();
@@ -230,7 +249,7 @@ export default function OrganizationPage() {
         </div>
         {tree.length > 0 ? (
           <div ref={chartRef} className={`org-chart-viewport${isPanning ? " is-panning" : ""}`} role="region" aria-label="Organizational chart. Scroll or drag the empty chart area to explore." tabIndex={0} onPointerDown={startChartPan} onPointerMove={moveChartPan} onPointerUp={stopChartPan} onPointerCancel={stopChartPan}>
-            <svg className="org-shared-reporting-lines" aria-hidden="true" width={chartRef.current?.scrollWidth ?? "100%"} height={chartRef.current?.scrollHeight ?? "100%"}>{sharedLines.map((line) => <path key={line.id} d={line.d} />)}</svg>
+            <svg className="org-chart-connectors" aria-hidden="true" width={chartRef.current?.scrollWidth ?? "100%"} height={chartRef.current?.scrollHeight ?? "100%"}>{chartLines.map((line) => <path key={line.id} d={line.d} />)}</svg>
             <div className="org-tree">
               {tree.map((root) => <OrgBranch key={root.id} member={root} onEdit={(member) => setDialog({ open: true, member })} onRemove={removeMember} onOpenProfile={setProfileMember} canEdit={canEdit} />)}
             </div>

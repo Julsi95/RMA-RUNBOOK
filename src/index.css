@@ -266,8 +266,8 @@ h1 { margin: 0; font-size: clamp(27px, 3vw, 34px); font-weight: 620; letter-spac
 .history-pagination > div { display: flex; align-items: center; gap: 8px; }
 .history-pagination > div > span { min-width: 86px; text-align: center; }
 @media (max-width: 560px) { .history-heading-actions { align-items: flex-start; flex-direction: column; } .history-pagination { align-items: flex-start; flex-direction: column; } .history-pagination > div { width: 100%; justify-content: space-between; } }
-.org-shared-reporting-lines { position:absolute; z-index:0; top:0; left:0; overflow:visible; pointer-events:none; }
-.org-shared-reporting-lines path { fill:none; stroke:color-mix(in srgb,var(--primary) 66%,var(--muted-foreground)); stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.org-chart-connectors { position:absolute; z-index:0; top:0; left:0; overflow:visible; pointer-events:none; }
+.org-chart-connectors path { fill:none; stroke:color-mix(in srgb,var(--primary) 66%,var(--muted-foreground)); stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
 .org-tree { position:relative; z-index:1; }
 .org-person-card { position:relative; z-index:1; }
 .work-view-toggle { display:inline-flex; align-items:center; gap:3px; padding:3px; border:1px solid var(--border); border-radius:9px; background:var(--background); }
@@ -833,6 +833,16 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .org-role-count strong{flex:0 0 auto;font-size:23px}
 @media(max-width:1150px){.org-summary-row{grid-template-columns:repeat(2,minmax(0,1fr))}.org-role-counts{grid-column:1/-1}}
 @media(max-width:700px){.org-summary-row{grid-template-columns:minmax(0,1fr)}.org-role-counts{grid-column:auto;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:12px}.org-role-count{min-height:68px;padding:9px}.org-role-count-label{font-size:10px}.org-role-count strong{font-size:20px}}
+.org-children::before,.org-children-many::after,.org-children>.org-branch::before{display:none}
+.org-person-card{height:132px;min-height:132px;max-height:132px;overflow:hidden;box-sizing:border-box}
+.org-person-card-main{height:100%;min-height:0;overflow:hidden;align-items:center}
+.org-person-details{min-height:0;overflow:hidden;gap:4px}
+.org-person-name{flex:0 0 auto;line-height:1.3}
+.org-person-role-list{max-height:42px;overflow:hidden;align-content:flex-start}
+.org-person-relationship,.org-person-mentor{display:-webkit-box;width:100%;min-width:0;overflow:hidden;color:var(--muted-foreground);font-size:10px;line-height:1.3;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow-wrap:anywhere}
+.org-person-relationship{font-weight:550}
+.org-person-mentor strong{color:var(--foreground)}
+@media(max-width:700px){.org-person-card{height:132px;min-height:132px;max-height:132px}}
 .org-chart-live{gap:8px}
 .org-chart-live small{padding-left:8px;border-left:1px solid var(--border);font-size:10px;font-weight:450}
 @media(max-width:700px){.organization-page{min-height:calc(100dvh - 140px);grid-template-rows:auto auto auto minmax(70dvh,1fr);gap:12px}.org-summary-row{min-height:0}.org-chart-heading p{max-width:62ch}.org-chart-heading-actions{width:100%;justify-content:space-between}.org-chart-live{white-space:normal}.org-chart-panel.is-expanded{inset:8px;width:auto;height:calc(100dvh - 16px);max-height:calc(100dvh - 16px)}.org-chart-viewport{touch-action:auto}}
