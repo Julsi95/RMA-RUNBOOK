@@ -226,26 +226,32 @@ export default function OrganizationPage() {
         {saveMessage && <p className="auth-success" role="status">{saveMessage}</p>}
       </div>
 
-      <div className="org-summary-row">
-        <div className="org-total-card">
-          <span className="org-total-icon"><UsersRound size={18} /></span>
-          <span><strong>{members.length}</strong><small>people in organization</small></span>
+      <div className="org-total-cards">
+        <div className="org-total-cards-inner">
+          <div className="org-total-card">
+            <span className="org-total-icon"><UsersRound size={18} /></span>
+            <span><strong>{members.length}</strong><small>people in organization</small></span>
+          </div>
+          <div className="org-total-card">
+            <span className="org-total-icon"><UsersRound size={18} /></span>
+            <span><strong>{teamPeopleCount}</strong><small>people in your team · TL/STL and below</small></span>
+          </div>
+          <div className="org-total-card">
+            <span className="org-total-icon"><UsersRound size={18} /></span>
+            <span><strong>{seniorAgentCount}</strong><small>senior agents</small></span>
+          </div>
         </div>
-        <div className="org-total-card">
-          <span className="org-total-icon"><UsersRound size={18} /></span>
-          <span><strong>{teamPeopleCount}</strong><small>people in your team · TL/STL and below</small></span>
-        </div>
-        <div className="org-total-card">
-          <span className="org-total-icon"><UsersRound size={18} /></span>
-          <span><strong>{seniorAgentCount}</strong><small>senior agents</small></span>
-        </div>
-        <div className="org-role-counts">
-          <span className="org-role-counts-caption">LEADERSHIP HIERARCHY <small>People may hold more than one role</small></span>
-          {roleCounts.map(({ role, count }, index) => (
-            <div className="org-role-count" key={role}><span className="org-role-count-label"><small>{["OM", "TM", "STL", "TL"][index]}</small>{role.replace(/\s\([^)]*\)$/, "")}</span><strong>{count}</strong></div>
-          ))}
-        </div>
+          <div className="org-summary-row">
+            <div className="org-role-counts">
+              <span className="org-role-counts-caption">LEADERSHIP HIERARCHY <small>People may hold more than one role</small></span>
+              {roleCounts.map(({ role, count }, index) => (
+                <div className="org-role-count" key={role}><span className="org-role-count-label"><small>{["OM", "TM", "STL", "TL"][index]}</small>{role.replace(/\s\([^)]*\)$/, "")}</span><strong>{count}</strong></div>
+              ))}
+            </div>
+          </div>
       </div>
+
+
 
       <div className={`org-chart-panel${expanded ? " is-expanded" : ""}`}>
         <div className="org-chart-heading">
