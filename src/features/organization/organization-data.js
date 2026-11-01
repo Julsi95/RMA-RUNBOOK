@@ -46,6 +46,13 @@ export function getOperationalRoster(members) {
   return (members ?? []).filter((member) => !isOrganizationOnlyLeader(member));
 }
 
+export function getReportingManagerIds(member) {
+  const values = Array.isArray(member?.reportingManagerIds)
+    ? member.reportingManagerIds
+    : [member?.managerId, member?.coManagerId];
+  return [...new Set(values.filter((id) => typeof id === "string" && id.length > 0))];
+}
+
 export const ORGANIZATION_STORAGE_KEY = "starter-app-organization-members-v2";
 
 export const starterMembers = [
@@ -66,7 +73,8 @@ export function getOrganizationMembers() {
     const parsed = JSON.parse(saved);
     if (!Array.isArray(parsed)) return starterMembers;
     return parsed.map((member) => {
-      const cleaned = { ...member, mentorId: member.mentorId ?? null };
+      const reportingManagerIds = getReportingManagerIds(member);
+      const cleaned = { ...member, reportingManagerIds, managerId: reportingManagerIds[0] ?? null, coManagerId: reportingManagerIds[1] ?? null, mentorId: member.mentorId ?? null };
       delete cleaned.campaignReportToIds;
       return cleaned;
     });
@@ -76,17 +84,23 @@ export function getOrganizationMembers() {
 }
 
 export function buildOrganizationTree(members) {
-  const nodes = new Map(members.map((member) => [member.id, { ...member, children: [] }]));
+  const nodes = new Map(members.map((member) => {
+    const reportingManagerIds = getReportingManagerIds(member);
+    return [member.id, { ...member, reportingManagerIds, managerId: reportingManagerIds[0] ?? null, coManagerId: reportingManagerIds[1] ?? null, children: [] }];
+  }));
   const roots = [];
 
   for (const node of nodes.values()) {
-    const manager = node.managerId ? nodes.get(node.managerId) : null;
+    const managers = node.reportingManagerIds.map((id) => nodes.get(id)).filter(Boolean);
+    node.reportingManagers = managers.map((manager) => ({ id: manager.id, name: manager.name, role: getOrganizationRoleLabels(manager).join(" / ") || manager.role }));
+    const manager = managers[0] ?? null;
     node.managerName = manager?.name ?? null;
     node.managerRole = manager ? (getOrganizationRoleLabels(manager).join(" / ") || manager.role) : null;
     node.mentorName = node.mentorId ? nodes.get(node.mentorId)?.name ?? null : null;
-    node.coManagerName = node.coManagerId ? nodes.get(node.coManagerId)?.name ?? null : null;
-    const coManager = node.coManagerId ? nodes.get(node.coManagerId) : null;
+    const coManager = managers[1] ?? null;
+    node.coManagerName = coManager?.name ?? null;
     node.coManagerRole = coManager ? (getOrganizationRoleLabels(coManager).join(" / ") || coManager.role) : null;
+    if (managers.length > 1) continue;
     if (manager && manager.id !== node.id) manager.children.push(node);
     else roots.push(node);
   }
@@ -101,19 +115,22 @@ export function buildOrganizationTree(members) {
     branches.forEach((branch) => sortBranches(branch.children));
   };
   for (const report of nodes.values()) {
-    if (!["Customer Rep", "Senior Agent"].includes(report.role) || !report.coManagerId || report.coManagerId === report.managerId) continue;
-    const primaryManager = nodes.get(report.managerId);
-    const coManager = nodes.get(report.coManagerId);
-    if (primaryManager?.role !== "Campaign Specialist" || coManager?.role !== "Campaign Specialist") continue;
-    if (!primaryManager.managerId || primaryManager.managerId !== coManager.managerId) continue;
-    const commonManager = nodes.get(primaryManager.managerId);
+    const managerIds = report.reportingManagerIds;
+    if (!["Customer Rep", "Senior Agent"].includes(report.role) || managerIds.length < 2) continue;
+    const managers = managerIds.map((id) => nodes.get(id));
+    if (managers.some((manager) => !manager)) continue;
+    const commonParentIds = managers.map((manager) => getReportingManagerIds(manager).join("\u0000"));
+    if (new Set(commonParentIds).size !== 1) continue;
+    if (report.role === "Senior Agent" && managers.some((manager) => manager.role !== "Campaign Specialist")) continue;
+    if (report.role === "Customer Rep" && managers.some((manager) => !["Campaign Specialist", "Senior Agent"].includes(manager.role))) continue;
+    const commonParentId = getReportingManagerIds(managers[0])[0];
+    const commonManager = commonParentId ? nodes.get(commonParentId) : null;
     if (!commonManager) continue;
-    const managerIds = [primaryManager.id, coManager.id].sort();
-    const key = managerIds.join(":");
+    const key = [...managerIds].sort().join(":");
     commonManager.coManagedGroups ??= [];
     let group = commonManager.coManagedGroups.find((item) => item.key === key);
     if (!group) {
-      group = { key, managerIds, reports: [] };
+      group = { key, managerIds: [...managerIds], reports: [] };
       commonManager.coManagedGroups.push(group);
     }
     group.reports.push(report);
@@ -130,7 +147,7 @@ export function getDescendantIds(members, memberId) {
   while (pending.length) {
     const currentId = pending.pop();
     for (const member of members) {
-      if (member.managerId === currentId && !descendants.has(member.id)) {
+      if (getReportingManagerIds(member).includes(currentId) && !descendants.has(member.id)) {
         descendants.add(member.id);
         pending.push(member.id);
       }

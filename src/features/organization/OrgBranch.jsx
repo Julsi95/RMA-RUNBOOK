@@ -7,9 +7,11 @@ function getInitials(name) {
 }
 
 export default function OrgBranch({ member, onEdit, onRemove, onOpenProfile, canEdit = true, suppressedReportIds = new Set() }) {
-  const reportingManagers = [{ name: member.managerName, role: member.managerRole }, { name: member.coManagerName, role: member.coManagerRole }].filter((manager, index, managers) => manager.name && managers.findIndex((item) => item.name === manager.name) === index).sort((a, b) => a.name.localeCompare(b.name));
+  const reportingManagers = member.reportingManagers?.length
+    ? member.reportingManagers
+    : [{ name: member.managerName, role: member.managerRole }, { name: member.coManagerName, role: member.coManagerRole }].filter((manager) => manager.name);
 
-  const mentorIsManager = member.mentorId && [member.managerId, member.coManagerId].includes(member.mentorId);
+  const mentorIsManager = member.mentorId && member.reportingManagerIds.includes(member.mentorId);
   const reportingLabel = reportingManagers.length ? `Reports to: ${reportingManagers.map((manager) => `${manager.role || "Manager"} · ${manager.name}`).join(" / ")}` : "";
   const hiddenReports = new Set([...(suppressedReportIds ?? []), ...(member.coManagedGroups ?? []).flatMap((group) => group.reports.map((report) => report.id))]);
   const children = member.children.filter((child) => !hiddenReports.has(child.id));

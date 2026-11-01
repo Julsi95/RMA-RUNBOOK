@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/Button";
 import OrgBranch from "@/features/organization/OrgBranch";
 import OrgMemberDialog from "@/features/organization/OrgMemberDialog";
 import OrgProfileDialog from "@/features/organization/OrgProfileDialog";
-import { buildOrganizationTree, createMemberId, getHierarchyRoles, getOperationalRoster, organizationHierarchyRoles } from "@/features/organization/organization-data";
+import { buildOrganizationTree, createMemberId, getHierarchyRoles, getOperationalRoster, getReportingManagerIds, organizationHierarchyRoles } from "@/features/organization/organization-data";
 import { useOrganizationRoster } from "@/app/organization-provider";
 import { useAuth } from "@/app/auth-provider";
 
@@ -47,10 +47,10 @@ export default function OrganizationPage() {
           const managerCenters = managerIds.map((id) => cards.get(id)).filter(Boolean).map((card) => {
             const bounds = card.getBoundingClientRect();
             return bounds.left + bounds.width / 2;
-          });
-          if (managerCenters.length !== 2) continue;
+          }).sort((left, right) => left - right);
+          if (managerCenters.length < 2) continue;
           const groupBounds = groupElement.getBoundingClientRect();
-          const managersMidpoint = (managerCenters[0] + managerCenters[1]) / 2;
+          const managersMidpoint = (managerCenters[0] + managerCenters[managerCenters.length - 1]) / 2;
           const groupMidpoint = groupBounds.left + groupBounds.width / 2;
           groupElement.style.setProperty("--co-managed-center-offset", `${managersMidpoint - groupMidpoint}px`);
         }
@@ -58,15 +58,17 @@ export default function OrganizationPage() {
         const coManagedGroups = new Map();
         const directGroups = new Map();
         for (const member of members) {
-          if (!member.managerId) continue;
-          if (member.coManagerId) {
-            const managerIds = [member.managerId, member.coManagerId].sort();
-            const key = managerIds.join(":");
-            if (!coManagedGroups.has(key)) coManagedGroups.set(key, { key, managerIds, reports: [] });
+          const managerIds = getReportingManagerIds(member);
+          if (!managerIds.length) continue;
+          if (managerIds.length > 1) {
+            const normalizedManagerIds = [...managerIds].sort();
+            const key = normalizedManagerIds.join(":");
+            if (!coManagedGroups.has(key)) coManagedGroups.set(key, { key, managerIds: normalizedManagerIds, reports: [] });
             coManagedGroups.get(key).reports.push(member.id);
           } else {
-            if (!directGroups.has(member.managerId)) directGroups.set(member.managerId, { key: member.managerId, reports: [] });
-            directGroups.get(member.managerId).reports.push(member.id);
+            const managerId = managerIds[0];
+            if (!directGroups.has(managerId)) directGroups.set(managerId, { key: managerId, reports: [] });
+            directGroups.get(managerId).reports.push(member.id);
           }
         }
         const point = (element) => {
@@ -99,7 +101,7 @@ export default function OrganizationPage() {
         const coManagementLines = [...coManagedGroups.values()].flatMap((group) => {
           const managers = group.managerIds.map((id) => cards.get(id)).filter(Boolean).map(point).sort((left, right) => left.x - right.x);
           const reports = group.reports.map((id) => cards.get(id)).filter(Boolean).map(point).sort((left, right) => left.x - right.x);
-          if (managers.length !== 2 || !reports.length) return [];
+          if (managers.length < 2 || !reports.length) return [];
 
           const managerBottom = Math.max(...managers.map(({ bottom }) => bottom));
           const reportTop = Math.min(...reports.map(({ top }) => top));
@@ -107,11 +109,11 @@ export default function OrganizationPage() {
           if (verticalGap <= 0) return [];
           const pairY = managerBottom + verticalGap / 3;
           const reportBranchY = managerBottom + verticalGap * 2 / 3;
-          const managerCenter = (managers[0].x + managers[1].x) / 2;
+          const managerCenter = (managers[0].x + managers[managers.length - 1].x) / 2;
           const reportLeft = reports[0].x;
           const reportRight = reports[reports.length - 1].x;
           const paths = managers.map(({ x, bottom }, index) => ({ id: `${group.key}-manager-${index}`, d: `M ${x} ${bottom} V ${pairY}` }));
-          paths.push({ id: `${group.key}-pair`, d: `M ${managers[0].x} ${pairY} H ${managers[1].x}` });
+          paths.push({ id: `${group.key}-pair`, d: `M ${managers[0].x} ${pairY} H ${managers[managers.length - 1].x}` });
           paths.push({ id: `${group.key}-trunk`, d: `M ${managerCenter} ${pairY} V ${reportBranchY}` });
           paths.push({ id: `${group.key}-report-branch`, d: `M ${reportLeft} ${reportBranchY} H ${reportRight}` });
           reports.forEach(({ x, top }, index) => paths.push({ id: `${group.key}-report-${index}`, d: `M ${x} ${reportBranchY} V ${top}` }));
@@ -190,12 +192,20 @@ export default function OrganizationPage() {
     if (!confirmed) return;
     const next = members
       .filter((person) => person.id !== member.id)
-      .map((person) => ({
-        ...person,
-        managerId: person.managerId === member.id ? (person.coManagerId && person.coManagerId !== member.id ? person.coManagerId : member.managerId ?? null) : person.managerId,
-        coManagerId: person.managerId === member.id || person.coManagerId === member.id ? null : person.coManagerId,
-        mentorId: person.mentorId === member.id ? null : person.mentorId,
-      }));
+      .map((person) => {
+        const currentManagers = getReportingManagerIds(person);
+        const remainingManagers = currentManagers.filter((id) => id !== member.id);
+        const reportingManagerIds = currentManagers.includes(member.id) && remainingManagers.length === 0
+          ? getReportingManagerIds(member)
+          : remainingManagers;
+        return {
+          ...person,
+          reportingManagerIds,
+          managerId: reportingManagerIds[0] ?? null,
+          coManagerId: reportingManagerIds[1] ?? null,
+          mentorId: person.mentorId === member.id ? null : person.mentorId,
+        };
+      });
     try { await saveMembers(next, { deletedId: member.id }); setSaveError(""); }
     catch (cause) { setSaveError(cause.message || "Could not remove this employee."); }
   }
