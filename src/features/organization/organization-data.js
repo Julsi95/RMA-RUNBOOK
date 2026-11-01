@@ -82,8 +82,11 @@ export function buildOrganizationTree(members) {
   for (const node of nodes.values()) {
     const manager = node.managerId ? nodes.get(node.managerId) : null;
     node.managerName = manager?.name ?? null;
+    node.managerRole = manager ? (getOrganizationRoleLabels(manager).join(" / ") || manager.role) : null;
     node.mentorName = node.mentorId ? nodes.get(node.mentorId)?.name ?? null : null;
     node.coManagerName = node.coManagerId ? nodes.get(node.coManagerId)?.name ?? null : null;
+    const coManager = node.coManagerId ? nodes.get(node.coManagerId) : null;
+    node.coManagerRole = coManager ? (getOrganizationRoleLabels(coManager).join(" / ") || coManager.role) : null;
     if (manager && manager.id !== node.id) manager.children.push(node);
     else roots.push(node);
   }

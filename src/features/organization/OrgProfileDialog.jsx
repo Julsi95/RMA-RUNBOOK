@@ -44,7 +44,7 @@ export default function OrgProfileDialog({ member, onClose }) {
           {profile.personality && <div className="org-profile-fact"><Sparkles size={16} /><span><small>Personality</small><strong>{profile.personality}</strong></span></div>}
         </div>
         {customFields.length > 0 && <section className="org-profile-custom-fields"><h3>More about {member.name.split(/\s+/)[0]}</h3><dl>{customFields.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{String(value)}</dd></div>)}</dl></section>}
-        {member.managerId && member.managerName && <p className="org-profile-manager">Reports to <strong>{[member.managerName, member.coManagerName].filter((name, index, names) => name && names.indexOf(name) === index).join(" · ")}</strong></p>}
+        {member.managerId && member.managerName && <p className="org-profile-manager">Reports to <strong>{[{ name: member.managerName, role: member.managerRole }, { name: member.coManagerName, role: member.coManagerRole }].filter((manager, index, managers) => manager.name && managers.findIndex((item) => item.name === manager.name) === index).map((manager) => `${manager.role || "Manager"} · ${manager.name}`).join(" / ")}</strong></p>}
       </div>
     </section>
   </div>;

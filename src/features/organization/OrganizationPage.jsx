@@ -34,7 +34,27 @@ export default function OrganizationPage() {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         const cards = new Map([...viewport.querySelectorAll("[data-org-person-id]")].map((card) => [card.dataset.orgPersonId, card]));
-        const rect = viewport.getBoundingClientRect();
+        const connectorRect = viewport.querySelector(".org-chart-connectors")?.getBoundingClientRect();
+        if (!connectorRect) return;
+
+        // Center each shared-report row on the measured midpoint of its two
+        // managers. This keeps the layout aligned when card widths or report
+        // counts change, without relying on fixed pixel coordinates.
+        for (const groupElement of viewport.querySelectorAll("[data-co-managed-managers]")) {
+          groupElement.style.removeProperty("--co-managed-center-offset");
+          let managerIds = [];
+          try { managerIds = JSON.parse(groupElement.dataset.coManagedManagers); } catch { /* ignore malformed chart metadata */ }
+          const managerCenters = managerIds.map((id) => cards.get(id)).filter(Boolean).map((card) => {
+            const bounds = card.getBoundingClientRect();
+            return bounds.left + bounds.width / 2;
+          });
+          if (managerCenters.length !== 2) continue;
+          const groupBounds = groupElement.getBoundingClientRect();
+          const managersMidpoint = (managerCenters[0] + managerCenters[1]) / 2;
+          const groupMidpoint = groupBounds.left + groupBounds.width / 2;
+          groupElement.style.setProperty("--co-managed-center-offset", `${managersMidpoint - groupMidpoint}px`);
+        }
+
         const coManagedGroups = new Map();
         const directGroups = new Map();
         for (const member of members) {
@@ -52,12 +72,12 @@ export default function OrganizationPage() {
         const point = (element) => {
           const bounds = element.getBoundingClientRect();
           return {
-            x: bounds.left + bounds.width / 2 - rect.left + viewport.scrollLeft,
-            left: bounds.left - rect.left + viewport.scrollLeft,
-            right: bounds.right - rect.left + viewport.scrollLeft,
-            top: bounds.top - rect.top + viewport.scrollTop,
-            bottom: bounds.bottom - rect.top + viewport.scrollTop,
-            centerY: bounds.top + bounds.height / 2 - rect.top + viewport.scrollTop,
+            x: bounds.left + bounds.width / 2 - connectorRect.left,
+            left: bounds.left - connectorRect.left,
+            right: bounds.right - connectorRect.left,
+            top: bounds.top - connectorRect.top,
+            bottom: bounds.bottom - connectorRect.top,
+            centerY: bounds.top + bounds.height / 2 - connectorRect.top,
           };
         };
         const directLines = [...directGroups.values()].flatMap((group) => {
@@ -67,7 +87,10 @@ export default function OrganizationPage() {
           const manager = point(managerCard);
           const reportLeft = Math.min(...reports.map(({ x }) => x));
           const reportRight = Math.max(...reports.map(({ x }) => x));
-          const branchY = Math.min(...reports.map(({ top }) => top)) - 18;
+          const reportTop = Math.min(...reports.map(({ top }) => top));
+          const verticalGap = reportTop - manager.bottom;
+          if (verticalGap <= 0) return [];
+          const branchY = manager.bottom + verticalGap / 2;
           const paths = [{ id: `${group.key}-direct-stem`, d: `M ${manager.x} ${manager.bottom} V ${branchY}` }];
           if (reports.length > 1) paths.push({ id: `${group.key}-direct-branch`, d: `M ${reportLeft} ${branchY} H ${reportRight}` });
           reports.forEach(({ x, top }, index) => paths.push({ id: `${group.key}-direct-report-${index}`, d: `M ${x} ${branchY} V ${top}` }));
@@ -79,8 +102,11 @@ export default function OrganizationPage() {
           if (managers.length !== 2 || !reports.length) return [];
 
           const managerBottom = Math.max(...managers.map(({ bottom }) => bottom));
-          const reportBranchY = Math.min(...reports.map(({ top }) => top)) - 18;
-          const pairY = managerBottom + 20;
+          const reportTop = Math.min(...reports.map(({ top }) => top));
+          const verticalGap = reportTop - managerBottom;
+          if (verticalGap <= 0) return [];
+          const pairY = managerBottom + verticalGap / 3;
+          const reportBranchY = managerBottom + verticalGap * 2 / 3;
           const managerCenter = (managers[0].x + managers[1].x) / 2;
           const reportLeft = reports[0].x;
           const reportRight = reports[reports.length - 1].x;

@@ -7,10 +7,10 @@ function getInitials(name) {
 }
 
 export default function OrgBranch({ member, onEdit, onRemove, onOpenProfile, canEdit = true, suppressedReportIds = new Set() }) {
-  const managerNames = [member.managerName, member.coManagerName].filter((name, index, names) => name && names.indexOf(name) === index).sort((a, b) => a.localeCompare(b));
-  const hasBothManagers = ["Customer Rep", "Senior Agent"].includes(member.role) && Boolean(member.coManagerId);
+  const reportingManagers = [{ name: member.managerName, role: member.managerRole }, { name: member.coManagerName, role: member.coManagerRole }].filter((manager, index, managers) => manager.name && managers.findIndex((item) => item.name === manager.name) === index).sort((a, b) => a.name.localeCompare(b.name));
+
   const mentorIsManager = member.mentorId && [member.managerId, member.coManagerId].includes(member.mentorId);
-  const reportingLabel = hasBothManagers ? `Reports to: ${managerNames.join(" · ")}` : "";
+  const reportingLabel = reportingManagers.length ? `Reports to: ${reportingManagers.map((manager) => `${manager.role || "Manager"} · ${manager.name}`).join(" / ")}` : "";
   const hiddenReports = new Set([...(suppressedReportIds ?? []), ...(member.coManagedGroups ?? []).flatMap((group) => group.reports.map((report) => report.id))]);
   const children = member.children.filter((child) => !hiddenReports.has(child.id));
   return (
@@ -38,7 +38,7 @@ export default function OrgBranch({ member, onEdit, onRemove, onOpenProfile, can
         </div>
       )}
       {!!member.coManagedGroups?.length && <div className="org-co-managed-groups">
-        {member.coManagedGroups.map((group) => <div className="org-co-managed-reports" key={group.key}>
+        {member.coManagedGroups.map((group) => <div className="org-co-managed-reports" data-co-managed-group={group.key} data-co-managed-managers={JSON.stringify(group.managerIds)} key={group.key}>
           {group.reports.map((report) => <OrgBranch key={report.id} member={report} onEdit={onEdit} onRemove={onRemove} onOpenProfile={onOpenProfile} canEdit={canEdit} />)}
         </div>)}
       </div>}

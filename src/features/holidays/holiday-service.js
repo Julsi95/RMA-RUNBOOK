@@ -10,7 +10,12 @@ export async function loadHolidayCalendar(year) {
 
 export async function syncHolidayYear(country, year, force = false) {
   const { data, error } = await requireSupabase().functions.invoke("sync-holidays", { body: { country, year, force } });
-  if (error) throw error;
+  if (error) {
+    if (/Failed to send a request to the Edge Function/i.test(error.message ?? "")) {
+      throw new Error("Holiday sync is blocked by the deployed Supabase CORS settings. Redeploy the sync-holidays Edge Function from the current project to enable this site preview.");
+    }
+    throw error;
+  }
   if (data?.error) throw new Error(data.error);
   return data;
 }

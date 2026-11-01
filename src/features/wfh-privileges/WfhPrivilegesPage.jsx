@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Award, CalendarDays, ChevronLeft, ChevronRight, Clock3, Gift, Settings2, Shield, UsersRound } from "lucide-react";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/Button";
@@ -148,6 +148,7 @@ export default function WfhPrivilegesPage() {
   const canReview = isLead || isSuperAdmin;
   const reviewableRequests = requests.filter((item) => canReviewWfhRequest(item, { employeeId, isLead, isSuperAdmin }));
   const today = dateToday();
+  const availableDays = employeeId ? balanceForEmployee(rewards, employeeId, new Date(`${today}T12:00:00`)) : 0;
 
   async function sendRequest(mode, dates, note) {
     setBusy(true); setActionError("");

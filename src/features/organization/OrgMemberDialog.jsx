@@ -211,13 +211,13 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
             <span>Reports to {role === "Senior Agent" ? <small>(Team Lead, STL, or Campaign Specialist)</small> : role === "Campaign Specialist" && <small>(Team Lead or STL required)</small>}</span>
             <select value={managerId} onChange={(event) => { const nextManagerId = event.target.value; setManagerId(nextManagerId); if (nextManagerId === coManagerId) setCoManagerId(""); }}>
               <option value="">{role === "Senior Agent" ? "Select a Team Lead, STL, or Campaign Specialist" : role === "Campaign Specialist" ? "Select a Team Lead or STL" : "No manager"}</option>
-              {managerOptions.map((person) => <option key={person.id} value={person.id}>{person.name} · {getOrganizationRoleLabels(person).join(" / ")}</option>)}
+              {managerOptions.map((person) => <option key={person.id} value={person.id}>{getOrganizationRoleLabels(person).join(" / ")} · {person.name}</option>)}
             </select>
             {restrictedReportingRoles.has(role) && managerOptions.length === 0 && <small className="form-field-hint">{role === "Senior Agent" ? "Add a Campaign Specialist or assign a Team Lead / STL before saving." : "Add or assign a Team Lead / STL before saving this role."}</small>}
           </label>
           {["Customer Rep", "Senior Agent"].includes(role) && (
             <>
-            <label className="form-field"><span>Second reporting manager <small>(optional)</small></span><select value={coManagerId} onChange={(event) => setCoManagerId(event.target.value)} disabled={!primaryManager || !["Customer Rep", "Senior Agent"].includes(role)}><option value="">No second reporting manager</option>{coManagerOptions.map((person) => <option key={person.id} value={person.id}>{person.name} · {person.role}</option>)}</select><small className="form-field-hint">Senior Agents may report to two Campaign Specialists. Customer Reps can use an additional Campaign Specialist or Senior Agent where the reporting rules allow.</small></label>
+            <label className="form-field"><span>Second reporting manager <small>(optional)</small></span><select value={coManagerId} onChange={(event) => setCoManagerId(event.target.value)} disabled={!primaryManager || !["Customer Rep", "Senior Agent"].includes(role)}><option value="">No second reporting manager</option>{coManagerOptions.map((person) => <option key={person.id} value={person.id}>{person.role} · {person.name}</option>)}</select><small className="form-field-hint">Senior Agents may report to two Campaign Specialists. Customer Reps can use an additional Campaign Specialist or Senior Agent where the reporting rules allow.</small></label>
 {role === "Customer Rep" && (<label className="form-field">
               <span>Mentor <small>(optional)</small></span>
               <select value={mentorId} onChange={(event) => setMentorId(event.target.value)}>
