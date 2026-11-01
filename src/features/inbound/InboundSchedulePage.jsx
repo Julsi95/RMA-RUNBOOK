@@ -9,7 +9,7 @@ import { isSupabaseConfigured } from "@/lib/supabase";
 import { loadCallSchedules, saveCallScheduleMonth } from "@/lib/backend-repositories";
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 import { fetchCachedQuery, queryClient, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
-import { WORLD_TIME_ZONES } from "@/lib/timezones";
+import { fetchWorldTimeZones, getTimeZoneInfo } from "@/lib/timezones";
 import "@/features/inbound/inbound-schedule.css";
 
 const STORAGE_KEY = "starter-app-inbound-schedule-v1";
@@ -171,6 +171,19 @@ export default function InboundSchedulePage() {
   const callWindow = monthSchedule.callWindow ?? { start: "21:00", end: "06:00" };
   const usedCallMemberIds = new Set(callAssignments.map((item) => item.memberId));
   const availableCallMembers = members.filter((member) => !usedCallMemberIds.has(member.id));
+  const [worldTimeZones, setWorldTimeZones] = useState([]);
+
+  useEffect(() => {
+    let active = true;
+
+    fetchWorldTimeZones().then((zones) => {
+      if (active) setWorldTimeZones(zones);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   function callOnly(schedule) {
     return { callWindow: schedule.callWindow ?? { start: "21:00", end: "06:00" }, callAssignments: schedule.callAssignments ?? [] };
@@ -356,7 +369,8 @@ export default function InboundSchedulePage() {
 
   const callWindowDuration = rangeMinutes(callWindow.start, callWindow.end);
   const timelineLabels = [timeLabel(callWindow.start), displayTimeAfter(callWindow.start, callWindowDuration / 3), displayTimeAfter(callWindow.start, callWindowDuration * 2 / 3), timeLabel(callWindow.end)];
-  const timezoneLabel = WORLD_TIME_ZONES.find((zone) => zone.id === northAmericaZone)?.id ?? northAmericaZone;
+  const previewInstant = localTimeToInstant(previewDate, "12:00", MANILA_ZONE);
+  const timezoneLabel = getTimeZoneInfo(northAmericaZone, previewInstant).abbreviation;
 
   return (
     <section className="page-content inbound-page">
@@ -367,7 +381,19 @@ export default function InboundSchedulePage() {
 
       <div className="inbound-toolbar">
         <label className="inbound-control inbound-month-control"><CalendarDays size={16} /><span>Month</span><input type="month" value={month} onChange={(event) => changeMonth(event.target.value)} aria-label="Schedule month" /></label>
-        <label className="inbound-control inbound-zone-control"><span>Time zone</span><Select value={northAmericaZone} onValueChange={setNorthAmericaZone}><SelectTrigger aria-label="World time zone"><SelectValue /></SelectTrigger><SelectContent>{WORLD_TIME_ZONES.map((zone) => <SelectItem key={zone.id} value={zone.id}>{zone.label}</SelectItem>)}</SelectContent></Select></label>
+        <label className="inbound-control inbound-zone-control"><span>Time zone</span><Select value={northAmericaZone} onValueChange={setNorthAmericaZone} disabled={!worldTimeZones.length}><SelectTrigger aria-label="World time zone"><SelectValue placeholder="Loading time zones..." /></SelectTrigger>
+            <SelectContent>
+              {worldTimeZones.map((zone) => {
+                const info = getTimeZoneInfo(zone.id, previewInstant);
+                return (
+                  <SelectItem key={zone.id} value={zone.id}>
+                    {info.label}
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
+        </label>
         <label className="inbound-control inbound-date-control"><span>Preview date</span><input type="date" value={previewDate} min={`${month}-01`} max={`${month}-${new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()}`} onChange={(event) => setPreviewDate(event.target.value)} aria-label="Timezone conversion preview date" /></label>
         <div className="inbound-view-toggle" role="group" aria-label="Primary time display">
           <button type="button" className={timeView === "ph" ? "active" : ""} onClick={() => setTimeView("ph")}>PH time</button>
