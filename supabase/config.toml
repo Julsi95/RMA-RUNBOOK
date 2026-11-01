@@ -32,3 +32,8 @@ content_path = "./supabase/templates/invite.html"
 # because Auth does not send a user access token with hook requests.
 [functions.send-email]
 verify_jwt = false
+
+# WFH outbox dispatcher is protected by its own Edge Function secret header.
+# It does not share the Auth Send Email Hook endpoint or signature.
+[functions.send-wfh-email]
+verify_jwt = false
