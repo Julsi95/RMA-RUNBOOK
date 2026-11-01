@@ -136,3 +136,5 @@
 .wfh-approved-date-list label>span{min-width:0;overflow:hidden}
 .wfh-approved-date-list small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(max-width:520px){.wfh-approval-card{height:min(220px,36dvh);min-height:165px}.wfh-approval-list{max-height:none}}
+.wfh-revoke-note{margin:6px 0 0;color:var(--muted-foreground);font-size:11px;line-height:1.45}
+.wfh-agent-point-controls{display:flex;align-items:center;gap:5px;flex:0 0 auto}.wfh-agent-point-controls input{width:54px;min-height:30px;border:1px solid var(--border);border-radius:7px;background:var(--surface);color:var(--foreground);padding:4px 6px;font:inherit;font-size:10px}.wfh-agent-point-controls button{min-height:30px;padding:4px 7px;font-size:10px}.wfh-agent-balance-row{display:grid;grid-template-columns:minmax(72px,1fr) auto auto;align-items:center;gap:8px}.wfh-revoke-note{margin:6px 0 0;color:var(--muted-foreground);font-size:11px;line-height:1.45}

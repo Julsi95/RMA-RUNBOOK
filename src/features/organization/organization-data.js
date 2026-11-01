@@ -105,6 +105,23 @@ export function buildOrganizationTree(members) {
     else roots.push(node);
   }
 
+  function sharedManagerGroupAnchor(managers, visited = new Set()) {
+    const groupKey = managers.map((manager) => manager.id).sort().join(":");
+    if (!groupKey || visited.has(groupKey)) return null;
+    visited.add(groupKey);
+
+    const parentSets = managers.map((manager) => getReportingManagerIds(manager).sort());
+    const signature = parentSets[0]?.join("\u0000");
+    if (!signature || parentSets.some((parentIds) => parentIds.join("\u0000") !== signature)) return null;
+    const parentIds = parentSets[0];
+    if (parentIds.length === 1) return nodes.get(parentIds[0]) ?? null;
+    if (parentIds.length < 2) return null;
+
+    const parentManagers = parentIds.map((id) => nodes.get(id));
+    if (parentManagers.some((manager) => !manager)) return null;
+    return sharedManagerGroupAnchor(parentManagers, visited);
+  }
+
   const rank = (member) => {
     const roleRank = new Map(organizationHierarchyRoles.map((role, index) => [role, index]));
     const selected = getHierarchyRoles(member).map((role) => roleRank.get(role)).filter(Number.isInteger);
@@ -123,8 +140,10 @@ export function buildOrganizationTree(members) {
     if (new Set(commonParentIds).size !== 1) continue;
     if (report.role === "Senior Agent" && managers.some((manager) => manager.role !== "Campaign Specialist")) continue;
     if (report.role === "Customer Rep" && managers.some((manager) => !["Campaign Specialist", "Senior Agent"].includes(manager.role))) continue;
-    const commonParentId = getReportingManagerIds(managers[0])[0];
-    const commonManager = commonParentId ? nodes.get(commonParentId) : null;
+    // Put a shared report below its manager row. If those managers are
+    // themselves shared reports, walk up to the anchor that renders that row
+    // instead of attaching this group to only the first manager's parent.
+    const commonManager = sharedManagerGroupAnchor(managers);
     if (!commonManager) continue;
     const key = [...managerIds].sort().join(":");
     commonManager.coManagedGroups ??= [];
@@ -134,6 +153,14 @@ export function buildOrganizationTree(members) {
       commonManager.coManagedGroups.push(group);
     }
     group.reports.push(report);
+  }
+  const roleOrder = new Map([["Campaign Specialist", 1], ["Senior Agent", 2], ["Customer Rep", 3]]);
+  for (const node of nodes.values()) {
+    node.coManagedGroups?.sort((left, right) => {
+      const leftLevel = Math.max(...left.managerIds.map((id) => roleOrder.get(nodes.get(id)?.role) ?? 0));
+      const rightLevel = Math.max(...right.managerIds.map((id) => roleOrder.get(nodes.get(id)?.role) ?? 0));
+      return leftLevel - rightLevel || left.key.localeCompare(right.key);
+    });
   }
   sortBranches(roots);
 

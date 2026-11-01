@@ -13,7 +13,7 @@ import { EmployeePicker } from "./EmployeePicker";
 import { canReviewWfhRequest, employeeIsWfhLead } from "./wfh-permissions";
 import { balanceForEmployee } from "./wfh-utils";
 import { useWfhPrivileges } from "./useWfhPrivileges";
-import { awardWfhPrivileges, decideWfhRequest, requestWfh, requestWfhCancellation, revokeWfhRewardDates, updateWfhSettings } from "./wfh-service";
+import { awardWfhPrivileges, decideWfhRequest, requestWfh, requestWfhCancellation, removeWfhPoints, revokeWfhRewardDates, updateWfhSettings } from "./wfh-service";
 import "./wfh-privileges.css";
 
 function dateToday() { return new Date().toISOString().slice(0, 10); }
@@ -27,6 +27,7 @@ function RewardList({ title, rewards, employeeName, busy, allocations = [], onRe
   const visibleRewards = rewards.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
   return <section className="wfh-reward-panel">
     <header><h3>{title}</h3><span>{rewards.length}</span></header>
+    {onRevokeDates && <p className="wfh-revoke-note">Revoking an approved date releases it and returns its eligible WFH point.</p>}
     <div className="wfh-reward-scroll">
       {rewards.length === 0 ? <p className="wfh-reward-empty">Nothing to show yet.</p> : visibleRewards.map((reward) => {
         const expired = reward.expires_on < dateToday();
@@ -35,7 +36,7 @@ function RewardList({ title, rewards, employeeName, busy, allocations = [], onRe
             {!!allocations.filter((allocation) => allocation.reward_id === reward.id).length && <div className="wfh-approved-date-list">{allocations.filter((allocation) => allocation.reward_id === reward.id).map((allocation) => <label key={allocation.id} className={allocation.status === "active" ? "is-approved" : "is-revoked"}>{onRevokeDates && allocation.status === "active" && !expired && <input type="checkbox" checked={(selectedDates[reward.id] ?? []).includes(allocation.privilege_date)} onChange={(event) => setSelectedDates((current) => ({ ...current, [reward.id]: event.target.checked ? [...(current[reward.id] ?? []), allocation.privilege_date] : (current[reward.id] ?? []).filter((date) => date !== allocation.privilege_date) }))} />}<span>{allocation.privilege_date}<small>approved {new Date(allocation.created_at).toLocaleDateString()}</small></span></label>)}</div>}
           </div>
           <span className="wfh-reward-remain">{reward.days_available} left</span>
-          {!reward.revoked_at && !expired && onRevokeDates && (selectedDates[reward.id]?.length ?? 0) > 0 && <Button size="sm" variant="outline" disabled={busy} onClick={async () => { const dates = selectedDates[reward.id]; const saved = await onRevokeDates(reward.id, dates); if (saved) setSelectedDates((current) => ({ ...current, [reward.id]: [] })); }}>Revoke {selectedDates[reward.id].length} date{selectedDates[reward.id].length === 1 ? "" : "s"}</Button>}
+          {!reward.revoked_at && !expired && onRevokeDates && (selectedDates[reward.id]?.length ?? 0) > 0 && <Button size="sm" variant="outline" disabled={busy} onClick={async () => { const dates = selectedDates[reward.id]; if (!window.confirm(`Revoke ${dates.length} approved WFH date${dates.length === 1 ? "" : "s"} for ${employeeName(reward.employee_id)} and return eligible point${dates.length === 1 ? "" : "s"}?`)) return; const saved = await onRevokeDates(reward.id, dates); if (saved) setSelectedDates((current) => ({ ...current, [reward.id]: [] })); }}>Revoke {selectedDates[reward.id].length} date{selectedDates[reward.id].length === 1 ? "" : "s"}</Button>}
           {(reward.revoked_at || expired) && <PrivilegeStatusBadge status={reward.revoked_at ? "revoked" : "expired"} />}
         </article>;
       })}
@@ -44,16 +45,20 @@ function RewardList({ title, rewards, employeeName, busy, allocations = [], onRe
   </section>;
 }
 
-function EmployeeBalances({ members, rewards }) {
+function EmployeeBalances({ members, rewards, busy, onRemovePoints }) {
+  const [pointsByEmployee, setPointsByEmployee] = useState({});
   const today = dateToday();
   const rows = [...members].sort((a, b) => a.name.localeCompare(b.name));
   const totalDays = rows.reduce((total, member) => total + balanceForEmployee(rewards, member.id, new Date(`${today}T12:00:00`)), 0);
   return <section className="wfh-agent-balances">
-    <header><div><h3><Gift size={15} /> Agent WFH balances</h3><p>Remaining awarded days by employee</p></div><span>{totalDays} days</span></header>
+    <header><div><h3><Gift size={15} /> Agent WFH balances</h3><p>Remove a chosen point count from one agent’s balance.</p></div><span>{totalDays} days</span></header>
     <div className="wfh-agent-balance-list">
       {rows.map((member) => {
         const days = balanceForEmployee(rewards, member.id, new Date(`${today}T12:00:00`));
-        return <div className="wfh-agent-balance-row" key={member.id}><span><strong>{member.name}</strong><small>{member.role || "Team member"}</small></span><b>{days}<small>{days === 1 ? "day" : "days"}</small></b></div>;
+        const points = Number(pointsByEmployee[member.id] ?? 1);
+        const pointLimit = Math.min(days, 10000);
+        const selectedPoints = days ? Math.min(pointLimit, points) : 0;
+        return <div className="wfh-agent-balance-row" key={member.id}><span><strong>{member.name}</strong><small>{member.role || "Team member"}</small></span><b>{days}<small>{days === 1 ? "day" : "days"}</small></b><div className="wfh-agent-point-controls"><input aria-label={`Points to remove from ${member.name}`} type="number" min="1" max={pointLimit} step="1" value={selectedPoints} disabled={!days || busy} onChange={(event) => setPointsByEmployee((current) => ({ ...current, [member.id]: Math.min(pointLimit, Math.max(1, Number.parseInt(event.target.value, 10) || 1)) }))} /><Button size="sm" variant="outline" disabled={!days || busy} onClick={async () => { if (!window.confirm(`Remove ${selectedPoints} WFH point${selectedPoints === 1 ? "" : "s"} from ${member.name}? This cannot be undone.`)) return; const saved = await onRemovePoints(member.id, selectedPoints); if (saved) setPointsByEmployee((current) => ({ ...current, [member.id]: 1 })); }}>{busy ? "Saving…" : "Remove"}</Button></div></div>;
       })}
       {!rows.length && <p className="wfh-reward-empty">No employees are available.</p>}
     </div>
@@ -119,7 +124,7 @@ function AdminControls({ members, settings, rewards, allocations, onRefresh }) {
           </div>
           <Button variant="outline" disabled={busy}>Save policy</Button>
         </form>
-        <EmployeeBalances members={members} rewards={rewards} />
+        <EmployeeBalances members={members} rewards={rewards} busy={busy} onRemovePoints={(id, points) => run(() => removeWfhPoints(id, points, "Removed by administrator"))} />
       </div>
     </div>
     <div className="wfh-admin-reward-filters" role="group" aria-label="Filter WFH rewards">{[["active", "Active rewards"], ["expired", "Expired rewards"]].map(([value, label]) => <button type="button" key={value} className={rewardFilter === value ? "active" : ""} onClick={() => setRewardFilter(value)}>{label} · {value === "active" ? activeRewards.length : expiredRewards.length}</button>)}</div>
