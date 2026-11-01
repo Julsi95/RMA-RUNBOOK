@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, Clock3, Gift, History as HistoryIcon } from 
 import { Button } from "@/components/ui/Button";
 import { PrivilegeStatusBadge } from "./PrivilegeStatusBadge";
 
-const ACTION_NAMES = { awarded: "Awarded", revoked: "Revoked", points_removed: "Points removed", requested: "WFH requested", approved: "WFH approved", rejected: "Request rejected", cancellation_requested: "Cancellation requested", cancellation_approved: "Cancellation approved", cancellation_rejected: "Cancellation rejected", policy_updated: "Company policy updated" };
+const ACTION_NAMES = { awarded: "Awarded", revoked: "Revoked", credit_returned: "Credit returned", points_removed: "Points removed", requested: "WFH requested", approved: "WFH approved", rejected: "Request rejected", cancellation_requested: "Cancellation requested", cancellation_approved: "Cancellation approved", cancellation_rejected: "Cancellation rejected", policy_updated: "Company policy updated" };
 
 export function PrivilegeHistory({ requests, audit, employeeName, isAdmin = false }) {
   const [page, setPage] = useState(0);
@@ -23,7 +23,7 @@ export function PrivilegeHistory({ requests, audit, employeeName, isAdmin = fals
         const policy = row.action === "policy_updated" ? ` · rewards expire in ${row.details?.after?.expiration_days} days; cancellation notice ${row.details?.after?.cancellation_notice_days} days` : "";
         return <article key={`${row.kind}-${row.id}`}>
           <span className="wfh-history-icon">{row.kind === "request" ? <Clock3 size={15} /> : <Gift size={15} />}</span>
-          <div><strong>{row.kind === "request" ? `${row.request_type === "cancel" ? "Cancellation" : "WFH"} request` : ACTION_NAMES[row.action] ?? row.action}</strong><span>{subject}{row.kind === "request" ? ` · ${(row.approved_dates ?? row.requested_dates).join(", ")}` : row.details?.points_removed ? ` · ${row.details.points_removed} point(s) removed` : row.details?.credit_returned ? " · credit returned" : row.details?.days ? ` · ${row.details.days} day(s)` : policy}</span><time>{new Date(row.created_at).toLocaleString()}</time></div>
+          <div><strong>{row.kind === "request" ? `${row.request_type === "cancel" ? "Cancellation" : "WFH"} request` : ACTION_NAMES[row.action] ?? row.action}</strong><span>{subject}{row.kind === "request" ? ` · ${(row.approved_dates ?? row.requested_dates).join(", ")}` : row.details?.points_removed ? ` · ${row.details.points_removed} point(s) removed` : row.details?.points_returned ? ` · ${row.details.points_returned} point(s) returned` : row.details?.credit_returned ? " · credit returned" : row.details?.days ? ` · ${row.details.days} day(s)` : policy}</span><time>{new Date(row.created_at).toLocaleString()}</time></div>
           {row.kind === "request" && <PrivilegeStatusBadge status={row.status} />}
         </article>;
       })}</div>}
