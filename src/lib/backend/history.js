@@ -43,3 +43,9 @@ export async function resetHistory() {
   throwIfError(error);
   return Number(data) || 0;
 }
+
+export async function pruneOldestHistory(keepNewest) {
+  const { data, error } = await assertBackendConfigured().rpc("prune_oldest_runbook_history", { p_keep_newest: Number(keepNewest) });
+  throwIfError(error);
+  return Number(data) || 0;
+}

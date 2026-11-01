@@ -80,10 +80,15 @@ export default function SeatPlanPage() {
   const resourceKey = useMemo(() => queryKeys.seatPlans(user?.id ?? "anonymous", canEdit), [canEdit, user?.id]);
   const cachedPlans = readCachedQuery(resourceKey);
   const [selectedDate, setSelectedDate] = useState(getLocalDate);
+  const [planScope, setPlanScope] = useState("date");
   const [plans, setPlans] = useState(() => isSupabaseConfigured ? cachedPlans ?? {} : getSavedPlans());
   const [remoteReady, setRemoteReady] = useState(Boolean(cachedPlans));
   const [syncError, setSyncError] = useState("");
   const remoteSnapshotRef = useRef(cachedPlans ? structuredClone(cachedPlans) : null);
+  const dirtyPlanKeysRef = useRef(new Set());
+  const latestPlansRef = useRef(plans);
+  const saveQueueRef = useRef(Promise.resolve());
+  latestPlansRef.current = plans;
   const canManage = canEdit && (!isSupabaseConfigured || Boolean(remoteSnapshotRef.current));
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedMemberId, setSelectedMemberId] = useState(null);
@@ -92,7 +97,8 @@ export default function SeatPlanPage() {
   const [dragPreviewPosition, setDragPreviewPosition] = useState(null);
   const dragRef = useRef(null);
   const suppressClickRef = useRef(false);
-  const activePlan = plans[selectedDate] ?? emptyPlan;
+  const activePlanKey = planScope === "month" ? selectedDate.slice(0, 7) : selectedDate;
+  const activePlan = plans[activePlanKey] ?? (planScope === "date" ? plans[selectedDate.slice(0, 7)] : null) ?? emptyPlan;
   const assignments = activePlan.assignments ?? {};
   const seatIds = activePlan.seatIds ?? initialSeatIds;
   const leadershipSeatIds = activePlan.leadershipSeatIds ?? initialLeadershipSeatIds;
@@ -107,7 +113,11 @@ export default function SeatPlanPage() {
     void fetchCachedQuery(resourceKey, () => retryDataLoad(loadSeatPlans)).then((saved) => {
       if (!active) return;
       remoteSnapshotRef.current = structuredClone(saved);
-      setPlans(saved);
+      setPlans((current) => {
+        const merged = { ...saved };
+        for (const key of dirtyPlanKeysRef.current) if (Object.hasOwn(current, key)) merged[key] = current[key];
+        return merged;
+      });
       setRemoteReady(true);
       setSyncError("");
     }).catch((error) => { if (active) setSyncError(error.message || "Could not load saved seat plans."); });
@@ -118,11 +128,17 @@ export default function SeatPlanPage() {
     if (!isSupabaseConfigured) return undefined;
     let active = true;
     let timer;
-    const unsubscribe = subscribeToTables(["seat_plans", "seat_positions", "seat_assignments"], () => {
+    const unsubscribe = subscribeToTables(["seat_plans", "seat_positions", "seat_assignments", "seat_month_plans"], () => {
       window.clearTimeout(timer);
       timer = window.setTimeout(() => { void fetchCachedQuery(resourceKey, () => retryDataLoad(loadSeatPlans), { force: true }).then((saved) => {
         if (!active) return;
-        remoteSnapshotRef.current = structuredClone(saved); setPlans(saved); setSyncError("");
+        remoteSnapshotRef.current = structuredClone(saved);
+        setPlans((current) => {
+          const merged = { ...saved };
+          for (const key of dirtyPlanKeysRef.current) if (Object.hasOwn(current, key)) merged[key] = current[key];
+          return merged;
+        });
+        setSyncError("");
       }).catch((error) => { if (active) setSyncError(error.message || "Could not sync seat plan changes."); }); }, 180);
     }, "seat-plan");
     return () => { active = false; window.clearTimeout(timer); unsubscribe(); };
@@ -132,15 +148,17 @@ export default function SeatPlanPage() {
     if (!isSupabaseConfigured || !remoteReady || !canEdit || !remoteSnapshotRef.current) return undefined;
     const pending = Object.entries(plans).filter(([date, plan]) => JSON.stringify(plan) !== JSON.stringify(remoteSnapshotRef.current?.[date]));
     if (!pending.length) return undefined;
+    const pendingSnapshot = Object.fromEntries(pending);
     const timeout = window.setTimeout(async () => {
-      try {
-        await Promise.all(pending.map(([date, plan]) => saveSeatPlan(date, plan)));
-        remoteSnapshotRef.current = { ...(remoteSnapshotRef.current ?? {}), ...Object.fromEntries(pending) };
+      saveQueueRef.current = saveQueueRef.current.catch(() => {}).then(async () => {
+        await Promise.all(Object.entries(pendingSnapshot).map(([date, plan]) => saveSeatPlan(date, plan)));
+        remoteSnapshotRef.current = { ...(remoteSnapshotRef.current ?? {}), ...pendingSnapshot };
+        for (const [date, plan] of Object.entries(pendingSnapshot)) {
+          if (JSON.stringify(latestPlansRef.current[date]) === JSON.stringify(plan)) dirtyPlanKeysRef.current.delete(date);
+        }
         queryClient.setQueryData(resourceKey, remoteSnapshotRef.current);
         setSyncError("");
-      } catch (error) {
-        setSyncError(error.message || "Could not save seat plan changes.");
-      }
+      }).catch((error) => setSyncError(error.message || "Could not save seat plan changes."));
     }, 450);
     return () => window.clearTimeout(timeout);
   }, [plans, remoteReady, canEdit, resourceKey]);
@@ -168,9 +186,10 @@ export default function SeatPlanPage() {
 
   function updateActivePlan(updater) {
     if (!canManage) return;
+    dirtyPlanKeysRef.current.add(activePlanKey);
     setPlans((current) => {
-      const plan = current[selectedDate] ?? emptyPlan;
-      return { ...current, [selectedDate]: updater(plan) };
+      const plan = current[activePlanKey] ?? (planScope === "date" ? current[selectedDate.slice(0, 7)] : null) ?? emptyPlan;
+      return { ...current, [activePlanKey]: updater(plan) };
     });
   }
 
@@ -272,6 +291,8 @@ export default function SeatPlanPage() {
   function startPointerDrag(event, payload) {
     if (!canManage) return;
     if (event.pointerType === "mouse" && event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
     dragRef.current = { ...payload, startX: event.clientX, startY: event.clientY, moved: false };
   }
 
@@ -288,7 +309,7 @@ export default function SeatPlanPage() {
   function finishPointerDrag(event) {
     const drag = dragRef.current;
     if (!drag) return;
-    const dropTarget = event.target.closest?.("[data-seat-drop-id], [data-pool-drop]");
+    const dropTarget = document.elementFromPoint(event.clientX, event.clientY)?.closest?.("[data-seat-drop-id], [data-pool-drop]");
     if (drag.moved) {
       event.preventDefault();
       suppressClickRef.current = true;
@@ -362,6 +383,8 @@ export default function SeatPlanPage() {
   }
 
   const printableDate = new Intl.DateTimeFormat(undefined, { dateStyle: "long" }).format(new Date(`${selectedDate}T12:00:00`));
+  const monthLabel = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(new Date(`${selectedDate.slice(0, 7)}-01T12:00:00`));
+  const activePlanLabel = planScope === "month" ? monthLabel : printableDate;
 
   return (
     <section className="page-content seat-plan-page" onPointerMove={updatePointerDrag} onPointerUp={finishPointerDrag} onPointerCancel={() => { dragRef.current = null; setDraggingMemberId(null); setDragPreviewPosition(null); }}>
@@ -388,6 +411,7 @@ export default function SeatPlanPage() {
           <span className="seat-control-icon"><CalendarDays size={17} /></span>
           <span><small>Seat plan for</small><input type="date" value={selectedDate} onChange={(event) => { if (event.target.value) setSelectedDate(event.target.value); setSelectedSeatId(null); setSelectedMemberId(null); }} /></span>
         </label>
+        <div className="seat-plan-scope" role="group" aria-label="Seat plan scope"><button type="button" className={planScope === "date" ? "active" : ""} onClick={() => setPlanScope("date")}>Specific date</button><button type="button" className={planScope === "month" ? "active" : ""} onClick={() => setPlanScope("month")}>Whole month</button></div>
         <div className="seat-plan-status"><span className="seat-status-dot" />{syncError ? "Sync issue" : isSupabaseConfigured ? remoteReady ? canEdit ? "Synced with workspace" : "Shared workspace" : "Loading plans…" : "Saved in this browser"}</div>
       </div>
       {syncError && <p className="auth-error" role="alert">{syncError}</p>}
@@ -401,7 +425,7 @@ export default function SeatPlanPage() {
       <div className="seat-plan-layout">
         <section className="seat-map-panel">
           <div className="seat-panel-heading">
-            <div><p className="eyebrow">FLOOR LAYOUT</p><h2>Seat plan for {printableDate}</h2></div>
+            <div><p className="eyebrow">FLOOR LAYOUT</p><h2>Seat plan for {activePlanLabel}</h2></div>
           <div className="seat-map-actions"><span className="seat-layout-badge">{allSeatIds.length} seats <i /> Leadership + team</span>{canManage && <Button variant="outline" className="seat-add-button" onClick={addSeat}><Plus size={15} /> Add team seat</Button>}</div>
           </div>
           <div className="seat-map-legend"><span><i className="legend-chair-icon" /> Chair</span><span><i className="legend-desk-icon" /> Desk & assigned teammate</span><span><i className="legend-open-icon" /> Open seat</span></div>
@@ -433,9 +457,9 @@ export default function SeatPlanPage() {
         </section>
 
         <aside className="seat-note-panel">
-          <div className="seat-note-heading"><span className="seat-note-icon"><CalendarDays size={16} /></span><div><h2>Plan notes</h2><p>Saved separately for each date.</p></div></div>
-          <label className="seat-note-label" htmlFor="seat-plan-note">Notes for {printableDate}</label>
-          <textarea id="seat-plan-note" value={activePlan.note ?? ""} onChange={(event) => setNote(event.target.value)} placeholder={canManage ? "Add a note for this day…&#10;Example: Training at the front row" : "No notes for this day"} maxLength={500} readOnly={!canManage} />
+          <div className="seat-note-heading"><span className="seat-note-icon"><CalendarDays size={16} /></span><div><h2>Plan notes</h2><p>{planScope === "month" ? "Saved for the entire month." : "Saved for this specific date."}</p></div></div>
+          <label className="seat-note-label" htmlFor="seat-plan-note">Notes for {activePlanLabel}</label>
+          <textarea id="seat-plan-note" value={activePlan.note ?? ""} onChange={(event) => setNote(event.target.value)} placeholder={canManage ? (planScope === "month" ? "Add a note for this month…" : "Add a note for this day…") : "No notes for this plan"} maxLength={500} readOnly={!canManage} />
           <div className="seat-note-footer"><span>{(activePlan.note ?? "").length}/500</span><span>Autosaved</span></div>
         </aside>
       </div>

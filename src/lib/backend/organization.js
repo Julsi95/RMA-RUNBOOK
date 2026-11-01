@@ -1,14 +1,22 @@
-import { getOrganizationMembers } from "@/features/organization/organization-data";
+import { getOrganizationMembers, getReportingManagerIds } from "@/features/organization/organization-data";
 import { supabase } from "@/lib/supabase";
 import { assertBackendConfigured, createPrivateSignedUrlMap, throwIfError, throwIfErrors } from "./shared.js";
 
 function normalizeEmployee(row, profile = {}) {
+  const reportingManagerIds = Array.isArray(row.reporting_manager_ids)
+    ? row.reporting_manager_ids
+    : Array.isArray(profile.reporting_manager_ids)
+      ? profile.reporting_manager_ids
+      : [row.manager_id ?? row.managerId ?? null, row.co_manager_id ?? row.coManagerId ?? profile.co_manager_id ?? null].filter(Boolean);
   return {
     id: row.id,
     name: row.name,
     role: row.role,
     hierarchyRoles: row.hierarchy_roles ?? row.profile?.hierarchy_roles ?? [],
-    managerId: row.manager_id ?? row.managerId ?? null,
+    reportingManagerIds,
+    managerId: reportingManagerIds[0] ?? null,
+    coManagerId: reportingManagerIds[1] ?? null,
+    team: row.team ?? row.profile?.team ?? "",
     mentorId: row.mentor_id ?? row.mentorId ?? null,
     sortOrder: Number(row.sort_order ?? row.sortOrder ?? 0),
     photo: row.photo_url ?? row.photo ?? "",
@@ -62,14 +70,21 @@ export async function loadRemoteRoster(canEdit, { anonymous = false } = {}) {
     return { members, profiles: Object.fromEntries(members.map((member) => [member.id, member.profile])), definitions: definitionsResult.data ?? [] };
   }
 
-  const [employeesResult, profilesResult, definitionsResult] = await Promise.all([
-    supabase.from("employees").select("id,name,role,hierarchy_roles,manager_id,mentor_id,photo_url,photo_path,sort_order").is("deleted_at", null).order("sort_order").order("name"),
+  const [employeesResult, profilesResult, definitionsResult, reportingManagersResult] = await Promise.all([
+    supabase.from("employees").select("id,name,role,hierarchy_roles,manager_id,co_manager_id,team,mentor_id,photo_url,photo_path,sort_order").is("deleted_at", null).order("sort_order").order("name"),
     supabase.from("employee_profiles").select("employee_id,birthday,hire_date,personality,summary,photo_public,custom_fields,birthday_public,hire_date_public,personality_public,summary_public,custom_field_visibility"),
     supabase.from("agent_profile_field_definitions").select("id,label,field_type,sort_order").order("sort_order"),
+    supabase.from("employee_reporting_managers").select("employee_id,manager_id,sort_order").order("sort_order"),
   ]);
-  throwIfErrors([employeesResult, profilesResult, definitionsResult]);
+  throwIfErrors([employeesResult, profilesResult, definitionsResult, reportingManagersResult]);
   const profileById = new Map((profilesResult.data ?? []).map((row) => [row.employee_id, row]));
-  const members = await addSignedPhotoUrls((employeesResult.data ?? []).map((row) => normalizeEmployee(row, profileById.get(row.id))));
+  const managersByEmployee = new Map();
+  for (const relation of reportingManagersResult.data ?? []) {
+    const ids = managersByEmployee.get(relation.employee_id) ?? [];
+    ids.push(relation.manager_id);
+    managersByEmployee.set(relation.employee_id, ids);
+  }
+  const members = await addSignedPhotoUrls((employeesResult.data ?? []).map((row) => normalizeEmployee({ ...row, reporting_manager_ids: managersByEmployee.get(row.id) }, profileById.get(row.id))));
   return { members, profiles: Object.fromEntries(members.map((member) => [member.id, member.profile])), definitions: definitionsResult.data ?? [] };
 }
 
@@ -106,10 +121,12 @@ export async function saveRemoteMembers(currentMembers, nextMembers, deletedId) 
   const rows = await Promise.all(nextMembers.map(async (member) => {
     const previous = currentById.get(member.id);
     const photo = await storeEmployeePhoto(member.photo, member.photoPath ?? previous?.photoPath, member.id);
+    const reportingManagerIds = getReportingManagerIds(member);
     const row = {
       id: member.id, name: member.name, role: member.role,
       hierarchy_roles: [...new Set(member.hierarchyRoles ?? [])],
-      manager_id: member.managerId || null, mentor_id: member.mentorId || null,
+      manager_id: reportingManagerIds[0] ?? null, co_manager_id: reportingManagerIds[1] ?? null, reporting_manager_ids: reportingManagerIds,
+      team: member.team || null, mentor_id: member.mentorId || null,
       photo_url: photo.photoUrl, photo_path: photo.photoPath,
       sort_order: currentOrder.get(member.id) ?? nextSortOrder,
     };
@@ -117,7 +134,8 @@ export async function saveRemoteMembers(currentMembers, nextMembers, deletedId) 
       && previous.name === row.name
       && previous.role === row.role
       && JSON.stringify([...new Set(previous.hierarchyRoles ?? [])].sort()) === JSON.stringify([...row.hierarchy_roles].sort())
-      && (previous.managerId || null) === row.manager_id
+      && JSON.stringify(getReportingManagerIds(previous)) === JSON.stringify(row.reporting_manager_ids)
+      && (previous.team || null) === row.team
       && (previous.mentorId || null) === row.mentor_id
       && (photo.photoPath ? previous.photoPath === photo.photoPath : (previous.photo ?? "") === row.photo_url)
       && currentOrder.get(member.id) === row.sort_order;
@@ -125,14 +143,12 @@ export async function saveRemoteMembers(currentMembers, nextMembers, deletedId) 
   }));
 
   const changedRows = rows.filter(Boolean);
-  if (changedRows.length) {
-    const { error } = await assertBackendConfigured().from("employees").upsert(changedRows);
-    throwIfError(error);
-  }
-  if (deletedId) {
-    const { error } = await assertBackendConfigured().rpc("soft_delete_employee", { p_id: deletedId });
-    throwIfError(error);
-  }
+  if (!changedRows.length && !deletedId) return;
+  const { error } = await assertBackendConfigured().rpc("save_organization_reporting_graph", {
+    p_members: changedRows,
+    p_deleted_id: deletedId,
+  });
+  throwIfError(error);
 }
 
 export async function saveRemoteEmployeeProfile(employeeId, profile) {

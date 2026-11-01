@@ -8,7 +8,7 @@ export function useWfhPrivileges() {
   const { user } = useAuth();
   const key = useMemo(() => queryKeys.wfhPrivileges(user?.id ?? "anonymous"), [user?.id]);
   const cached = readCachedQuery(key);
-  const [data, setData] = useState(cached ?? { rewards: [], requests: [], allocations: [], audit: [], settings: null });
+  const [data, setData] = useState(cached ?? { rewards: [], requests: [], allocations: [], audit: [], settings: null, holidays: [] });
   const [loading, setLoading] = useState(!cached);
   const [error, setError] = useState("");
 

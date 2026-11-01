@@ -92,3 +92,22 @@ The services retain the current UI-facing data shapes. Private photo URLs are re
 ## Local validation limits
 
 The production frontend build passes without credentials. All eleven migrations and the seed also apply in an isolated PGlite/Postgres-WASM harness with stubbed Supabase Auth/Storage schemas; representative public/viewer/editor RLS and restore flows pass there. This does not validate Supabase's hosted Postgres/PostgREST/Auth/Storage behavior. Hosted RLS, short-lived signed photo URLs, Auth email delivery, and Vercel redirects still require a project that the owner configures manually. Never put a service-role key in `VITE_*` variables or client code.
+
+## WFH email notifications
+
+WFH emails use a separate `send-wfh-email` Edge Function and transactional outbox. The existing Auth `send-email` hook, its signature verification, and its secrets are unchanged. Keep the existing `SENDLIBERTY_API_KEY` and `SENDLIBERTY_FROM_EMAIL` Edge Function secrets; add a separate random `WFH_EMAIL_DISPATCH_SECRET` before deploying this function.
+
+After migration `202611010014_wfh_email_outbox.sql` is applied, add these two Supabase Vault secrets in SQL Editor. Use your project URL and the same random value configured as `WFH_EMAIL_DISPATCH_SECRET`:
+
+```sql
+select vault.create_secret('https://YOUR_PROJECT_REF.supabase.co', 'wfh_email_dispatch_url');
+select vault.create_secret('YOUR_WFH_EMAIL_DISPATCH_SECRET', 'wfh_email_dispatch_key');
+```
+
+Then deploy only the new function:
+
+```powershell
+npx supabase functions deploy send-wfh-email --no-verify-jwt
+```
+
+The migration schedules a one-minute outbox sweep. The function checks the dedicated dispatch header, claims jobs through a service-only RPC, resolves recipient email addresses server-side, sends sequentially through SendLiberty, and retries transient delivery errors. Never put the dispatch secret, SendLiberty key, or Supabase service-role key in frontend variables.

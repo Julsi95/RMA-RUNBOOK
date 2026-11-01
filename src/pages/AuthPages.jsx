@@ -6,6 +6,7 @@ import { PasswordInput } from "@/components/ui/PasswordInput";
 import { useAuth } from "@/app/auth-provider";
 import { supabase } from "@/lib/supabase";
 import { invitationOtpErrorMessage, isValidInvitationOtp, normalizeInvitationEmail, normalizeInvitationOtp } from "@/lib/invitation-otp";
+import { TermsDialog } from "@/components/TermsDialog";
 
 function AuthFrame({ eyebrow, title, description, children }) {
   return <main className="auth-page"><section className="auth-card"><Link className="auth-brand" to="/">VF <span>RUNBOOK</span></Link><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p className="page-description">{description}</p>{children}</section></main>;
@@ -19,6 +20,7 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
   const from = location.state?.from || "/";
 
   if (!configured) return <AuthFrame eyebrow="EDITOR SIGN IN" title="Connect your workspace" description="This project has not been connected to Supabase yet."><p className="auth-notice">Add the Supabase project URL and public key to your local environment, then restart the app.</p><Link className="auth-back-link" to="/"><ArrowLeft size={15} /> Back to dashboard</Link></AuthFrame>;
@@ -40,7 +42,9 @@ export function LoginPage() {
       <Button type="submit" disabled={busy || loading}>{busy ? "Signing in…" : "Sign in"}</Button>
     </form>
     <Link className="auth-secondary-link" to="/forgot-password">Forgot password?</Link>
+    <button className="auth-secondary-link terms-link-button" type="button" onClick={() => setTermsOpen(true)}>Terms and conditions</button>
     <Link className="auth-back-link" to="/"><ArrowLeft size={15} /> Back to public workspace</Link>
+    {termsOpen && <TermsDialog onClose={() => setTermsOpen(false)} />}
   </AuthFrame>;
 }
 

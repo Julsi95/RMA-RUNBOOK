@@ -115,6 +115,7 @@ export function OrganizationProvider({ children }) {
     };
     const unsubscribe = subscribeToTables([
       "agent_profile_field_definitions",
+      "employee_reporting_managers",
       { table: "realtime_sync_signals", filter: "source_table=eq.employees" },
       { table: "realtime_sync_signals", filter: "source_table=eq.employee_profiles" },
     ], reload, "organization");

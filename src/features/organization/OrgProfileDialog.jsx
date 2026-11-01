@@ -44,7 +44,7 @@ export default function OrgProfileDialog({ member, onClose }) {
           {profile.personality && <div className="org-profile-fact"><Sparkles size={16} /><span><small>Personality</small><strong>{profile.personality}</strong></span></div>}
         </div>
         {customFields.length > 0 && <section className="org-profile-custom-fields"><h3>More about {member.name.split(/\s+/)[0]}</h3><dl>{customFields.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{String(value)}</dd></div>)}</dl></section>}
-        {member.managerId && member.managerName && <p className="org-profile-manager">Reports to <strong>{member.managerName}</strong></p>}
+        {member.reportingManagers?.length > 0 && <p className="org-profile-manager">Reports to <strong>{member.reportingManagers.map((manager) => `${manager.role || "Manager"} · ${manager.name}`).join(" / ")}</strong></p>}
       </div>
     </section>
   </div>;

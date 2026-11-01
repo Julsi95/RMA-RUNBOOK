@@ -28,6 +28,18 @@ export async function revokeWfhReward(rewardId, reason) {
   const { error } = await requireSupabase().rpc("revoke_wfh_reward", { p_reward_id: rewardId, p_reason: reason });
   if (error) throw error;
 }
+export async function revokeWfhRewardDates(rewardId, dates, reason = "") {
+  const { error } = await requireSupabase().rpc("admin_revoke_wfh_dates", {
+    p_reward_id: rewardId, p_dates: dates, p_reason: reason,
+  });
+  if (error) throw error;
+}
+export async function removeWfhPoints(employeeId, points, reason = "") {
+  const { error } = await requireSupabase().rpc("admin_remove_wfh_points", {
+    p_employee_id: employeeId, p_points: Number(points), p_reason: reason,
+  });
+  if (error) throw error;
+}
 export async function updateWfhSettings(expirationDays, cancellationNoticeDays) {
   const { error } = await requireSupabase().rpc("update_wfh_privilege_settings", {
     p_expiration_days: Number(expirationDays), p_cancellation_notice_days: Number(cancellationNoticeDays),

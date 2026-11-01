@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ImagePlus, X } from "lucide-react";
-import { getDescendantIds, getHierarchyRoles, getOrganizationRoleLabels, organizationHierarchyRoles, organizationRoles } from "@/features/organization/organization-data";
+import { getDescendantIds, getHierarchyRoles, getOrganizationRoleLabels, getReportingManagerIds, organizationHierarchyRoles, organizationRoles, organizationTeams } from "@/features/organization/organization-data";
 import { Button } from "@/components/ui/Button";
 
 function getInitials(name) {
@@ -12,6 +12,22 @@ const restrictedReportingRoles = new Set(["Campaign Specialist", "Senior Agent"]
 function canSuperviseCampaignOrSenior(member) {
   const hierarchyRoles = getHierarchyRoles(member);
   return hierarchyRoles.includes("Team Lead (TL)") || hierarchyRoles.includes("Senior Team Lead (STL)");
+}
+
+function canManageRole(role, manager) {
+  if (role === "Campaign Specialist") return canSuperviseCampaignOrSenior(manager);
+  if (role === "Senior Agent") return canSuperviseCampaignOrSenior(manager) || manager?.role === "Campaign Specialist";
+  if (role === "Customer Rep") return ["Campaign Specialist", "Senior Agent"].includes(manager?.role);
+  return true;
+}
+
+function sameReportingLevel(members, ids) {
+  if (ids.length < 2) return true;
+  const parentSignatures = ids.map((id) => {
+    const manager = members.find((person) => person.id === id);
+    return getReportingManagerIds(manager).slice().sort().join("\u0000");
+  });
+  return new Set(parentSignatures).size === 1;
 }
 
 function resizePhoto(file) {
@@ -44,17 +60,23 @@ function resizePhoto(file) {
 
 export default function OrgMemberDialog({ member, members, onClose, onSave }) {
   const defaultRole = member?.role ?? "Customer Rep";
-  const currentManager = members.find((person) => person.id === member?.managerId);
-  const existingManagerIsAllowed = !restrictedReportingRoles.has(defaultRole) || canSuperviseCampaignOrSenior(currentManager);
-  const defaultManagerId = member?.managerId && existingManagerIsAllowed
-    ? member.managerId
-    : defaultRole === "Customer Rep"
-      ? members.find((person) => person.role === "Senior Agent")?.id ?? ""
-      : "";
+  const existingManagerIds = getReportingManagerIds(member);
+  const existingManagerIsAllowed = existingManagerIds.length > 0
+    && existingManagerIds.every((id) => canManageRole(defaultRole, members.find((person) => person.id === id)))
+    && (existingManagerIds.length < 2 || sameReportingLevel(members, existingManagerIds));
+  const defaultManagerId = existingManagerIds.length && existingManagerIsAllowed
+    ? existingManagerIds[0]
+    : defaultRole === "Senior Agent"
+      ? members.find((person) => person.role === "Campaign Specialist")?.id ?? members.find(canSuperviseCampaignOrSenior)?.id ?? ""
+      : defaultRole === "Customer Rep"
+        ? members.find((person) => person.role === "Senior Agent")?.id ?? members.find((person) => person.role === "Campaign Specialist")?.id ?? ""
+        : "";
   const [name, setName] = useState(member?.name ?? "");
   const [role, setRole] = useState(defaultRole);
   const [hierarchyRoles, setHierarchyRoles] = useState(() => getHierarchyRoles(member));
-  const [managerId, setManagerId] = useState(defaultManagerId);
+  const [reportingManagerIds, setReportingManagerIds] = useState(existingManagerIsAllowed ? existingManagerIds : defaultManagerId ? [defaultManagerId] : []);
+  const [managerSearch, setManagerSearch] = useState("");
+  const [team, setTeam] = useState(member?.team ?? "");
   const campaignSpecialists = members.filter((person) => person.role === "Campaign Specialist" && person.id !== member?.id);
   const [mentorId, setMentorId] = useState(member?.mentorId ?? "");
   const [photo, setPhoto] = useState(member?.photo ?? "");
@@ -66,9 +88,16 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
   const selectedRank = Math.min(...hierarchyRoles.map((item) => roleLevels[item] ?? 4), roleLevels[role] ?? 4);
   const managerOptions = members.filter((person) => person.id !== member?.id
     && !excludedManagerIds.has(person.id)
-    && (restrictedReportingRoles.has(role)
-      ? canSuperviseCampaignOrSenior(person)
-      : (person.id === member?.managerId || Math.min(...getHierarchyRoles(person).map((item) => roleLevels[item] ?? 4), roleLevels[person.role] ?? 4) < selectedRank)));
+      && (restrictedReportingRoles.has(role) || role === "Customer Rep"
+        ? canManageRole(role, person)
+        : (existingManagerIds.includes(person.id) || Math.min(...getHierarchyRoles(person).map((item) => roleLevels[item] ?? 4), roleLevels[person.role] ?? 4) < selectedRank)));
+  const sharedParentSignature = reportingManagerIds.length ? getReportingManagerIds(members.find((person) => person.id === reportingManagerIds[0])).slice().sort().join("\u0000") : null;
+  const visibleManagerOptions = managerOptions.filter((person) => {
+    if (!managerSearch.trim() && !sharedParentSignature) return true;
+    if (sharedParentSignature && getReportingManagerIds(person).slice().sort().join("\u0000") !== sharedParentSignature) return false;
+    const query = managerSearch.trim().toLowerCase();
+    return !query || `${person.name} ${person.role}`.toLowerCase().includes(query);
+  });
 
   useEffect(() => {
     function closeOnEscape(event) {
@@ -95,21 +124,39 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
   function handleRoleChange(event) {
     const nextRole = event.target.value;
     setRole(nextRole);
-    if (restrictedReportingRoles.has(nextRole)) {
-      const selectedManager = members.find((person) => person.id === managerId);
-      if (!canSuperviseCampaignOrSenior(selectedManager)) setManagerId("");
-    }
-    if (nextRole === "Customer Rep" && !managerId) {
-      setManagerId(members.find((person) => person.role === "Senior Agent")?.id ?? "");
-    }
+    const allowed = reportingManagerIds.filter((id) => canManageRole(nextRole, members.find((person) => person.id === id)));
+    const fallback = nextRole === "Senior Agent"
+      ? members.find((person) => person.role === "Campaign Specialist")?.id ?? members.find(canSuperviseCampaignOrSenior)?.id
+      : nextRole === "Customer Rep"
+        ? members.find((person) => person.role === "Senior Agent")?.id ?? members.find((person) => person.role === "Campaign Specialist")?.id
+        : nextRole === "Campaign Specialist" ? members.find(canSuperviseCampaignOrSenior)?.id : null;
+    setReportingManagerIds(allowed.length ? allowed : fallback ? [fallback] : []);
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
     const cleanedName = name.trim();
     if (!cleanedName) return;
-    if (restrictedReportingRoles.has(role) && !canSuperviseCampaignOrSenior(members.find((person) => person.id === managerId))) {
-      setSaveError("Campaign Specialists and Senior Agents must report directly to a Team Lead or Senior Team Lead (STL).");
+    if (["Campaign Specialist", "Senior Agent", "Customer Rep"].includes(role) && !reportingManagerIds.length) {
+      setSaveError(role === "Senior Agent"
+        ? "Choose a Team Lead, STL, or Campaign Specialist for this Senior Agent."
+        : role === "Campaign Specialist" ? "Choose a Team Lead or Senior Team Lead (STL) for this Campaign Specialist." : "Choose a Campaign Specialist or Senior Agent for this Customer Rep.");
+      return;
+    }
+    if (reportingManagerIds.some((id) => !managerOptions.some((person) => person.id === id))) {
+      setSaveError("Choose active reporting managers allowed for this employee's role.");
+      return;
+    }
+    if (reportingManagerIds.length > 1 && !sameReportingLevel(members, reportingManagerIds)) {
+      setSaveError("Shared managers must be at the same reporting level so the chart can group them cleanly.");
+      return;
+    }
+    if (reportingManagerIds.length > 1 && !["Customer Rep", "Senior Agent"].includes(role)) {
+      setSaveError("Only Customer Reps and Senior Agents can have multiple reporting managers.");
+      return;
+    }
+    if (role === "Senior Agent" && reportingManagerIds.length > 1 && reportingManagerIds.some((id) => members.find((person) => person.id === id)?.role !== "Campaign Specialist")) {
+      setSaveError("A shared Senior Agent must report to Campaign Specialists.");
       return;
     }
     setSaving(true); setSaveError("");
@@ -118,8 +165,11 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
         ...(member?.id ? { id: member.id } : {}),
         name: cleanedName,
         role,
+        team: team || null,
         hierarchyRoles,
-        managerId: managerId || null,
+        reportingManagerIds,
+        managerId: reportingManagerIds[0] ?? null,
+        coManagerId: reportingManagerIds[1] ?? null,
         mentorId: role === "Customer Rep" ? (mentorId || null) : null,
         photo,
         photoPath: member?.photoPath ?? "",
@@ -161,6 +211,7 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
             <span>Name</span>
             <input autoFocus required maxLength={80} value={name} onChange={(event) => setName(event.target.value)} placeholder="Enter full name" />
           </label>
+          <label className="form-field"><span>Team</span><select value={team} onChange={(event) => setTeam(event.target.value)}><option value="">No team selected</option>{organizationTeams.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
           <label className="form-field">
             <span>Operational role <small>(optional for OM/TM)</small></span>
             <select value={role} onChange={handleRoleChange}>
@@ -178,27 +229,39 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
               </label>)}
             </div>
           </fieldset>
-          <label className="form-field">
-            <span>Reports to {restrictedReportingRoles.has(role) && <small>(Team Lead or STL required)</small>}</span>
-            <select value={managerId} onChange={(event) => setManagerId(event.target.value)}>
-              <option value="">{restrictedReportingRoles.has(role) ? "Select a Team Lead or STL" : "No manager"}</option>
-              {managerOptions.map((person) => <option key={person.id} value={person.id}>{person.name} · {getOrganizationRoleLabels(person).join(" / ")}</option>)}
-            </select>
-            {restrictedReportingRoles.has(role) && managerOptions.length === 0 && <small className="form-field-hint">Add or assign a Team Lead / STL before saving this role.</small>}
-          </label>
-          {role === "Customer Rep" && (
-            <label className="form-field">
+          <div className="form-field">
+            <span>Reports to <small>{role === "Senior Agent" ? "(Team Lead, STL, or Campaign Specialist)" : role === "Campaign Specialist" ? "(Team Lead or STL)" : role === "Customer Rep" ? "(Campaign Specialist or Senior Agent)" : "(optional)"}</small></span>
+            <input type="search" value={managerSearch} onChange={(event) => setManagerSearch(event.target.value)} placeholder="Search managers by name or role" />
+            {reportingManagerIds.length > 0 && <div className="org-reporting-manager-selected" aria-label="Selected reporting managers">{reportingManagerIds.map((id) => {
+              const person = members.find((item) => item.id === id);
+              if (!person) return null;
+              return <span key={id}>{person.role} · {person.name}<button type="button" aria-label={`Remove ${person.name} as manager`} onClick={() => setReportingManagerIds((current) => current.filter((value) => value !== id))}><X size={12} /></button></span>;
+            })}</div>}
+            <div className="org-reporting-manager-list" role="group" aria-label="Reporting managers">
+              {visibleManagerOptions.map((person) => {
+                const selected = reportingManagerIds.includes(person.id);
+                return <label className={selected ? "selected" : ""} key={person.id}>
+                  <input type="checkbox" checked={selected} onChange={(event) => setReportingManagerIds((current) => event.target.checked
+                    ? (["Customer Rep", "Senior Agent"].includes(role) ? [...current, person.id] : [person.id])
+                    : current.filter((id) => id !== person.id))} />
+                  <span><strong>{getOrganizationRoleLabels(person).join(" / ")}</strong><small>{person.name}</small></span>
+                </label>;
+              })}
+              {visibleManagerOptions.length === 0 && <p className="form-field-hint">{managerOptions.length === 0 ? "No eligible active managers are available for this role." : "No managers match your search or the selected reporting level."}</p>}
+            </div>
+            <small className="form-field-hint">Select one manager for an individual reporting line, or select several peers to share responsibility. Newly added reports appear after existing people in the group.</small>
+          </div>
+          {role === "Customer Rep" && <label className="form-field">
               <span>Mentor <small>(optional)</small></span>
               <select value={mentorId} onChange={(event) => setMentorId(event.target.value)}>
                 <option value="">No mentor selected</option>
                 {campaignSpecialists.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
               </select>
-            </label>
-          )}
+            </label>}
           {saveError && <p className="form-error" role="alert">{saveError}</p>}
           <div className="dialog-actions">
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button type="submit" disabled={saving || (restrictedReportingRoles.has(role) && managerOptions.length === 0)}>{saving ? "Saving…" : member ? "Save changes" : "Add employee"}</Button>
+            <Button type="submit" disabled={saving || ([...restrictedReportingRoles, "Customer Rep"].includes(role) && managerOptions.length === 0)}>{saving ? "Saving…" : member ? "Save changes" : "Add employee"}</Button>
           </div>
         </form>
       </section>

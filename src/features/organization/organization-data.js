@@ -4,6 +4,7 @@ export const organizationRoles = [
   "Senior Agent",
   "Customer Rep",
 ];
+export const organizationTeams = ["RMA", "Contracts", "OM", "Petro Admin"];
 
 export const organizationHierarchyRoles = [
   "Operational Manager (OM)",
@@ -45,6 +46,13 @@ export function getOperationalRoster(members) {
   return (members ?? []).filter((member) => !isOrganizationOnlyLeader(member));
 }
 
+export function getReportingManagerIds(member) {
+  const values = Array.isArray(member?.reportingManagerIds)
+    ? member.reportingManagerIds
+    : [member?.managerId, member?.coManagerId];
+  return [...new Set(values.filter((id) => typeof id === "string" && id.length > 0))];
+}
+
 export const ORGANIZATION_STORAGE_KEY = "starter-app-organization-members-v2";
 
 export const starterMembers = [
@@ -65,7 +73,8 @@ export function getOrganizationMembers() {
     const parsed = JSON.parse(saved);
     if (!Array.isArray(parsed)) return starterMembers;
     return parsed.map((member) => {
-      const cleaned = { ...member, mentorId: member.mentorId ?? null };
+      const reportingManagerIds = getReportingManagerIds(member);
+      const cleaned = { ...member, reportingManagerIds, managerId: reportingManagerIds[0] ?? null, coManagerId: reportingManagerIds[1] ?? null, mentorId: member.mentorId ?? null };
       delete cleaned.campaignReportToIds;
       return cleaned;
     });
@@ -75,15 +84,42 @@ export function getOrganizationMembers() {
 }
 
 export function buildOrganizationTree(members) {
-  const nodes = new Map(members.map((member) => [member.id, { ...member, children: [] }]));
+  const nodes = new Map(members.map((member) => {
+    const reportingManagerIds = getReportingManagerIds(member);
+    return [member.id, { ...member, reportingManagerIds, managerId: reportingManagerIds[0] ?? null, coManagerId: reportingManagerIds[1] ?? null, children: [] }];
+  }));
   const roots = [];
 
   for (const node of nodes.values()) {
-    const manager = node.managerId ? nodes.get(node.managerId) : null;
+    const managers = node.reportingManagerIds.map((id) => nodes.get(id)).filter(Boolean);
+    node.reportingManagers = managers.map((manager) => ({ id: manager.id, name: manager.name, role: getOrganizationRoleLabels(manager).join(" / ") || manager.role }));
+    const manager = managers[0] ?? null;
     node.managerName = manager?.name ?? null;
+    node.managerRole = manager ? (getOrganizationRoleLabels(manager).join(" / ") || manager.role) : null;
     node.mentorName = node.mentorId ? nodes.get(node.mentorId)?.name ?? null : null;
+    const coManager = managers[1] ?? null;
+    node.coManagerName = coManager?.name ?? null;
+    node.coManagerRole = coManager ? (getOrganizationRoleLabels(coManager).join(" / ") || coManager.role) : null;
+    if (managers.length > 1) continue;
     if (manager && manager.id !== node.id) manager.children.push(node);
     else roots.push(node);
+  }
+
+  function sharedManagerGroupAnchor(managers, visited = new Set()) {
+    const groupKey = managers.map((manager) => manager.id).sort().join(":");
+    if (!groupKey || visited.has(groupKey)) return null;
+    visited.add(groupKey);
+
+    const parentSets = managers.map((manager) => getReportingManagerIds(manager).sort());
+    const signature = parentSets[0]?.join("\u0000");
+    if (!signature || parentSets.some((parentIds) => parentIds.join("\u0000") !== signature)) return null;
+    const parentIds = parentSets[0];
+    if (parentIds.length === 1) return nodes.get(parentIds[0]) ?? null;
+    if (parentIds.length < 2) return null;
+
+    const parentManagers = parentIds.map((id) => nodes.get(id));
+    if (parentManagers.some((manager) => !manager)) return null;
+    return sharedManagerGroupAnchor(parentManagers, visited);
   }
 
   const rank = (member) => {
@@ -92,9 +128,40 @@ export function buildOrganizationTree(members) {
     return selected.length ? Math.min(...selected) : organizationHierarchyRoles.length;
   };
   const sortBranches = (branches) => {
-    branches.sort((left, right) => rank(left) - rank(right) || Number(left.sortOrder ?? 0) - Number(right.sortOrder ?? 0) || left.name.localeCompare(right.name));
+    branches.sort((left, right) => rank(left) - rank(right) || Number(left.sortOrder ?? 0) - Number(right.sortOrder ?? 0));
     branches.forEach((branch) => sortBranches(branch.children));
   };
+  for (const report of nodes.values()) {
+    const managerIds = report.reportingManagerIds;
+    if (!["Customer Rep", "Senior Agent"].includes(report.role) || managerIds.length < 2) continue;
+    const managers = managerIds.map((id) => nodes.get(id));
+    if (managers.some((manager) => !manager)) continue;
+    const commonParentIds = managers.map((manager) => getReportingManagerIds(manager).join("\u0000"));
+    if (new Set(commonParentIds).size !== 1) continue;
+    if (report.role === "Senior Agent" && managers.some((manager) => manager.role !== "Campaign Specialist")) continue;
+    if (report.role === "Customer Rep" && managers.some((manager) => !["Campaign Specialist", "Senior Agent"].includes(manager.role))) continue;
+    // Put a shared report below its manager row. If those managers are
+    // themselves shared reports, walk up to the anchor that renders that row
+    // instead of attaching this group to only the first manager's parent.
+    const commonManager = sharedManagerGroupAnchor(managers);
+    if (!commonManager) continue;
+    const key = [...managerIds].sort().join(":");
+    commonManager.coManagedGroups ??= [];
+    let group = commonManager.coManagedGroups.find((item) => item.key === key);
+    if (!group) {
+      group = { key, managerIds: [...managerIds], reports: [] };
+      commonManager.coManagedGroups.push(group);
+    }
+    group.reports.push(report);
+  }
+  const roleOrder = new Map([["Campaign Specialist", 1], ["Senior Agent", 2], ["Customer Rep", 3]]);
+  for (const node of nodes.values()) {
+    node.coManagedGroups?.sort((left, right) => {
+      const leftLevel = Math.max(...left.managerIds.map((id) => roleOrder.get(nodes.get(id)?.role) ?? 0));
+      const rightLevel = Math.max(...right.managerIds.map((id) => roleOrder.get(nodes.get(id)?.role) ?? 0));
+      return leftLevel - rightLevel || left.key.localeCompare(right.key);
+    });
+  }
   sortBranches(roots);
 
   return roots;
@@ -107,7 +174,7 @@ export function getDescendantIds(members, memberId) {
   while (pending.length) {
     const currentId = pending.pop();
     for (const member of members) {
-      if (member.managerId === currentId && !descendants.has(member.id)) {
+      if (getReportingManagerIds(member).includes(currentId) && !descendants.has(member.id)) {
         descendants.add(member.id);
         pending.push(member.id);
       }

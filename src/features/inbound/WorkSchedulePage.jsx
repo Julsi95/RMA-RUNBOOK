@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CalendarDays, CalendarPlus, Check, Clock3, History, Plus, RotateCcw, Trash2, UsersRound, X } from "lucide-react";
+import { CalendarDays, CalendarPlus, Check, Clock3, History, LayoutGrid, List, Plus, RotateCcw, Trash2, UsersRound, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
 import { useOrganizationRoster } from "@/app/organization-provider";
@@ -9,20 +9,12 @@ import { isSupabaseConfigured } from "@/lib/supabase";
 import { loadWorkScheduleDocument, saveWorkScheduleDocument } from "@/lib/backend-repositories";
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 import { fetchCachedQuery, queryClient, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
+import { WORLD_TIME_ZONES } from "@/lib/timezones";
 import "@/features/inbound/work-schedule.css";
 
 const STORAGE_KEY = "starter-app-inbound-schedule-v1";
 const PERIODS_STORAGE_KEY = "starter-app-work-schedule-periods-v1";
 const HISTORY_STORAGE_KEY = "starter-app-work-schedule-history-v1";
-const ZONES = [
-  { id: "America/New_York", label: "Eastern · New York / Toronto" },
-  { id: "America/Chicago", label: "Central · Chicago / Winnipeg" },
-  { id: "America/Denver", label: "Mountain · Denver" },
-  { id: "America/Phoenix", label: "Arizona · Phoenix" },
-  { id: "America/Los_Angeles", label: "Pacific · Los Angeles / Vancouver" },
-  { id: "America/Anchorage", label: "Alaska · Anchorage" },
-  { id: "Pacific/Honolulu", label: "Hawaii · Honolulu" },
-];
 const PRESETS = {
   "9-6": { start: "21:00", end: "06:00" },
   "10-7": { start: "22:00", end: "07:00" },
@@ -239,6 +231,7 @@ export default function WorkSchedulePage() {
   const [viewingHistoryEntry, setViewingHistoryEntry] = useState(null);
   const [editingHistoryEntry, setEditingHistoryEntry] = useState(null);
   const [saveMessage, setSaveMessage] = useState("");
+  const [view, setView] = useState("cards");
 
   const toRemoteDocument = (months = savedSchedules, periods = datePeriods, history = scheduleHistory) => ({
     months: Object.fromEntries(Object.entries(months).map(([key, value]) => [key, { workPreset: value.workPreset ?? "custom", workSchedules: value.workSchedules ?? [] }])),
@@ -257,7 +250,7 @@ export default function WorkSchedulePage() {
     ? !draftMemberIds.has(member.id)
     : !scheduledIds.has(member.id));
   const maxDate = `${month}-${String(new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()).padStart(2, "0")}`;
-  const zoneLabel = ZONES.find((item) => item.id === zone)?.label.split(" · ")[0] ?? "North America";
+  const zoneLabel = WORLD_TIME_ZONES.find((item) => item.id === zone)?.id ?? zone;
   const validRange = Boolean(rangeStart && rangeEnd && rangeStart <= rangeEnd && isWeekday(rangeStart) && isWeekday(rangeEnd));
   const rangeLength = validRange ? weekdaysInRange(rangeStart, rangeEnd) : 0;
   const rangeChanged = rangeStart !== rangeBaseline.startDate || rangeEnd !== rangeBaseline.endDate;
@@ -559,7 +552,7 @@ export default function WorkSchedulePage() {
       <section className="work-control-panel">
         <label className="work-date-control"><span><CalendarDays size={15} /> Schedule month</span><input type="month" value={month} disabled={Boolean(historyCardEntry)} onChange={(event) => changeMonth(event.target.value)} aria-label="Work schedule month" /></label>
         <label className="work-date-control"><span><CalendarPlus size={15} /> Specific weekday</span><input type="date" value={selectedDate} min={`${month}-01`} max={maxDate} disabled={Boolean(historyCardEntry)} onChange={(event) => { const value = event.target.value; if (!isWeekday(value)) { setScheduleError("Work schedules are available Monday through Friday."); return; } setScheduleError(""); setViewingHistoryEntry(null); setEditingHistoryEntry(null); setSelectedDate(value); }} aria-label="Specific work schedule weekday" /></label>
-        <label className="work-zone-control"><span>Time zone preview</span><Select value={zone} onValueChange={setZone}><SelectTrigger aria-label="North American timezone"><SelectValue /></SelectTrigger><SelectContent>{ZONES.map((item) => <SelectItem value={item.id} key={item.id}>{item.label}</SelectItem>)}</SelectContent></Select></label>
+        <label className="work-zone-control"><span>Time zone preview</span><Select value={zone} onValueChange={setZone}><SelectTrigger aria-label="World time zone"><SelectValue /></SelectTrigger><SelectContent>{WORLD_TIME_ZONES.map((item) => <SelectItem value={item.id} key={item.id}>{item.label}</SelectItem>)}</SelectContent></Select></label>
         <div className="work-date-summary"><span>{dateLabel(selectedDate)}</span><strong>{viewingHistoryEntry ? "Viewing saved version" : editingHistoryEntry ? "Editing saved version" : activePeriod ? `Special schedule · ${dateLabel(activePeriod.startDate)} to ${dateLabel(activePeriod.endDate)}` : "Using monthly default"}</strong></div>
       </section>
 
@@ -595,10 +588,11 @@ export default function WorkSchedulePage() {
 
         <div className="work-roster-tools">
           <div className="work-roster-overview"><div className="work-roster-count"><UsersRound size={16} /><span>{draftSchedules.length} {draftSchedules.length === 1 ? "person" : "people"} scheduled</span></div><div className="work-roster-preview-date"><CalendarDays size={15} /><span>{historyCardEntry ? "Saved schedule dates" : "Previewing schedule"}</span><strong>{historyCardEntry ? historyScopeLabel(historyCardEntry) : previewSpanLabel}</strong></div></div>
+          <div className="work-view-toggle" role="group" aria-label="Work schedule view"><button type="button" className={view === "cards" ? "active" : ""} aria-label="Card view" onClick={() => setView("cards")}><LayoutGrid size={15} /></button><button type="button" className={view === "table" ? "active" : ""} aria-label="Table view" onClick={() => setView("table")}><List size={15} /></button></div>
           {canManage && <div className="work-add-existing"><Select value={newMemberId} onValueChange={setNewMemberId}><SelectTrigger aria-label="Select roster employee to add to the current schedule" disabled={!availableMembers.length || Boolean(viewingHistoryEntry)}><SelectValue placeholder="Choose from roster" /></SelectTrigger><SelectContent>{availableMembers.map((member) => <SelectItem value={member.id} key={member.id}>{member.name} · {member.role}</SelectItem>)}</SelectContent></Select><Button variant="outline" onClick={addExistingMember} disabled={!newMemberId || Boolean(viewingHistoryEntry)}><Plus size={15} /> Add to schedule</Button></div>}
         </div>
 
-        <div className="work-employee-grid">
+        {view === "table" ? <div className="work-table-scroll"><table className="work-schedule-table"><thead><tr><th>Employee</th><th>Role</th><th>Log in · Manila</th><th>Log out · Manila</th><th>{zoneLabel} preview</th><th /></tr></thead><tbody>{draftSchedules.map((schedule) => { const member = memberById.get(schedule.memberId); const savedPerson = historyCardEntry?.people?.find((person) => person.memberId === schedule.memberId); if (!member && !savedPerson) return null; const display = savedPerson ? { ...savedPerson, photo: "" } : member; const date = historyCardEntry?.scope === "range" ? historyCardEntry.startDate : historyCardEntry?.scope === "month" ? `${historyCardEntry.month}-01` : selectedDate; return <tr key={schedule.id}><td><strong>{display.name}</strong></td><td>{display.role}</td><td><input type="time" value={schedule.start} disabled={!canManage || Boolean(viewingHistoryEntry)} onChange={(event) => patchDraft(schedule.id, { start: event.target.value })} /></td><td><input type="time" value={schedule.end} disabled={!canManage || Boolean(viewingHistoryEntry)} onChange={(event) => patchDraft(schedule.id, { end: event.target.value })} /></td><td>{convertedRange(schedule.start, schedule.end, date, zone)}</td><td>{canManage && <Button type="button" variant="ghost" size="icon" aria-label={`Remove ${display.name}`} disabled={Boolean(viewingHistoryEntry)} onClick={() => removeFromDraft(schedule.id)}><Trash2 size={15} /></Button>}</td></tr>; })}</tbody></table>{!draftSchedules.length && <div className="work-empty-state"><UsersRound size={22} /><strong>No one is scheduled</strong></div>}</div> : <div className="work-employee-grid">
           {draftSchedules.map((schedule) => {
             const member = memberById.get(schedule.memberId);
             const savedPerson = historyCardEntry?.people?.find((person) => person.memberId === schedule.memberId);
@@ -612,7 +606,7 @@ export default function WorkSchedulePage() {
             </article>;
           })}
           {!draftSchedules.length && <div className="work-empty-state"><UsersRound size={22} /><strong>No one is scheduled</strong><span>Add a roster member or employee to begin.</span></div>}
-        </div>
+        </div>}
       </section>
 
       {historyOpen && <section className="work-history-panel">

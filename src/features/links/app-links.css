@@ -79,8 +79,8 @@
 .app-links-field > span { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
 .app-links-field small { font-size: 9px; }
 .app-links-field-wide { grid-column: 1 / -1; }
-.app-links-field input { width: 100%; min-width: 0; min-height: 40px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; outline: 0; background: var(--background); color: var(--foreground); font: inherit; font-size: 12px; }
-.app-links-field input:focus { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 22%, transparent); }
+.app-links-field input,.app-links-field select { width: 100%; min-width: 0; min-height: 40px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; outline: 0; background: var(--background); color: var(--foreground); font: inherit; font-size: 12px; }
+.app-links-field input:focus,.app-links-field select:focus { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 22%, transparent); }
 .app-links-form-hint { display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; color: var(--muted-foreground); font-size: 10px; line-height: 1.45; }
 .app-links-public-toggle { display: flex; align-items: flex-start; gap: 9px; padding: 11px; border: 1px solid var(--border); border-radius: 9px; background: color-mix(in srgb, var(--foreground) 2%, var(--surface)); cursor: pointer; }
 .app-links-public-toggle input { width: 15px; height: 15px; margin-top: 2px; accent-color: var(--ring); }
