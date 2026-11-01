@@ -9,7 +9,7 @@ import { isSupabaseConfigured } from "@/lib/supabase";
 import { loadWorkScheduleDocument, saveWorkScheduleDocument } from "@/lib/backend-repositories";
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 import { fetchCachedQuery, queryClient, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
-import { WORLD_TIME_ZONES } from "@/lib/timezones";
+import { fetchWorldTimeZones, getTimeZoneInfo } from "@/lib/timezones";
 import "@/features/inbound/work-schedule.css";
 
 const STORAGE_KEY = "starter-app-inbound-schedule-v1";
@@ -232,6 +232,17 @@ export default function WorkSchedulePage() {
   const [editingHistoryEntry, setEditingHistoryEntry] = useState(null);
   const [saveMessage, setSaveMessage] = useState("");
   const [view, setView] = useState("cards");
+  const [worldTimeZones, setWorldTimeZones] = useState([]);
+
+  useEffect(() => {
+    let active = true;
+    fetchWorldTimeZones().then((zones) => {
+      if (active) setWorldTimeZones(zones);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const toRemoteDocument = (months = savedSchedules, periods = datePeriods, history = scheduleHistory) => ({
     months: Object.fromEntries(Object.entries(months).map(([key, value]) => [key, { workPreset: value.workPreset ?? "custom", workSchedules: value.workSchedules ?? [] }])),
@@ -250,12 +261,18 @@ export default function WorkSchedulePage() {
     ? !draftMemberIds.has(member.id)
     : !scheduledIds.has(member.id));
   const maxDate = `${month}-${String(new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()).padStart(2, "0")}`;
-  const zoneLabel = WORLD_TIME_ZONES.find((item) => item.id === zone)?.id ?? zone;
   const validRange = Boolean(rangeStart && rangeEnd && rangeStart <= rangeEnd && isWeekday(rangeStart) && isWeekday(rangeEnd));
   const rangeLength = validRange ? weekdaysInRange(rangeStart, rangeEnd) : 0;
   const rangeChanged = rangeStart !== rangeBaseline.startDate || rangeEnd !== rangeBaseline.endDate;
   const hasUnsavedChanges = isDirty || rangeChanged;
   const historyCardEntry = viewingHistoryEntry ?? editingHistoryEntry;
+  const previewDate = historyCardEntry?.scope === "range"
+    ? historyCardEntry.startDate
+    : historyCardEntry?.scope === "month"
+      ? `${historyCardEntry.month}-01`
+      : selectedDate;
+  const previewInstant = localTimeToInstant(previewDate, "12:00", "Asia/Manila");
+  const zoneLabel = getTimeZoneInfo(zone, previewInstant).abbreviation;
   const previewSpanLabel = validRange ? rangeStart === rangeEnd ? dateLabel(rangeStart) : `${dateLabel(rangeStart)} – ${dateLabel(rangeEnd)}` : "Choose a valid date range";
 
   useEffect(() => {
@@ -552,7 +569,27 @@ export default function WorkSchedulePage() {
       <section className="work-control-panel">
         <label className="work-date-control"><span><CalendarDays size={15} /> Schedule month</span><input type="month" value={month} disabled={Boolean(historyCardEntry)} onChange={(event) => changeMonth(event.target.value)} aria-label="Work schedule month" /></label>
         <label className="work-date-control"><span><CalendarPlus size={15} /> Specific weekday</span><input type="date" value={selectedDate} min={`${month}-01`} max={maxDate} disabled={Boolean(historyCardEntry)} onChange={(event) => { const value = event.target.value; if (!isWeekday(value)) { setScheduleError("Work schedules are available Monday through Friday."); return; } setScheduleError(""); setViewingHistoryEntry(null); setEditingHistoryEntry(null); setSelectedDate(value); }} aria-label="Specific work schedule weekday" /></label>
-        <label className="work-zone-control"><span>Time zone preview</span><Select value={zone} onValueChange={setZone}><SelectTrigger aria-label="World time zone"><SelectValue /></SelectTrigger><SelectContent>{WORLD_TIME_ZONES.map((item) => <SelectItem value={item.id} key={item.id}>{item.label}</SelectItem>)}</SelectContent></Select></label>
+        <label className="work-zone-control">
+          <span>Time zone preview</span>
+
+          <Select
+            value={zone}
+            onValueChange={setZone}
+            disabled={!worldTimeZones.length}
+          >
+            <SelectTrigger aria-label="World time zone">
+              <SelectValue placeholder="Loading time zones..." />
+            </SelectTrigger>
+
+            <SelectContent>
+              {worldTimeZones.map((item) => (
+                <SelectItem value={item.id} key={item.id}>
+                  {getTimeZoneInfo(item.id, previewInstant).label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </label>
         <div className="work-date-summary"><span>{dateLabel(selectedDate)}</span><strong>{viewingHistoryEntry ? "Viewing saved version" : editingHistoryEntry ? "Editing saved version" : activePeriod ? `Special schedule · ${dateLabel(activePeriod.startDate)} to ${dateLabel(activePeriod.endDate)}` : "Using monthly default"}</strong></div>
       </section>
 
