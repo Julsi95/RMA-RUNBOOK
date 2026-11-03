@@ -14,6 +14,7 @@ import {
   getOverallScore, getPreviousMonth, KPI_METRICS, KPI_STORAGE_KEY, makeCsvTemplate,
 } from "@/features/kpi/kpi-data";
 import { readKpiFile } from "@/features/kpi/import-utils";
+import { buildKpiPersonGroups } from "@/features/kpi/kpi-person-groups";
 import { createKpiMonth, loadCurrentKpiScoring, loadKpiMonthData, replaceKpiMonthResults, saveKpiMonthResults } from "@/lib/backend-repositories";
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 import { fetchCachedQuery, queryClient, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
@@ -91,7 +92,7 @@ function getBadges(row, previousRow, history, memberId, throughMonth) {
   const streakMinimum = Number([...settingsOf(row.record).evaluationBands].sort((a, b) => Number(b.min) - Number(a.min))[1]?.min ?? 4.4);
   let streak = 0;
   for (const month of Object.keys(history).filter((item) => /^\d{4}-\d{2}$/.test(item) && item <= throughMonth).sort().reverse()) {
-    const record = getMemberRecord(history[month]?.records, memberId);
+    const record = getMemberRecord(history[month], memberId);
     if (!record || getRecordScore(record, settingsOf(record)) < Number([...settingsOf(record).evaluationBands].sort((a, b) => Number(b.min) - Number(a.min))[1]?.min ?? streakMinimum)) break;
     streak += 1;
   }
@@ -365,28 +366,33 @@ export default function KpiQaPage() {
 
   const monthOptions = useMemo(() => [...new Set([...Object.keys(monthlyData), selectedMonth])].filter(Boolean).sort(), [monthlyData, selectedMonth]);
   const records = monthlyData[selectedMonth]?.records ?? {};
-  const peopleWithHistory = useMemo(() => {
-    const people = new Map(teamMembers.map((member) => [member.id, member]));
-    for (const monthData of Object.values(monthlyData)) {
-      for (const record of Object.values(monthData?.records ?? {})) {
-        if (!record?.memberId || people.has(record.memberId)) continue;
-        people.set(record.memberId, { id: record.memberId, name: record.memberName || "Former roster member", role: record.role || "Historical record", historical: true });
+  const allPersonGroups = useMemo(() => buildKpiPersonGroups(monthOptions, monthlyData, teamMembers), [monthOptions, monthlyData, teamMembers]);
+  const resolvedRecordsByMonth = useMemo(() => {
+    const resolved = {};
+    for (const person of allPersonGroups) {
+      for (const [month, record] of Object.entries(person.recordsByMonth)) {
+        resolved[month] ??= {};
+        resolved[month][person.id] = record;
       }
     }
+    return resolved;
+  }, [allPersonGroups]);
+  const peopleWithHistory = useMemo(() => {
+    const people = new Map(allPersonGroups.map(({ recordsByMonth, ...person }) => [person.id, person]));
+    for (const member of teamMembers) people.set(member.id, member);
     return [...people.values()];
-  }, [monthlyData, teamMembers]);
+  }, [allPersonGroups, teamMembers]);
   const scoreboardMembers = useMemo(() => {
     const people = new Map(teamMembers.map((member) => [member.id, member]));
-    for (const record of Object.values(records)) {
-      if (record?.memberId && !people.has(record.memberId)) people.set(record.memberId, { id: record.memberId, name: record.memberName || "Former roster member", role: record.role || "Historical record", historical: true });
-    }
+    for (const person of allPersonGroups) if (person.recordsByMonth[selectedMonth] && !people.has(person.id)) people.set(person.id, { id: person.id, name: person.name, role: person.role, historical: person.historical });
     return [...people.values()];
-  }, [records, teamMembers]);
+  }, [allPersonGroups, selectedMonth, teamMembers]);
   const previousMonth = getPreviousMonth(selectedMonth);
-  const previousRecords = monthlyData[previousMonth]?.records ?? {};
+  const previousRecords = resolvedRecordsByMonth[previousMonth] ?? {};
+  const currentResolvedRecords = resolvedRecordsByMonth[selectedMonth] ?? {};
   const selectedScoringSettings = monthlyData[selectedMonth]?.scoringSettings ?? getKpiScoringSettings();
   const leaderboard = scoreboardMembers.map((member) => {
-    const record = getMemberRecord(records, member.id);
+    const record = getMemberRecord(currentResolvedRecords, member.id) ?? getMemberRecord(records, member.id);
     const importedRank = record?.source === "import" ? String(record.metrics?._importedRank ?? "").trim() : "";
     const explicitRank = Number(importedRank.match(/\d+/)?.[0]);
     return { member, record, score: record ? getRecordScore(record, settingsOf(record)) : 0, importedRank, explicitRank: Number.isFinite(explicitRank) ? explicitRank : null };
@@ -407,12 +413,12 @@ export default function KpiQaPage() {
   const qaValues = leaderboard.map((row) => row.record.metrics?.qa?.rawValue).filter((value) => value !== "" && value != null && Number.isFinite(Number(value))).map(Number);
   const averageQa = qaValues.length ? qaValues.reduce((sum, value) => sum + value, 0) / qaValues.length : 0;
   const topPerformer = leaderboard[0];
-  const selectedRecord = getMemberRecord(records, detailMemberId);
+  const selectedRecord = getMemberRecord(currentResolvedRecords, detailMemberId) ?? getMemberRecord(records, detailMemberId);
   const selectedMember = scoreboardMembers.find((member) => member.id === detailMemberId);
   const comparePrimary = scoreboardMembers.some((member) => member.id === comparisonSubject) ? comparisonSubject : leaderboard[0]?.member.id ?? teamMembers[0]?.id ?? "";
   const compareOtherMember = comparisonPeer && comparisonPeer !== comparePrimary ? comparisonPeer : leaderboard.find((row) => row.member.id !== comparePrimary)?.member.id ?? scoreboardMembers.find((member) => member.id !== comparePrimary)?.id ?? "";
-  const compareSecondMonth = compareMode === "previous" ? previousRecords[comparePrimary] : records[compareOtherMember];
-  const comparePrimaryRecord = records[comparePrimary];
+  const compareSecondMonth = compareMode === "previous" ? previousRecords[comparePrimary] : currentResolvedRecords[compareOtherMember] ?? records[compareOtherMember];
+  const comparePrimaryRecord = currentResolvedRecords[comparePrimary] ?? records[comparePrimary];
   const trendMonths = monthOptions;
   const isDemo = Boolean(monthlyData[selectedMonth]?.demo);
   const selectedMaximum = getMaximumKpiScore(selectedScoringSettings);
@@ -556,7 +562,7 @@ export default function KpiQaPage() {
       <section className="kpi-trend-panel">
         <div className="kpi-section-head"><div><p className="kpi-overline">LONG-TERM PROGRESS</p><h2>Performance trend</h2><p>Follow saved monthly results, including historical records.</p></div><div className="kpi-chart-controls"><select value={trendMetric} onChange={(event) => { const mode = event.target.value; setTrendMetric(mode); if (mode === "rank" && trendTarget === "team") setTrendTarget(peopleWithHistory[0]?.id ?? "team"); }} aria-label="Trend metric"><option value="overall">KPI score</option><option value="rank">Imported rank</option>{KPI_METRICS.map((metric) => <option value={metric.id} key={metric.id}>{metric.label}{metric.isPercent ? " · percent" : " · raw count"}</option>)}</select><select value={trendTarget} onChange={(event) => setTrendTarget(event.target.value)} aria-label="Trend subject"><option value="team" disabled={trendMetric === "rank"}>Team average</option>{peopleWithHistory.map((member) => <option value={member.id} key={member.id}>{member.name}{member.historical ? " · former" : ""}</option>)}</select><div className="kpi-range-toggle">{TREND_RANGES.map((item) => <button type="button" className={range === item ? "active" : ""} key={item} onClick={() => setRange(item)}>{item} mo</button>)}</div></div></div>
         <div className="kpi-chart-summary"><span className="kpi-chart-legend"><i />{trendTarget === "team" ? "Average across saved monthly rows" : peopleWithHistory.find((member) => member.id === trendTarget)?.name}<small>·</small><span className="kpi-target-key">{trendMetric === "rank" ? "Imported rank · lower is better" : trendMetric === "overall" || trendMetric === "qa" ? "Dashed line · target" : "Imported raw values"}</span></span><span>Through {getMonthLabel(selectedMonth)}</span></div>
-        <Suspense fallback={<div className="kpi-chart-empty">Loading performance chart…</div>}><TrendChart months={trendMonths} monthlyData={monthlyData} metricMode={trendMetric} range={range} targetId={trendTarget} selectedMonth={selectedMonth} getRecordScore={getRecordScore} settingsOf={settingsOf} /></Suspense>
+        <Suspense fallback={<div className="kpi-chart-empty">Loading performance chart…</div>}><TrendChart months={trendMonths} monthlyData={monthlyData} people={peopleWithHistory} metricMode={trendMetric} range={range} targetId={trendTarget} selectedMonth={selectedMonth} getRecordScore={getRecordScore} settingsOf={settingsOf} /></Suspense>
       </section>
 
       <Suspense fallback={<div className="kpi-insights-grid"><div className="kpi-insight-loading">Loading monthly insights…</div></div>}><KpiInsightsCharts monthlyData={monthlyData} selectedMonth={selectedMonth} people={peopleWithHistory} getRecordScore={getRecordScore} settingsOf={settingsOf} /></Suspense>
@@ -590,21 +596,21 @@ export default function KpiQaPage() {
           const previous = getPreviousRow(row.member.id);
           const movement = getRankMovement(row.member.id, row.rank);
           const progress = getTierProgress(row.score, settingsOf(row.record));
-          const badges = getBadges(row, previous, monthlyData, row.member.id, selectedMonth);
+          const badges = getBadges(row, previous, resolvedRecordsByMonth, row.member.id, selectedMonth);
           return <button className={`kpi-podium-card kpi-podium-${row.rank}`} type="button" key={row.member.id} onClick={() => setDetailMemberId(row.member.id)}><span className="kpi-podium-place">{row.rank === 1 ? <Crown size={18} /> : row.rank === 2 ? <Medal size={17} /> : <Award size={17} />}<b>#{row.rankLabel}</b></span><MemberAvatar member={row.member} large /><strong className="kpi-podium-name">{row.member.name}</strong><span className="kpi-podium-role">{row.member.role}</span><b className="kpi-podium-score">{formatScore(row.score)}<small> / {getMaximumKpiScore(settingsOf(row.record)).toFixed(2)}</small></b><span className="kpi-podium-evaluation">{getRecordEvaluation(row.record, row.score, settingsOf(row.record))}</span><span className="kpi-podium-tier"><span>{progress.label} · {Math.round(progress.percent)}%</span><i><em style={{ width: `${progress.percent}%` }} /></i></span><span className={`kpi-podium-movement ${movement == null ? "" : movement > 0 ? "kpi-positive" : movement < 0 ? "kpi-negative" : ""}`}>{movement == null ? "New this month" : movement > 0 ? `↑ ${movement} place${movement === 1 ? "" : "s"}` : movement < 0 ? `↓ ${Math.abs(movement)} place${movement === -1 ? "" : "s"}` : "— Same rank"}</span><div className="kpi-badge-list">{badges.map(({ label, icon: Icon }) => <span className="kpi-achievement-badge" key={label}><Icon size={11} />{label}</span>)}</div><span className="kpi-podium-base">{row.rank === 1 ? "MONTH MVP" : `RANK ${row.rankLabel}`}</span></button>;
         })}</div>}
         {leaderboard.length > 3 && <div className="kpi-ranking-list">{leaderboard.slice(3).map((row) => {
           const prior = getPreviousRow(row.member.id);
           const movement = getRankMovement(row.member.id, row.rank);
           const progress = getTierProgress(row.score, settingsOf(row.record));
-          const badges = getBadges(row, prior, monthlyData, row.member.id, selectedMonth);
+          const badges = getBadges(row, prior, resolvedRecordsByMonth, row.member.id, selectedMonth);
           return <button type="button" className="kpi-ranking-row" key={row.member.id} onClick={() => setDetailMemberId(row.member.id)}><span className="kpi-ranking-number">#{row.rankLabel}</span><MemberAvatar member={row.member} /><span className="kpi-ranking-person"><strong>{row.member.name}</strong><small>{row.member.role}</small></span><span className="kpi-tier-progress"><span><small>{progress.label}</small><b>{Math.round(progress.percent)}%</b></span><i><em style={{ width: `${progress.percent}%` }} /></i></span><span className="kpi-ranking-badges">{badges.map(({ label, icon: Icon }) => <span className="kpi-achievement-badge" key={label}><Icon size={11} />{label}</span>)}</span><span className={`kpi-rank-change ${movement == null ? "" : movement > 0 ? "kpi-positive" : movement < 0 ? "kpi-negative" : ""}`}>{movement == null ? "NEW" : movement > 0 ? <><ArrowUpRight size={14} />{movement} up</> : movement < 0 ? <><ArrowDownRight size={14} />{Math.abs(movement)} down</> : "—"}</span><strong className="kpi-ranking-score">{formatScore(row.score)}</strong></button>;
         })}</div>}
         {!leaderboard.length && <div className="kpi-empty-state kpi-empty-compact"><Trophy size={22} /><strong>Rankings appear after scores are entered</strong><span>Complete a monthly result for your team to generate the leaderboard.</span></div>}
       </section>
 
       <section className="kpi-roster-card"><div className="kpi-roster-heading"><div><p className="kpi-overline">MONTHLY SCORECARDS</p><h2>Team results</h2><p>Open a profile for detailed metric scores, or edit that month’s results.</p></div><Button variant="outline" onClick={openAddResult}><Plus size={15} /> Add / edit result</Button></div><div className="kpi-member-card-grid">{scoreboardMembers.map((member) => {
-        const record = records[member.id];
+        const record = currentResolvedRecords[member.id] ?? records[member.id];
         const row = leaderboard.find((item) => item.member.id === member.id);
         const previous = getPreviousRow(member.id);
         const delta = record && previous ? getRecordScore(record, settingsOf(record)) - getRecordScore(previous.record, settingsOf(previous.record)) : null;
@@ -612,7 +618,7 @@ export default function KpiQaPage() {
       })}</div></section>
 
       {selectedMember && selectedRecord && <MemberDetailDialog member={selectedMember} record={selectedRecord} previousRecord={previousRecords[selectedMember.id]} teamAverage={teamAverage} canEdit={canEdit && !selectedMember?.historical} onClose={() => setDetailMemberId(null)} onEdit={() => { setEditingMemberId(selectedMember.id); setDetailMemberId(null); }} />}
-      {canEdit && editingMemberId && <ScoreEditorDialog key={`${selectedMonth}-${editingMemberId}`} teamMembers={teamMembers} initialMemberId={editingMemberId} initialRecord={records[editingMemberId] ?? null} scoringSettings={selectedScoringSettings} onClose={() => setEditingMemberId(null)} onSave={saveRecord} />}
+      {canEdit && editingMemberId && <ScoreEditorDialog key={`${selectedMonth}-${editingMemberId}`} teamMembers={teamMembers} initialMemberId={editingMemberId} initialRecord={currentResolvedRecords[editingMemberId] ?? records[editingMemberId] ?? null} scoringSettings={selectedScoringSettings} onClose={() => setEditingMemberId(null)} onSave={saveRecord} />}
       {canEdit && showImporter && <ImportDialog teamMembers={teamMembers} selectedMonth={selectedMonth} onClose={() => setShowImporter(false)} onImport={importRecords} />}
     </section>
   );
