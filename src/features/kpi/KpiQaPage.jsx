@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownRight, ArrowUpRight, Award, BarChart3, CalendarDays, Check,
-  Crown, Download, Medal, Plus, Search, Sparkles, Target, Trophy, Upload, X,
+  Crown, Download, Medal, Plus, RotateCcw, Search, Sparkles, Target, Trophy, Upload, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useOrganizationRoster } from "@/app/organization-provider";
@@ -15,7 +15,7 @@ import {
 } from "@/features/kpi/kpi-data";
 import { readKpiFile } from "@/features/kpi/import-utils";
 import { buildKpiPersonGroups } from "@/features/kpi/kpi-person-groups";
-import { createKpiMonth, loadCurrentKpiScoring, loadKpiMonthData, replaceKpiMonthResults, saveKpiMonthResults } from "@/lib/backend-repositories";
+import { createKpiMonth, loadCurrentKpiScoring, loadKpiMonthData, replaceKpiMonthResults, resetKpiMonthResults, saveKpiMonthResults } from "@/lib/backend-repositories";
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 import { fetchCachedQuery, queryClient, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
 import "@/features/kpi/kpi-qa.css";
@@ -24,7 +24,11 @@ const TREND_RANGES = [6, 12];
 const KPI_SCORING_QUERY_KEY = queryKeys.kpiScoring();
 
 function getLatestMonth(monthlyData) {
-  return Object.keys(monthlyData).sort().at(-1) ?? new Date().toISOString().slice(0, 7);
+  const populated = Object.entries(monthlyData)
+    .filter(([, month]) => Object.keys(month?.records ?? {}).length > 0)
+    .map(([month]) => month)
+    .sort();
+  return populated.at(-1) ?? Object.keys(monthlyData).sort().at(-1) ?? new Date().toISOString().slice(0, 7);
 }
 
 function readSavedData(teamMembers) {
@@ -278,7 +282,7 @@ export default function KpiQaPage() {
   const scoringKey = KPI_SCORING_QUERY_KEY;
   const cachedMonths = readCachedQuery(monthsKey);
   const [monthlyData, setMonthlyData] = useState(() => isSupabaseConfigured ? cachedMonths ?? {} : readSavedData(teamMembers));
-  const [selectedMonth, setSelectedMonth] = useState(() => isSupabaseConfigured ? new Date().toISOString().slice(0, 7) : getLatestMonth(readSavedData(teamMembers)));
+  const [selectedMonth, setSelectedMonth] = useState(() => isSupabaseConfigured ? getLatestMonth(cachedMonths ?? {}) : getLatestMonth(readSavedData(teamMembers)));
   const [remoteReady, setRemoteReady] = useState(Boolean(cachedMonths));
   const [syncError, setSyncError] = useState("");
   const [syncMessage, setSyncMessage] = useState("");
@@ -297,6 +301,8 @@ export default function KpiQaPage() {
   const [detailMemberId, setDetailMemberId] = useState(null);
   const [editingMemberId, setEditingMemberId] = useState(null);
   const [showImporter, setShowImporter] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resettingMonth, setResettingMonth] = useState(false);
   const [search, setSearch] = useState("");
 
   useEffect(() => {
@@ -454,6 +460,51 @@ export default function KpiQaPage() {
     finally { setCreatingMonth(false); }
   }
 
+  async function resetSelectedMonth() {
+    const monthToReset = selectedMonth;
+    const currentRecords = monthlyData[monthToReset]?.records ?? {};
+    if (!canEdit || !Object.keys(currentRecords).length || resettingMonth) return;
+    setResettingMonth(true);
+    setShowResetConfirm(false);
+    setSyncError("");
+    setSyncMessage("");
+    try {
+      let saved;
+      if (isSupabaseConfigured) {
+        importingRef.current = true;
+        const removedCount = await resetKpiMonthResults(monthToReset);
+        saved = await fetchCachedQuery(monthsKey, () => retryDataLoad(loadKpiMonthData), { force: true });
+        remoteSnapshotRef.current = structuredClone(saved);
+        queryClient.setQueryData(monthsKey, saved);
+        setMonthlyData(saved);
+        setSelectedMonth(getLatestMonth(saved));
+        setSyncMessage(`${getMonthLabel(monthToReset)} reset. ${removedCount} result${removedCount === 1 ? "" : "s"} removed from the live scoreboard; the reset can be restored from History for 30 days.`);
+      } else {
+        saved = {
+          ...monthlyData,
+          [monthToReset]: { ...monthlyData[monthToReset], records: {} },
+        };
+        setMonthlyData(saved);
+        setSelectedMonth(getLatestMonth(saved));
+        setSyncMessage(`${getMonthLabel(monthToReset)} results reset in this browser.`);
+      }
+    } catch (error) {
+      setSyncError(error.message || `Could not reset ${getMonthLabel(monthToReset)} results.`);
+      if (isSupabaseConfigured) {
+        try {
+          const refreshed = await fetchCachedQuery(monthsKey, () => retryDataLoad(loadKpiMonthData), { force: true });
+          remoteSnapshotRef.current = structuredClone(refreshed);
+          queryClient.setQueryData(monthsKey, refreshed);
+          setMonthlyData(refreshed);
+          setSelectedMonth(getLatestMonth(refreshed));
+        } catch { /* Keep the reset error visible if recovery refresh also fails. */ }
+      }
+    } finally {
+      importingRef.current = false;
+      setResettingMonth(false);
+    }
+  }
+
   function saveRecord(record) {
     const monthData = monthlyData[selectedMonth];
     const scoringSettings = monthData?.scoringSettings ?? getKpiScoringSettings();
@@ -508,7 +559,7 @@ export default function KpiQaPage() {
         next = saved;
       }
       setMonthlyData(next);
-      setSelectedMonth(imports.map(({ month }) => month).sort().at(-1) ?? selectedMonth);
+      setSelectedMonth(getLatestMonth(next));
       setShowImporter(false);
       setSyncError("");
       setSyncMessage(`Replaced results for ${imports.length} ${imports.length === 1 ? "month" : "months"}.`);
@@ -551,6 +602,7 @@ export default function KpiQaPage() {
         <div className="kpi-month-control"><span className="kpi-toolbar-icon"><CalendarDays size={17} /></span><label><small>Viewing month</small><Select value={selectedMonth} onValueChange={setSelectedMonth}><SelectTrigger className="kpi-month-select-trigger" aria-label="Viewing month"><SelectValue /></SelectTrigger><SelectContent>{monthOptions.map((month) => <SelectItem key={month} value={month}>{getMonthLabel(month)}{monthlyData[month]?.demo ? " · Demo" : ""}</SelectItem>)}</SelectContent></Select></label></div>
         <div className="kpi-new-month-container">
           {canEdit && <label className="kpi-new-month"><span>{creatingMonth ? "Creating month…" : "New month"}</span><input type="month" value={monthDraft} disabled={creatingMonth} onChange={(event) => { setMonthDraft(event.target.value); void createMonth(event.target.value); }} aria-label="Create or open month" /></label>}
+          {canEdit && Object.keys(records).length > 0 && <Button type="button" variant="outline" className="kpi-reset-month-trigger" disabled={resettingMonth} onClick={() => setShowResetConfirm(true)}><RotateCcw size={14} />{resettingMonth ? "Resetting…" : "Reset month"}</Button>}
         </div>
         {isDemo && <span className="kpi-demo-pill"><Sparkles size={13} /> Demo data · replace with your monthly scores</span>}
         {!isDemo && <span className="kpi-saved-indicator"><span /> {isSupabaseConfigured ? "Published results" : "Saved in this browser"}</span>}
@@ -597,7 +649,16 @@ export default function KpiQaPage() {
           const movement = getRankMovement(row.member.id, row.rank);
           const progress = getTierProgress(row.score, settingsOf(row.record));
           const badges = getBadges(row, previous, resolvedRecordsByMonth, row.member.id, selectedMonth);
-          return <button className={`kpi-podium-card kpi-podium-${row.rank}`} type="button" key={row.member.id} onClick={() => setDetailMemberId(row.member.id)}><span className="kpi-podium-place">{row.rank === 1 ? <Crown size={18} /> : row.rank === 2 ? <Medal size={17} /> : <Award size={17} />}<b>#{row.rankLabel}</b></span><MemberAvatar member={row.member} large /><strong className="kpi-podium-name">{row.member.name}</strong><span className="kpi-podium-role">{row.member.role}</span><b className="kpi-podium-score">{formatScore(row.score)}<small> / {getMaximumKpiScore(settingsOf(row.record)).toFixed(2)}</small></b><span className="kpi-podium-evaluation">{getRecordEvaluation(row.record, row.score, settingsOf(row.record))}</span><span className="kpi-podium-tier"><span>{progress.label} · {Math.round(progress.percent)}%</span><i><em style={{ width: `${progress.percent}%` }} /></i></span><span className={`kpi-podium-movement ${movement == null ? "" : movement > 0 ? "kpi-positive" : movement < 0 ? "kpi-negative" : ""}`}>{movement == null ? "New this month" : movement > 0 ? `↑ ${movement} place${movement === 1 ? "" : "s"}` : movement < 0 ? `↓ ${Math.abs(movement)} place${movement === -1 ? "" : "s"}` : "— Same rank"}</span><div className="kpi-badge-list">{badges.map(({ label, icon: Icon }) => <span className="kpi-achievement-badge" key={label}><Icon size={11} />{label}</span>)}</div><span className="kpi-podium-base">{row.rank === 1 ? "MONTH MVP" : `RANK ${row.rankLabel}`}</span></button>;
+          return <button className={`kpi-podium-card kpi-podium-${row.rank}`} type="button" key={row.member.id} onClick={() => setDetailMemberId(row.member.id)} aria-label={`${row.rankLabel} place, ${row.member.name}, ${formatScore(row.score)} KPI score`}>
+            <span className="kpi-podium-effects" aria-hidden="true">{Array.from({ length: row.rank === 1 ? 7 : 4 }, (_, index) => <i key={index} />)}</span>
+            <span className="kpi-podium-place">{row.rank === 1 ? <Crown size={18} /> : row.rank === 2 ? <Medal size={17} /> : <Award size={17} />}<b>#{row.rankLabel}</b></span>
+            <span className="kpi-podium-avatar-frame"><MemberAvatar member={row.member} large />{row.rank === 1 && <span className="kpi-podium-crown"><Crown size={12} fill="currentColor" /></span>}</span>
+            <strong className="kpi-podium-name">{row.member.name}</strong><span className="kpi-podium-role">{row.member.role}</span>
+            <b className="kpi-podium-score">{formatScore(row.score)}<small> / {getMaximumKpiScore(settingsOf(row.record)).toFixed(2)}</small></b><span className="kpi-podium-evaluation">{getRecordEvaluation(row.record, row.score, settingsOf(row.record))}</span>
+            <span className="kpi-podium-tier"><span>{progress.label} · {Math.round(progress.percent)}%</span><i><em style={{ width: `${progress.percent}%` }} /></i></span>
+            <span className={`kpi-podium-movement ${movement == null ? "" : movement > 0 ? "kpi-positive" : movement < 0 ? "kpi-negative" : ""}`}>{movement == null ? "New this month" : movement > 0 ? `↑ ${movement} place${movement === 1 ? "" : "s"}` : movement < 0 ? `↓ ${Math.abs(movement)} place${movement === -1 ? "" : "s"}` : "— Same rank"}</span>
+            <div className="kpi-badge-list">{badges.map(({ label, icon: Icon }) => <span className="kpi-achievement-badge" key={label}><Icon size={11} />{label}</span>)}</div><span className="kpi-podium-base">{row.rank === 1 ? "MONTH MVP" : `RANK ${row.rankLabel}`}</span>
+          </button>;
         })}</div>}
         {leaderboard.length > 3 && <div className="kpi-ranking-list">{leaderboard.slice(3).map((row) => {
           const prior = getPreviousRow(row.member.id);
@@ -620,6 +681,13 @@ export default function KpiQaPage() {
       {selectedMember && selectedRecord && <MemberDetailDialog member={selectedMember} record={selectedRecord} previousRecord={previousRecords[selectedMember.id]} teamAverage={teamAverage} canEdit={canEdit && !selectedMember?.historical} onClose={() => setDetailMemberId(null)} onEdit={() => { setEditingMemberId(selectedMember.id); setDetailMemberId(null); }} />}
       {canEdit && editingMemberId && <ScoreEditorDialog key={`${selectedMonth}-${editingMemberId}`} teamMembers={teamMembers} initialMemberId={editingMemberId} initialRecord={currentResolvedRecords[editingMemberId] ?? records[editingMemberId] ?? null} scoringSettings={selectedScoringSettings} onClose={() => setEditingMemberId(null)} onSave={saveRecord} />}
       {canEdit && showImporter && <ImportDialog teamMembers={teamMembers} selectedMonth={selectedMonth} onClose={() => setShowImporter(false)} onImport={importRecords} />}
+      {canEdit && showResetConfirm && <div className="kpi-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !resettingMonth) setShowResetConfirm(false); }}>
+        <section className="kpi-import-dialog kpi-reset-confirm" role="alertdialog" aria-modal="true" aria-labelledby="kpi-reset-title" aria-describedby="kpi-reset-description">
+          <div className="kpi-dialog-heading"><div><p className="kpi-overline">RESET MONTHLY RESULTS</p><h2 id="kpi-reset-title">Reset {getMonthLabel(selectedMonth)}?</h2><span id="kpi-reset-description">This removes {Object.keys(records).length} result{Object.keys(records).length === 1 ? "" : "s"} from the active monthly scoreboard and dashboard views. The month and scoring settings remain.</span></div><Button type="button" variant="ghost" size="icon" onClick={() => setShowResetConfirm(false)} disabled={resettingMonth} aria-label="Close reset confirmation"><X size={18} /></Button></div>
+          <p className="kpi-reset-recovery-note">The previous results are saved in History and can be restored for 30 days.</p>
+          <div className="kpi-dialog-actions"><Button type="button" variant="outline" onClick={() => setShowResetConfirm(false)} disabled={resettingMonth}>Cancel</Button><Button type="button" className="kpi-reset-confirm-button" onClick={() => void resetSelectedMonth()} disabled={resettingMonth}><RotateCcw size={14} />{resettingMonth ? "Resetting…" : "Reset this month"}</Button></div>
+        </section>
+      </div>}
     </section>
   );
 }

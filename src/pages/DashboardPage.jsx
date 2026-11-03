@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowRight, LayoutDashboard, LoaderCircle, RefreshCw, Settings2, Sparkles } from "lucide-react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/app/auth-provider";
 import { isSupabaseConfigured } from "@/lib/supabase";
@@ -10,12 +10,13 @@ import { fetchCachedQuery, queryKeys, readCachedQuery } from "@/lib/backend/quer
 import DashboardContainer from "@/features/dashboard/DashboardContainer";
 import { DashboardGrid } from "@/features/dashboard/DashboardGrid";
 import { DashboardKpiProvider } from "@/features/dashboard/dashboard-kpi-provider";
+import { DashboardPublicLinksProvider } from "@/features/dashboard/dashboard-public-links-provider";
 import { DASHBOARD_STORAGE_KEY, readPublishedDashboard } from "@/features/dashboard/dashboard-data";
 import "@/features/dashboard/dashboard.css";
 
 export default function DashboardPage() {
   const { canEdit, user } = useAuth();
-  return <DashboardKpiProvider publicOnly={!canEdit}><DashboardContent canEdit={canEdit} user={user} /></DashboardKpiProvider>;
+  return <DashboardPublicLinksProvider><DashboardKpiProvider publicOnly={!canEdit}><DashboardContent canEdit={canEdit} user={user} /></DashboardKpiProvider></DashboardPublicLinksProvider>;
 }
 
 function DashboardContent({ canEdit, user }) {
@@ -28,6 +29,7 @@ function DashboardContent({ canEdit, user }) {
   const visibleContainers = canEdit
     ? dashboard.containers
     : dashboard.containers;
+  const announcements = useMemo(() => dashboard.containers.filter((item) => item.type === "announcement"), [dashboard.containers]);
 
   const refreshDashboard = useCallback(async ({ initial = false, force = false, quiet = false, isActive = () => true } = {}) => {
     if (!isSupabaseConfigured) return;
@@ -63,6 +65,22 @@ function DashboardContent({ canEdit, user }) {
     return () => { active = false; unsubscribe(); if (pollTimer) window.clearInterval(pollTimer); window.removeEventListener("storage", syncPublished); };
   }, [refreshDashboard, user?.id]);
 
+  const [searchParams] = useSearchParams();
+  const announcementId = searchParams.get("announcement");
+  useEffect(() => {
+    if (!announcementId || loading) return undefined;
+    let highlightTimer;
+    const timer = window.setTimeout(() => {
+      const target = document.getElementById(`announcement-${announcementId}`)
+        ?? [...document.querySelectorAll("[data-dashboard-container]")].find((element) => element.dataset.dashboardContainer === announcementId);
+      if (!target) return;
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.classList.add("dashboard-announcement-highlight");
+      highlightTimer = window.setTimeout(() => target.classList.remove("dashboard-announcement-highlight"), 2400);
+    }, 80);
+    return () => { window.clearTimeout(timer); window.clearTimeout(highlightTimer); };
+  }, [announcementId, dashboard, loading]);
+
   return <section className="page-content dashboard-live-page">
     <header className="page-heading dashboard-live-heading">
       <div><p className="eyebrow">YOUR WORKSPACE</p><h1>{dashboard.pageTitle}</h1>{dashboard.pageDescription && <p className="page-description">{dashboard.pageDescription}</p>}</div>
@@ -70,6 +88,6 @@ function DashboardContent({ canEdit, user }) {
     </header>
     {(loading || refreshing) && <p className="dashboard-live-sync" role="status"><LoaderCircle size={14} className="dashboard-live-spinner" />{loading ? "Loading the published dashboard…" : "Updating the published dashboard…"}</p>}
     {loadError && <p className="auth-error dashboard-live-error" role="alert">{loadError}<Button type="button" variant="outline" size="sm" onClick={() => void refreshDashboard()}><RefreshCw size={14} /> Retry</Button></p>}
-    {!loading && (visibleContainers.length ? <div className="dashboard-live-canvas" style={{ "--dashboard-gap": `${dashboard.containerGap ?? 14}px`, "--dashboard-canvas-padding": `${dashboard.canvasPadding ?? 0}px`, "--dashboard-canvas-height": `${dashboard.canvasHeight ?? 560}px` }}><DashboardGrid containers={visibleContainers} gap={dashboard.containerGap ?? 14}>{visibleContainers.map((item) => <div className="dashboard-live-grid-item" key={item.id}><DashboardContainer item={item} containerGap={dashboard.containerGap ?? 14} /></div>)}</DashboardGrid></div> : <div className="dashboard-live-empty"><span><Sparkles size={22} /></span><strong>{canEdit ? "Your dashboard is ready to fill" : "No public dashboard content has been published"}</strong>{canEdit && <><p>Choose which cards to show in Dashboard Settings.</p><Link to="/admin/dashboard"><Button><LayoutDashboard size={16} /> Open dashboard builder <ArrowRight size={15} /></Button></Link></>}</div>)}
+    {!loading && (visibleContainers.length ? <div className="dashboard-live-canvas" style={{ "--dashboard-gap": `${dashboard.containerGap ?? 14}px`, "--dashboard-canvas-padding": `${dashboard.canvasPadding ?? 0}px`, "--dashboard-canvas-height": `${dashboard.canvasHeight ?? 560}px` }}><DashboardGrid containers={visibleContainers} gap={dashboard.containerGap ?? 14}>{visibleContainers.map((item) => <div className="dashboard-live-grid-item" key={item.id}><DashboardContainer item={item} announcements={announcements} containerGap={dashboard.containerGap ?? 14} /></div>)}</DashboardGrid></div> : <div className="dashboard-live-empty"><span><Sparkles size={22} /></span><strong>{canEdit ? "Your dashboard is ready to fill" : "No public dashboard content has been published"}</strong>{canEdit && <><p>Choose which cards to show in Dashboard Settings.</p><Link to="/admin/dashboard"><Button><LayoutDashboard size={16} /> Open dashboard builder <ArrowRight size={15} /></Button></Link></>}</div>)}
   </section>;
 }

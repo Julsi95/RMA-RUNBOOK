@@ -1,4 +1,4 @@
-import { assertBackendConfigured, throwIfError, throwIfErrors } from "./shared.js";
+import { assertBackendConfigured, createPrivateSignedUrlMap, throwIfError, throwIfErrors } from "./shared.js";
 import { supabase } from "@/lib/supabase";
 
 export async function loadCurrentKpiScoring() {
@@ -30,7 +30,7 @@ export async function loadKpiMonthData() {
   throwIfError(versionsResult.error);
   const versions = new Map((versionsResult.data ?? []).map((version) => [version.id, version.settings]));
   const months = Object.fromEntries((monthsResult.data ?? []).map((month) => [month.month_key, {
-    demo: false, scoringVersionId: month.scoring_version_id, scoringSettings: versions.get(month.scoring_version_id) ?? null, records: {},
+    demo: false, status: month.status, scoringVersionId: month.scoring_version_id, scoringSettings: versions.get(month.scoring_version_id) ?? null, records: {},
   }]));
   for (const row of resultsResult.data ?? []) {
     if (!months[row.month_key]) months[row.month_key] = { demo: false, scoringVersionId: null, scoringSettings: null, records: {} };
@@ -57,10 +57,30 @@ export async function loadPublicDashboardKpiWidget() {
   return {
     [data.monthKey]: {
       demo: false,
+      status: "published",
       scoringVersionId: null,
       scoringSettings: data.scoringSettings ?? null,
       records: data.records ?? {},
     },
+  };
+}
+
+export async function loadPublicDashboardRecognition() {
+  assertBackendConfigured();
+  const { data, error } = await supabase.rpc("get_public_dashboard_recognition");
+  throwIfError(error);
+  if (!data?.monthKey) return null;
+  const agents = data.agents ?? [];
+  const photoUrls = await createPrivateSignedUrlMap(agents.map((agent) => agent.photoPath), 3600);
+  return {
+    monthKey: data.monthKey,
+    agents: agents.map((agent) => ({
+      memberId: agent.memberId,
+      memberName: agent.name,
+      rank: Number(agent.rank),
+      streakMonths: Number(agent.streakMonths) || 1,
+      photo: agent.photoPath ? photoUrls.get(agent.photoPath) ?? "" : agent.photoUrl ?? "",
+    })),
   };
 }
 
@@ -107,4 +127,11 @@ export async function replaceKpiMonthResults(month, records) {
   });
   throwIfError(error);
   return data;
+}
+
+export async function resetKpiMonthResults(month) {
+  assertBackendConfigured();
+  const { data, error } = await supabase.rpc("reset_kpi_month_results", { p_month: month });
+  throwIfError(error);
+  return Number(data) || 0;
 }
