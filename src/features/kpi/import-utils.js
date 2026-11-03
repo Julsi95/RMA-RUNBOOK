@@ -21,6 +21,16 @@ const shortNameKey = (value) => {
   const parts = String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(Boolean);
   return parts.length > 1 ? `${parts[0][0]}${parts.at(-1)}` : "";
 };
+function abbreviatedNameMatches(importedName, memberName) {
+  const importedParts = String(importedName ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(Boolean);
+  const memberParts = String(memberName ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(Boolean);
+  if (importedParts.length < 2 || importedParts[0].length !== 1 || memberParts.length < 2) return false;
+  if (importedParts[0] !== memberParts[0][0]) return false;
+  const importedSurname = importedParts.slice(1);
+  const memberSurname = memberParts.slice(-importedSurname.length);
+  return importedSurname.length <= memberParts.length - 1
+    && importedSurname.every((part, index) => part === memberSurname[index]);
+}
 
 function findHeaderRows(rows) {
   return rows.map((row, index) => ({ row, index })).filter(({ row, index }) => {
@@ -149,7 +159,12 @@ export function normalizeImportedRows(rows, teamMembers) {
   const nameKey = findNameColumn(rows, teamMembers);
   const roleKey = headers.find((header) => ["role", "position", "jobtitle", "title"].includes(normalize(header)));
   const identityKey = headers.find((header) => ["employeeid", "agentid", "personnelid", "staffid", "employee number", "employeenumber"].includes(normalize(header)));
-  const memberByName = new Map(teamMembers.map((member) => [normalize(member.name), member]));
+  const memberById = new Map(teamMembers.map((member) => [String(member.id), member]));
+  const membersByName = new Map();
+  for (const member of teamMembers) {
+    const key = normalize(member.name);
+    membersByName.set(key, [...(membersByName.get(key) ?? []), member]);
+  }
   const membersByShortName = new Map();
   for (const member of teamMembers) {
     const key = shortNameKey(member.name);
@@ -165,10 +180,15 @@ export function normalizeImportedRows(rows, teamMembers) {
   for (const [rowIndex, row] of rows.entries()) {
     const name = String(row[nameKey] ?? "").trim();
     if (!name || ["name", "agent", "employee"].includes(normalize(name))) continue;
-    const exactMatch = memberByName.get(normalize(name));
+    const identityValue = String(identityKey ? row[identityKey] ?? "" : "").trim();
+    const identityMatch = memberById.get(identityValue);
+    const exactMatches = membersByName.get(normalize(name)) ?? [];
+    const exactMatch = exactMatches.length === 1 ? exactMatches[0] : null;
     const shortMatches = membersByShortName.get(shortNameKey(name)) ?? [];
-    const member = exactMatch ?? (shortMatches.length === 1 ? shortMatches[0] : null);
-    const historicalIdentity = String(identityKey ? row[identityKey] ?? "" : "").trim() || name;
+    const abbreviatedMatches = teamMembers.filter((candidate) => abbreviatedNameMatches(name, candidate.name));
+    const member = identityMatch ?? exactMatch ?? (shortMatches.length === 1 ? shortMatches[0] : null)
+      ?? (abbreviatedMatches.length === 1 ? abbreviatedMatches[0] : null);
+    const historicalIdentity = identityValue || name;
     const memberId = member?.id ?? historicalMemberId(historicalIdentity);
     const role = member?.role ?? String(roleKey ? row[roleKey] ?? "" : "").trim();
     if (!member) unmatched.push(name);

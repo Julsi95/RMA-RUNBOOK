@@ -4,24 +4,34 @@ import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/app/auth-provider";
 import { useBranding } from "@/app/branding-provider";
 
-const links = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
-  { to: "/history", label: "History", icon: ClipboardCheck, editorOnly: true },
-  { to: "/admin/dashboard", label: "Dashboard settings", icon: PanelsTopLeft, editorOnly: true },
-  { to: "/organizational", label: "Organizational", icon: Network },
-  { to: "/seat-plan", label: "Seat plan", icon: Armchair },
-  { to: "/projects", label: "Project coverage", icon: BriefcaseBusiness },
-  { to: "/inbound-call-time", label: "Inbound call time", icon: PhoneIncoming },
-  { to: "/work-schedule", label: "Work schedule", icon: CalendarClock },
-  { to: "/holidays", label: "Holiday calendar", icon: CalendarDays },
-  { to: "/wfh-privileges", label: "WFH privileges", icon: Gift },
-  { to: "/vl-credits", label: "VL credits", icon: Coins },
-  { to: "/app-links", label: "App / Links", icon: Link2 },
-  { to: "/agent-profiles", label: "Agent profiles", icon: ContactRound },
-  { to: "/kpi-qa", label: "Monthly KPI / QA", icon: BarChart3 },
-  { to: "/admin/kpi-scoring", label: "KPI scoring settings", icon: SlidersHorizontal, editorOnly: true },
-  { to: "/admin/qa-parameters", label: "QA parameters", icon: ClipboardCheck },
+const linkGroups = [
+  { label: "Workspace", links: [
+    { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
+    { to: "/organizational", label: "Organizational", icon: Network },
+    { to: "/agent-profiles", label: "Agent profiles", icon: ContactRound },
+    { to: "/app-links", label: "App / Links", icon: Link2 },
+    { to: "/holidays", label: "Holiday calendar", icon: CalendarDays },
+  ] },
+  { label: "Operations", links: [
+    { to: "/seat-plan", label: "Seat plan", icon: Armchair },
+    { to: "/projects", label: "Project coverage", icon: BriefcaseBusiness },
+    { to: "/inbound-call-time", label: "Inbound call time", icon: PhoneIncoming },
+    { to: "/work-schedule", label: "Work schedule", icon: CalendarClock },
+    { to: "/wfh-privileges", label: "WFH privileges", icon: Gift },
+    { to: "/vl-credits", label: "VL credits", icon: Coins },
+  ] },
+  { label: "Performance", links: [
+    { to: "/kpi-qa", label: "Monthly KPI / QA", icon: BarChart3 },
+    { to: "/admin/qa-parameters", label: "QA parameters", icon: ClipboardCheck },
+  ] },
+  { label: "Administration", links: [
+    { to: "/history", label: "History", icon: ClipboardCheck, editorOnly: true },
+    { to: "/admin/dashboard", label: "Dashboard settings", icon: PanelsTopLeft, editorOnly: true },
+    { to: "/admin/kpi-scoring", label: "KPI scoring settings", icon: SlidersHorizontal, editorOnly: true },
+  ] },
 ];
+
+const publicRoutes = new Set(["/", "/organizational", "/agent-profiles", "/app-links", "/holidays"]);
 
 export default function Sidebar({ open, collapsed, onClose, onToggleCollapse, publicWorkspace = false }) {
   const { canEdit } = useAuth();
@@ -50,12 +60,19 @@ export default function Sidebar({ open, collapsed, onClose, onToggleCollapse, pu
           </Button>
         </div>
         <nav className="nav-list" aria-label="Main navigation">
-          {links.filter((item) => publicWorkspace ? ["/", "/organizational", "/agent-profiles", "/app-links", "/holidays"].includes(item.to) : !item.editorOnly || canEdit).map(({ to, label, icon: Icon, end }) => (
-            <NavLink key={to} to={to} end={end} onClick={onClose} title={label} className={({ isActive }) => `nav-link ${isActive ? "nav-link-active" : ""}`}>
-              <Icon size={18} strokeWidth={1.8} />
-              <span>{label}</span>
-            </NavLink>
-          ))}
+          {linkGroups.map((group) => {
+            const visibleLinks = group.links.filter((item) => publicWorkspace ? publicRoutes.has(item.to) : !item.editorOnly || canEdit);
+            if (!visibleLinks.length) return null;
+            return <div className="nav-section" key={group.label}>
+              <p className="nav-caption">{group.label}</p>
+              {visibleLinks.map(({ to, label, icon: Icon, end }) => (
+                <NavLink key={to} to={to} end={end} onClick={onClose} title={label} className={({ isActive }) => `nav-link ${isActive ? "nav-link-active" : ""}`}>
+                  <Icon size={18} strokeWidth={1.8} />
+                  <span>{label}</span>
+                </NavLink>
+              ))}
+            </div>;
+          })}
         </nav>
         <div className="sidebar-bottom">
           {publicWorkspace ? <>
