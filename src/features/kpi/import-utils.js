@@ -134,6 +134,28 @@ function findMetricCell(row, metric, kind) {
   return "";
 }
 
+function findOverallScoreHeader(headers) {
+  const prefixes = ["kpiscore", "amscore", "overallscore", "finalscore", "totalscore", "monthlyscore"];
+  return headers.find((header) => {
+    const normalized = normalize(header);
+    return prefixes.some((prefix) => normalized === prefix || normalized.startsWith(`${prefix}score`));
+  });
+}
+
+function findEvaluationHeader(headers) {
+  return headers.find((header) => {
+    const normalized = normalize(header);
+    return normalized.includes("evaluation") || ["rating", "performanceband", "evaluationband"].includes(normalized);
+  });
+}
+
+function findRankHeader(headers) {
+  return headers.find((header) => {
+    const normalized = normalize(header);
+    return normalized === "rank" || normalized === "ranking" || normalized.endsWith("rank") || normalized.endsWith("ranking");
+  });
+}
+
 export function normalizeImportedRows(rows, teamMembers) {
   const headers = Object.keys(rows[0] ?? {});
   const missingColumns = [];
@@ -147,6 +169,12 @@ export function normalizeImportedRows(rows, teamMembers) {
     if (!headers.some((header) => aliases.some((alias) => normalize(header).includes(alias)) && (normalize(header).includes("equivalent") || normalize(header).includes("equiv")))) missingColumns.push(`${metric.label} equivalent score`);
     if (!headers.some((header) => aliases.some((alias) => normalize(header).includes(alias)) && normalize(header).includes("weighted"))) missingColumns.push(`${metric.label} weighted score`);
   }
+  const overallHeader = findOverallScoreHeader(headers);
+  const evaluationHeader = findEvaluationHeader(headers);
+  const rankHeader = findRankHeader(headers);
+  if (!overallHeader) missingColumns.push("KPI / AM score");
+  if (!evaluationHeader) missingColumns.push("Evaluation");
+  if (!rankHeader) missingColumns.push("Rank");
   const nameKey = findNameColumn(rows, teamMembers);
   const roleKey = headers.find((header) => ["role", "position", "jobtitle", "title"].includes(normalize(header)));
   const identityKey = headers.find((header) => ["employeeid", "agentid", "personnelid", "staffid", "employee number", "employeenumber"].includes(normalize(header)));
@@ -156,7 +184,6 @@ export function normalizeImportedRows(rows, teamMembers) {
   const repeated = [];
   const seen = new Set();
 
-  const rankHeader = Object.keys(rows[0] ?? {}).find((header) => normalize(header) === "rank" || normalize(header).endsWith("rank"));
   for (const [rowIndex, row] of rows.entries()) {
     const name = String(row[nameKey] ?? "").trim();
     if (!name || ["name", "agent", "employee"].includes(normalize(name))) continue;
@@ -181,8 +208,6 @@ export function normalizeImportedRows(rows, teamMembers) {
         percentValue: metric.isPercent && rawValue !== "" ? rawValue : null,
       };
     }
-    const overallHeader = Object.keys(row).find((header) => normalize(header).includes("kpiscore"));
-    const evaluationHeader = Object.keys(row).find((header) => normalize(header).includes("evaluation"));
     imported.push({
       importRowId: `${rowIndex}-${normalize(name)}`,
       sourceName: name,
