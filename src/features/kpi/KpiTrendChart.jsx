@@ -1,5 +1,6 @@
 import { ChartContainer, ChartTooltipContent } from "@/components/ui/chart";
 import { getKpiScoringSettings, getMaximumKpiScore, KPI_METRICS } from "@/features/kpi/kpi-data";
+import { buildKpiPersonGroups } from "@/features/kpi/kpi-person-groups";
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 function formatScore(value) {
@@ -12,12 +13,15 @@ function importedRank(record) {
   return Number.isFinite(rank) ? rank : null;
 }
 
-export default function KpiTrendChart({ months, monthlyData, metricMode, range, targetId, selectedMonth, getRecordScore, settingsOf }) {
+export default function KpiTrendChart({ months, monthlyData, people, metricMode, range, targetId, selectedMonth, getRecordScore, settingsOf }) {
   const chartMonths = months.filter((month) => month <= selectedMonth).slice(-range);
+  const groupedPeople = buildKpiPersonGroups(chartMonths, monthlyData, people);
   const metric = KPI_METRICS.find((item) => item.id === metricMode);
   const values = chartMonths.map((month) => {
-    const records = monthlyData[month]?.records ?? {};
-    const rows = targetId === "team" ? Object.values(records) : [records[targetId]].filter(Boolean);
+    const rows = groupedPeople
+      .filter((person) => targetId === "team" || person.id === targetId)
+      .map((person) => person.recordsByMonth[month])
+      .filter(Boolean);
     const numbers = rows.map((record) => {
       if (metricMode === "overall") return getRecordScore(record, settingsOf(record));
       if (metricMode === "rank") return importedRank(record);

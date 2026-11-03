@@ -61,7 +61,7 @@
 .kpi-trend-footer { display: flex; justify-content: space-between; margin: -2px 10px 0 45px; color: var(--muted-foreground); font-size: 10px; }
 .kpi-insights-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .kpi-insight-card { min-width: 0; padding: 15px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
-.kpi-insight-wide { grid-column: 1 / -1; display: flex; height: 360px; min-height: 0; flex-direction: column; }
+.kpi-insight-wide { grid-column: 1 / -1; display: flex; height: 400px; min-height: 0; flex-direction: column; }
 .kpi-insight-wide > .kpi-insight-heading, .kpi-insight-wide > .kpi-insight-caption { flex: 0 0 auto; }
 .kpi-point-tooltip { min-width: 155px; }
 .kpi-point-tooltip > div { grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 12px; }
@@ -74,16 +74,29 @@
 .kpi-insight-chart .recharts-cartesian-axis-tick-value { fill: var(--muted-foreground); font-family: inherit; font-size: 10px; }
 .kpi-insight-caption { margin: 6px 2px 0; color: var(--muted-foreground); font-size: 10px; line-height: 1.5; }
 .kpi-insight-loading { display: grid; min-height: 220px; grid-column: 1 / -1; place-items: center; border: 1px solid var(--border); border-radius: 12px; color: var(--muted-foreground); font-size: 12px; }
-.kpi-heatmap-scroll { min-height: 0; max-width: 100%; flex: 1 1 auto; overflow: auto; margin-top: 11px; border: 1px solid var(--border); border-radius: 9px; overscroll-behavior: contain; }
+.kpi-heatmap-controls { display: flex; min-width: 0; align-items: flex-end; justify-content: flex-end; gap: 8px; }
+.kpi-heatmap-year { display: grid; gap: 3px; color: var(--muted-foreground); font-size: 9px; }
+.kpi-heatmap-year select, .kpi-heatmap-search input { height: 32px; min-width: 0; padding: 5px 9px; border: 1px solid var(--border); border-radius: 7px; outline: none; background: var(--background); color: var(--foreground); font: inherit; font-size: 11px; }
+.kpi-heatmap-year select:focus-visible, .kpi-heatmap-search input:focus-visible { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 18%, transparent); }
+.kpi-heatmap-search { display: grid; gap: 3px; color: var(--muted-foreground); font-size: 9px; }
+.kpi-heatmap-search input { width: min(190px, 28vw); }
+.kpi-heatmap-month-count { padding-bottom: 8px; color: var(--muted-foreground); font-size: 10px; white-space: nowrap; }
+.kpi-heatmap-scroll { min-height: 0; max-width: 100%; flex: 1 1 auto; overflow: auto; margin-top: 11px; border: 1px solid var(--border); border-radius: 9px; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .kpi-heatmap { width: 100%; min-width: 650px; border-collapse: separate; border-spacing: 0; font-size: 10px; }
-.kpi-heatmap th, .kpi-heatmap td { min-width: 78px; padding: 7px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); text-align: center; }
-.kpi-heatmap thead th { position: sticky; top: 0; background: var(--muted); color: var(--muted-foreground); font-weight: 600; }
+.kpi-heatmap th, .kpi-heatmap td { min-width: 78px; padding: 7px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); text-align: center; white-space: nowrap; }
+.kpi-heatmap thead th { position: sticky; top: 0; z-index: 2; background: var(--muted); color: var(--muted-foreground); font-weight: 600; }
+.kpi-heatmap thead th:first-child { left: 0; z-index: 3; min-width: 145px; text-align: left; }
 .kpi-heatmap tbody th { position: sticky; left: 0; z-index: 1; min-width: 145px; background: var(--surface); text-align: left; }
 .kpi-heatmap tbody th span, .kpi-heatmap tbody th small { display: block; }
 .kpi-heatmap tbody th small { margin-top: 3px; color: var(--muted-foreground); font-size: 9px; font-weight: 400; }
 .kpi-heatmap-cell { display: inline-flex; min-width: 48px; min-height: 30px; align-items: center; justify-content: center; gap: 4px; padding: 4px 6px; border-radius: 6px; background: color-mix(in srgb, var(--foreground) var(--score-intensity), var(--surface)); font-variant-numeric: tabular-nums; }
 .kpi-heatmap-cell small { font-size: 9px; opacity: .7; }
 .kpi-heatmap-empty { color: var(--muted-foreground); }
+.kpi-heatmap-pagination { display: flex; min-height: 34px; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted-foreground); font-size: 10px; }
+.kpi-heatmap-pagination>div { display: inline-flex; align-items: center; gap: 8px; }
+.kpi-heatmap-pagination button { min-height: 27px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--foreground); font: inherit; cursor: pointer; }
+.kpi-heatmap-pagination button:hover:not(:disabled) { background: var(--muted); }
+.kpi-heatmap-pagination button:disabled { opacity: .45; cursor: not-allowed; }
 .kpi-import-history-note { margin: 8px 0 0; padding: 7px 8px; border: 1px solid color-mix(in srgb, #168052 26%, var(--border)); border-radius: 7px; background: color-mix(in srgb, #168052 6%, var(--surface)); color: #168052; font-size: 10px; line-height: 1.45; }
 .kpi-import-unmatched td:first-child { color: #a66b13; font-weight: 650; }
 .kpi-score-rule-note { margin: 0; padding: 8px 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--background); color: var(--muted-foreground); font-size: 10px; line-height: 1.5; }
@@ -286,11 +299,14 @@
   .kpi-demo-pill, .kpi-saved-indicator { width: 100%; margin-left: 0; }
   .kpi-section-head { flex-direction: column; }
   .kpi-chart-controls, .kpi-comparison-controls { width: 100%; justify-content: flex-start; }
+  .kpi-heatmap-controls { width: 100%; justify-content: flex-start; }
   .kpi-trend-chart, .kpi-chart-empty { height: 220px; }
   .kpi-comparison-head { align-items: stretch; }
   .kpi-comparison-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
   .kpi-search { grid-column: 1 / -1; }
   .kpi-chart-controls > select { flex: 1; min-width: 120px; }
+  .kpi-heatmap-search { flex: 1; }
+  .kpi-heatmap-search input { width: 100%; }
   .kpi-team-bar-row { grid-template-columns: 22px 27px minmax(90px, 1fr) minmax(50px, 1.2fr) 43px 53px; gap: 5px; padding: 6px 3px; }
   .kpi-bar-name strong { font-size: 10px; }
   .kpi-bar-name small { font-size: 10px; }
