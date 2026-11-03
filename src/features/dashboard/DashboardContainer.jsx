@@ -178,7 +178,8 @@ export default function DashboardContainer({ item, linksEnabled = true, containe
   const hasText = hasBaseText || textLayers.length > 0;
   const overlay = hasImage && hasText && (textLayers.length > 0 || (hasBaseText && item.textPosition && item.textPosition !== "below"));
   const imageFillsCard = hasImage && (overlay || !hasText);
-  const typeLabel = item.type === "quickLinks" ? "QUICK ACCESS" : item.type === "announcement" ? "ANNOUNCEMENT" : item.type === "content" ? "NOTE" : "FEATURED";
+  const typeLabel = item.type === "quickLinks" ? "QUICK ACCESS" : item.type === "announcement" ? "ANNOUNCEMENT" : item.type === "content" ? "NOTE" : "";
+  const kicker = item.eyebrow || typeLabel;
   const width = Math.min(24, Math.max(1, Number(item.width) || 12));
   const height = Math.max(120, Number(item.height) || 250);
   const style = {
@@ -205,7 +206,7 @@ export default function DashboardContainer({ item, linksEnabled = true, containe
   return <article id={item.type === "announcement" ? `announcement-${item.id}` : undefined} className={className} style={style} data-dashboard-container={item.id}>
     {hasImage && imageLayer}
     {hasBaseText && <div className={"dashboard-card-inner" + (hasImage && item.textPosition && item.textPosition !== "below" ? " is-overlay" : "")} style={hasImage && item.textPosition && item.textPosition !== "below" ? { position: "absolute", zIndex: 2, background: item.textBackground === "none" ? "transparent" : undefined } : undefined}>
-      {(item.eyebrow || (hasText && (item.title || item.description || item.body)) || item.type === "announcement") && <div className="dashboard-card-kicker-row">{(item.eyebrow || item.title || item.description || item.body) && <span className="dashboard-card-kicker">{item.eyebrow || typeLabel}</span>}{item.type === "announcement" && <span className="dashboard-announcement-spark" aria-hidden="true"><i /><i /><i /></span>}</div>}
+      {(kicker || item.type === "announcement") && <div className="dashboard-card-kicker-row">{kicker && <span className="dashboard-card-kicker">{kicker}</span>}{item.type === "announcement" && <span className="dashboard-announcement-spark" aria-hidden="true"><i /><i /><i /></span>}</div>}
       {item.title && <h2>{item.title}</h2>}
       {item.description && <OverflowText className="dashboard-card-description" wrap={item.descriptionWrap !== false}>{item.description}</OverflowText>}
       {item.type === "announcement" && item.body && <OverflowText className="dashboard-card-body" wrap={item.bodyWrap !== false}>{item.body}</OverflowText>}
