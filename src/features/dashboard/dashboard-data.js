@@ -3,6 +3,7 @@ export const DASHBOARD_DRAFT_KEY = "starter-app-dashboard-draft-v1";
 
 export const CONTAINER_TYPES = [
   { value: "announcement", label: "Announcement" },
+  { value: "recentAnnouncements", label: "Recent announcements" },
   { value: "feature", label: "Feature" },
   { value: "content", label: "Simple content" },
   { value: "quickLinks", label: "Quick links" },
@@ -158,7 +159,7 @@ function normalizeDashboard(value) {
       carouselControls: item.carouselControls !== false,
       carouselIndicators: item.carouselIndicators !== false,
       links: Array.isArray(item.links) ? item.links : [],
-      topAgentsLimit: Math.min(10, Math.max(1, Number(item.topAgentsLimit) || 3)),
+      topAgentsLimit: 3,
       textLayers: Array.isArray(item.textLayers) ? item.textLayers.map((layer, index) => ({
         id: layer?.id || `text-${item.id}-${index}`,
         text: typeof layer?.text === "string" ? layer.text : "",
@@ -212,6 +213,7 @@ export function clearDashboardDraft() {
 export function makeContainer(type = "feature") {
   const names = {
     announcement: "New announcement",
+    recentAnnouncements: "Recent announcements",
     feature: "Featured content",
     content: "Your message",
     quickLinks: "Quick links",

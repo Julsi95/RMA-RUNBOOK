@@ -1,21 +1,23 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { isSupabaseConfigured } from "@/lib/supabase";
-import { loadKpiMonthData, loadPublicDashboardKpiWidget } from "@/lib/backend-repositories";
+import { loadKpiMonthData, loadPublicDashboardKpiWidget, loadPublicDashboardRecognition } from "@/lib/backend-repositories";
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 import { useOrganizationRoster } from "@/app/organization-provider";
 import { useAuth } from "@/app/auth-provider";
 import { getOperationalRoster } from "@/features/organization/organization-data";
 import { fetchCachedQuery, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
 
-const DashboardKpiContext = createContext({ months: {}, loading: false, error: "", refresh: async () => {} });
+const DashboardKpiContext = createContext({ months: {}, recognition: null, loading: false, error: "", refresh: async () => {} });
 
 export function DashboardKpiProvider({ children, publicOnly = false }) {
   const { members: rosterMembers, loading: rosterLoading } = useOrganizationRoster();
   const members = useMemo(() => getOperationalRoster(rosterMembers), [rosterMembers]);
   const { user, canEdit } = useAuth();
-  const cacheKey = useMemo(() => publicOnly ? ["public-dashboard-kpi-widget"] : queryKeys.kpiMonths(user?.id ?? "anonymous", canEdit), [canEdit, publicOnly, user?.id]);
+  const anonymousRecognition = publicOnly && !user;
+  const cacheKey = useMemo(() => anonymousRecognition ? ["public-dashboard-recognition"] : publicOnly ? ["public-dashboard-kpi-widget"] : queryKeys.kpiMonths(user?.id ?? "anonymous", canEdit), [anonymousRecognition, canEdit, publicOnly, user?.id]);
   const cached = readCachedQuery(cacheKey);
-  const [months, setMonths] = useState(cached ?? {});
+  const [months, setMonths] = useState(anonymousRecognition ? {} : cached ?? {});
+  const [recognition, setRecognition] = useState(anonymousRecognition ? cached : null);
   const [loading, setLoading] = useState(isSupabaseConfigured && !cached);
   const [error, setError] = useState("");
   const requestRef = useRef(0);
@@ -23,10 +25,18 @@ export function DashboardKpiProvider({ children, publicOnly = false }) {
     if (!isSupabaseConfigured) { setMonths({}); setLoading(false); return; }
     const requestId = ++requestRef.current;
     if (!readCachedQuery(cacheKey)) setLoading(true);
-    try { const data = await fetchCachedQuery(cacheKey, () => retryDataLoad(publicOnly ? loadPublicDashboardKpiWidget : loadKpiMonthData), { force }); if (requestId === requestRef.current) { setMonths(data); setError(""); } }
+    const loader = anonymousRecognition ? loadPublicDashboardRecognition : publicOnly ? loadPublicDashboardKpiWidget : loadKpiMonthData;
+    try {
+      const data = await fetchCachedQuery(cacheKey, () => retryDataLoad(loader), { force });
+      if (requestId === requestRef.current) {
+        if (anonymousRecognition) { setRecognition(data); setMonths({}); }
+        else { setMonths(data); setRecognition(null); }
+        setError("");
+      }
+    }
     catch (cause) { if (requestId === requestRef.current) setError(cause.message || "KPI results could not be loaded."); }
     finally { if (requestId === requestRef.current) setLoading(false); }
-  }, [cacheKey, publicOnly]);
+  }, [anonymousRecognition, cacheKey, publicOnly, user?.id]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return undefined;
@@ -38,15 +48,22 @@ export function DashboardKpiProvider({ children, publicOnly = false }) {
     };
     void refresh();
     const unsubscribe = subscribeToTables(publicOnly ? ["dashboard_publication", "kpi_months", "kpi_results"] : ["kpi_months", "kpi_results", "kpi_scoring_versions"], run, publicOnly ? "public-dashboard-kpi-widgets" : "dashboard-kpi-widgets");
-    return () => { active = false; window.clearTimeout(timer); unsubscribe(); };
-  }, [publicOnly, refresh]);
+    const poll = anonymousRecognition ? window.setInterval(() => {
+      if (active && document.visibilityState === "visible") void refresh({ force: true });
+    }, 30_000) : null;
+    return () => { active = false; window.clearTimeout(timer); if (poll) window.clearInterval(poll); unsubscribe(); };
+  }, [anonymousRecognition, publicOnly, refresh]);
 
   const dashboardMembers = useMemo(() => {
     if (!publicOnly) return members;
+    if (anonymousRecognition) return recognition?.agents ?? [];
     const latestMonth = Object.keys(months).sort((left, right) => right.localeCompare(left))[0];
     return Object.values(months[latestMonth]?.records ?? {}).map((record) => ({ id: record.memberId, name: record.memberName, role: record.role }));
-  }, [members, months, publicOnly]);
-  const value = useMemo(() => ({ months, members: dashboardMembers, rosterLoading: publicOnly ? false : rosterLoading, loading, error, refresh: () => refresh({ force: true }) }), [dashboardMembers, error, loading, publicOnly, refresh, rosterLoading, months]);
+  }, [anonymousRecognition, members, months, publicOnly, recognition]);
+  // Never let a prior authenticated query remain visible for even one render
+  // when this provider is serving the anonymous public workspace.
+  const visibleMonths = anonymousRecognition ? {} : months;
+  const value = useMemo(() => ({ months: visibleMonths, recognition, members: dashboardMembers, rosterLoading: publicOnly ? false : rosterLoading, loading, error, refresh: () => refresh({ force: true }) }), [dashboardMembers, error, loading, publicOnly, recognition, refresh, rosterLoading, visibleMonths]);
   return <DashboardKpiContext.Provider value={value}>{children}</DashboardKpiContext.Provider>;
 }
 

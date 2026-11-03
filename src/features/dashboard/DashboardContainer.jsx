@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, ArrowUpRight, CalendarDays, ChevronLeft, ChevronRight, Quote } from "lucide-react";
+import { ArrowRight, ArrowUpRight, CalendarDays, ChevronLeft, ChevronRight, Crown, Medal, Quote } from "lucide-react";
 import { Link } from "react-router";
 import { getOverallScore, getKpiScoringSettings } from "@/features/kpi/kpi-data";
 import { useDashboardKpi } from "@/features/dashboard/dashboard-kpi-provider";
+import { useDashboardPublicLinks } from "@/features/dashboard/dashboard-public-links-provider";
 import { safeAppHref, safeHttpUrl } from "@/lib/safe-url";
 
 function OverflowText({ as: Tag = "p", wrap = true, className = "", style, children }) {
@@ -57,8 +58,44 @@ function colorWithOpacity(color, opacity) {
   return `rgb(${parseInt(hex.slice(0, 2), 16)} ${parseInt(hex.slice(2, 4), 16)} ${parseInt(hex.slice(4, 6), 16)} / ${Math.max(0, Math.min(100, opacity ?? 74))}%)`;
 }
 
-export default function DashboardContainer({ item, linksEnabled = true, containerGap = 14 }) {
+function rankFromImportedValue(record) {
+  if (record?.source !== "import") return null;
+  const value = String(record.metrics?._importedRank ?? "").trim();
+  const rank = Number(value.match(/\d+/)?.[0]);
+  return Number.isFinite(rank) ? rank : null;
+}
+
+function getTopThreeStreak(months, memberId, throughMonthKey) {
+  if (!throughMonthKey) return 0;
+  const [year, month] = throughMonthKey.split("-").map(Number);
+  let streak = 0;
+  for (let offset = 0; offset < 12; offset += 1) {
+    const date = new Date(Date.UTC(year, month - 1 - offset, 1));
+    const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+    const data = months[key];
+    if (data?.status !== "published" || !data?.records?.[memberId]) break;
+    const settings = data.scoringSettings ?? getKpiScoringSettings();
+    const ranked = Object.entries(data.records).map(([id, record]) => {
+      const importedRank = rankFromImportedValue(record);
+      const importedScore = record.overallScore !== "" && record.overallScore != null && Number.isFinite(Number(record.overallScore));
+      const score = record.source === "import" && importedScore ? Number(record.overallScore) : getOverallScore(record, settings);
+      return { id, importedRank, score, name: record.memberName ?? "" };
+    }).sort((a, b) => {
+      if (a.importedRank != null && b.importedRank != null && a.importedRank !== b.importedRank) return a.importedRank - b.importedRank;
+      if (a.importedRank != null && b.importedRank == null) return -1;
+      if (a.importedRank == null && b.importedRank != null) return 1;
+      return b.score - a.score || a.name.localeCompare(b.name);
+    });
+    if (ranked.findIndex((row) => row.id === memberId) > 2) break;
+    streak += 1;
+  }
+  return streak;
+}
+
+export default function DashboardContainer({ item, linksEnabled = true, containerGap = 14, announcements = [] }) {
   const kpiData = useDashboardKpi();
+  const publicLinksData = useDashboardPublicLinks();
+  const publicLinks = publicLinksData.links ?? [];
   const imageList = Array.isArray(item.images) && item.images.length ? item.images : item.image ? [{ id: "legacy-image", src: item.image }] : [];
   const images = imageList.map((image) => ({ ...image, src: safeImageSource(image.src) })).filter((image) => image.src);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
@@ -85,30 +122,64 @@ export default function DashboardContainer({ item, linksEnabled = true, containe
     setActiveImageIndex((index) => (index + direction + images.length) % images.length);
   }
   if (item.type === "topAgents" || item.type === "kpiResult") {
-    const availableMonths = Object.entries(kpiData.months ?? {}).filter(([, month]) => Object.keys(month.records ?? {}).length);
-    const [monthKey, month] = availableMonths.sort(([a], [b]) => b.localeCompare(a))[0] ?? ["", null];
+    const availableMonths = Object.entries(kpiData.months ?? {}).filter(([, month]) =>
+      Object.keys(month.records ?? {}).length && (item.type !== "topAgents" || month.status === "published"),
+    );
+    const [monthKey, month] = availableMonths.sort(([a], [b]) => b.localeCompare(a))[0] ?? [kpiData.recognition?.monthKey ?? "", null];
     const settings = month?.scoringSettings ?? getKpiScoringSettings();
-    const ranked = (kpiData.members ?? []).map((member) => month?.records?.[member.id] ? { ...month.records[member.id], memberName: member.name, role: member.role, computedScore: getOverallScore(month.records[member.id], settings) } : null).filter(Boolean)
-      .sort((a, b) => b.computedScore - a.computedScore || a.memberName.localeCompare(b.memberName));
+    const knownMembers = new Map((kpiData.members ?? []).map((member) => [member.id, member]));
+    const ranked = Object.entries(month?.records ?? {}).map(([memberId, record]) => {
+      const member = knownMembers.get(memberId);
+      const importedRank = record.source === "import" ? String(record.metrics?._importedRank ?? "").trim() : "";
+      const explicitRank = Number(importedRank.match(/\d+/)?.[0]);
+      const importedScore = record.overallScore !== "" && record.overallScore != null && Number.isFinite(Number(record.overallScore));
+      return { ...record, memberId, memberName: member?.name || record.memberName || "Former roster member", role: member?.role || record.role, computedScore: record.source === "import" && importedScore ? Number(record.overallScore) : getOverallScore(record, settings), importedRank, explicitRank: Number.isFinite(explicitRank) ? explicitRank : null };
+    }).filter(Boolean).sort((a, b) => {
+      if (a.explicitRank != null && b.explicitRank != null && a.explicitRank !== b.explicitRank) return a.explicitRank - b.explicitRank;
+      if (a.explicitRank != null && b.explicitRank == null) return -1;
+      if (a.explicitRank == null && b.explicitRank != null) return 1;
+      return b.computedScore - a.computedScore || a.memberName.localeCompare(b.memberName);
+    });
+    const displayAgents = kpiData.recognition?.agents?.length
+      ? kpiData.recognition.agents
+      : ranked.map((agent, index) => ({ ...agent, rank: agent.explicitRank ?? index + 1, streakMonths: getTopThreeStreak(kpiData.months ?? {}, agent.memberId, monthKey), photo: knownMembers.get(agent.memberId)?.photo ?? "" }));
     const scoreLabel = (value) => `${Number(value).toFixed(2)} / 5`;
     const monthLabel = monthKey ? new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${monthKey}-01T00:00:00Z`)) : "No published month";
     const width = Math.min(24, Math.max(1, Number(item.width) || 12));
-    const height = Math.max(120, Number(item.height) || 250);
+    const height = Math.max(item.type === "topAgents" ? 320 : 120, Number(item.height) || 250);
     return <article className={`dashboard-content-card dashboard-kpi-widget dashboard-kpi-${item.type}`} style={{ "--dashboard-span-desktop": width, "--dashboard-span-tablet": Math.min(12, Math.ceil(width / 2)), ...gridColumnStyles(item, width), "--dashboard-height": `${height}px`, "--dashboard-row-span": Math.ceil(height + Math.max(0, Number(containerGap) || 0)) }} data-dashboard-container={item.id}>
       <div className="dashboard-kpi-widget-head"><div><span className="dashboard-card-kicker">{item.type === "topAgents" ? "MONTHLY LEADERS" : "MONTHLY KPI"}</span><h2>{item.title || (item.type === "topAgents" ? "Top Agents" : "KPI Result")}</h2><p>{monthLabel}</p></div><span className="dashboard-kpi-widget-mark">{item.type === "topAgents" ? "TOP" : "KPI"}</span></div>
-      {(kpiData.loading || kpiData.rosterLoading) && !ranked.length ? <p className="dashboard-kpi-widget-state">Loading actual KPI results…</p>
-        : !ranked.length ? <p className="dashboard-kpi-widget-state">No KPI results have been published yet.</p>
-          : item.type === "topAgents" ? <ol className="dashboard-top-agents-list">{ranked.slice(0, item.topAgentsLimit || 3).map((agent, index) => <li key={agent.memberId}><span className="dashboard-agent-rank">{String(index + 1).padStart(2, "0")}</span><span className="dashboard-agent-name"><strong>{agent.memberName}</strong><small>{agent.role || "Team member"}</small></span><strong className="dashboard-agent-score">{scoreLabel(agent.computedScore)}</strong></li>)}</ol>
+      {(kpiData.loading || kpiData.rosterLoading) && !displayAgents.length && !ranked.length ? <p className="dashboard-kpi-widget-state">Loading recognition…</p>
+        : item.type === "topAgents" ? displayAgents.length ? <ol className="dashboard-top-agents-list">{displayAgents.slice(0, 3).map((agent, index) => <li className={`dashboard-agent-row dashboard-agent-place-${index + 1}${index === 0 ? " is-champion" : ""}`} key={agent.memberId}>
+          <span className="dashboard-agent-border-glitter" aria-hidden="true" />
+          <span className="dashboard-agent-rank">{index === 0 && <Crown size={13} fill="currentColor" />}{agent.rank ?? agent.importedRank ?? String(index + 1).padStart(2, "0")}</span>
+          <span className="dashboard-agent-avatar-shell"><span className="dashboard-agent-avatar"><span>{String(agent.memberName ?? agent.name ?? "?").trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "?"}</span>{agent.photo && <img src={safeImageSource(agent.photo)} alt="" onError={(event) => { event.currentTarget.remove(); }} />}</span>{index === 0 && <span className="dashboard-agent-crown"><Crown size={16} fill="currentColor" /></span>}</span>
+          <span className="dashboard-agent-name"><strong>{agent.memberName ?? agent.name}</strong><small>{Number(agent.streakMonths) || 1}-month Top 3 streak</small></span><span className="dashboard-agent-award"><Medal size={index === 0 ? 17 : 14} aria-label={`${Number(agent.streakMonths) || 1} month Top 3 streak`} /><b>{Number(agent.streakMonths) || 1}×</b></span>
+        </li>)}</ol> : <p className="dashboard-kpi-widget-state">No published Top 3 recognition for this month yet.</p>
+          : !ranked.length ? <p className="dashboard-kpi-widget-state">No KPI results have been published yet.</p>
             : <div className="dashboard-kpi-result-grid"><div><span>Team average</span><strong>{scoreLabel(ranked.reduce((total, record) => total + record.computedScore, 0) / ranked.length)}</strong></div><div><span>Published agents</span><strong>{ranked.length}</strong></div><div><span>Top result</span><strong>{scoreLabel(ranked[0].computedScore)}</strong><small>{ranked[0].memberName}</small></div></div>}
       {kpiData.error && <small className="dashboard-kpi-widget-error">KPI data could not be refreshed.</small>}
     </article>;
   }
+  if (item.type === "recentAnnouncements") {
+    const recent = [...announcements].sort((a, b) => String(b.date ?? "").localeCompare(String(a.date ?? ""))).slice(0, Math.min(8, Math.max(1, Number(item.announcementLimit) || 4)));
+    const width = Math.min(24, Math.max(1, Number(item.width) || 12));
+    const height = Math.max(120, Number(item.height) || 270);
+    return <article className="dashboard-content-card dashboard-content-recentAnnouncements" style={{ "--dashboard-span-desktop": width, "--dashboard-span-tablet": Math.min(12, Math.ceil(width / 2)), ...gridColumnStyles(item, width), "--dashboard-height": `${height}px`, "--dashboard-row-span": Math.ceil(height + Math.max(0, Number(containerGap) || 0)) }} data-dashboard-container={item.id}>
+      <div className="dashboard-card-inner"><span className="dashboard-card-kicker">TEAM UPDATES</span><h2>{item.title || "Recent announcements"}</h2>
+        {recent.length ? <div className="dashboard-recent-announcements">{recent.map((announcement) => <article className="dashboard-recent-announcement" key={announcement.id}><div><strong>{announcement.title || "Team announcement"}</strong>{announcement.date && <time dateTime={announcement.date}>{formatDate(announcement.date)}</time>}</div>{announcement.body && <OverflowText className="dashboard-card-body" wrap={announcement.bodyWrap !== false}>{announcement.body}</OverflowText>}{announcement.description && <OverflowText className="dashboard-card-description" wrap={announcement.descriptionWrap !== false}>{announcement.description}</OverflowText>}</article>)}</div>
+          : <p className="dashboard-kpi-widget-state">No announcements have been published yet.</p>}
+      </div>
+    </article>;
+  }
   const textLayers = (item.textLayers ?? []).filter((layer) => layer.text?.trim());
-  const hasBaseText = Boolean(item.eyebrow || item.title || item.description || item.body || (item.type === "announcement" && item.showDate && item.date) || item.buttonLabel || (item.type === "quickLinks" && item.links?.some((link) => link.label || link.url)));
+  const dashboardLinks = item.type === "quickLinks" ? publicLinks.filter((link) => link.publicVisible && link.name && safeAppHref(link.url)) : [];
+  const hasBaseText = Boolean(item.eyebrow || item.title || item.description || item.body || (item.type === "announcement" && item.showDate && item.date) || item.buttonLabel || (item.type === "quickLinks" && dashboardLinks.length));
   const hasText = hasBaseText || textLayers.length > 0;
   const overlay = hasImage && hasText && (textLayers.length > 0 || (hasBaseText && item.textPosition && item.textPosition !== "below"));
   const imageFillsCard = hasImage && (overlay || !hasText);
-  const typeLabel = item.type === "quickLinks" ? "QUICK ACCESS" : item.type === "announcement" ? "ANNOUNCEMENT" : item.type === "content" ? "NOTE" : "FEATURED";
+  const typeLabel = item.type === "quickLinks" ? "QUICK ACCESS" : item.type === "announcement" ? "ANNOUNCEMENT" : item.type === "content" ? "NOTE" : "";
+  const kicker = item.eyebrow || typeLabel;
   const width = Math.min(24, Math.max(1, Number(item.width) || 12));
   const height = Math.max(120, Number(item.height) || 250);
   const style = {
@@ -132,17 +203,17 @@ export default function DashboardContainer({ item, linksEnabled = true, containe
     </div>}
     {isCarousel && item.carouselIndicators !== false && <div className="dashboard-carousel-indicators" aria-label="Choose carousel image">{images.map((image, index) => <button type="button" key={image.id || image.src} aria-label={`Show image ${index + 1}`} aria-current={index === activeImageIndex ? "true" : undefined} className={index === activeImageIndex ? "active" : ""} onClick={() => setActiveImageIndex(index)} />)}</div>}
   </div>;
-  return <article className={className} style={style} data-dashboard-container={item.id}>
+  return <article id={item.type === "announcement" ? `announcement-${item.id}` : undefined} className={className} style={style} data-dashboard-container={item.id}>
     {hasImage && imageLayer}
     {hasBaseText && <div className={"dashboard-card-inner" + (hasImage && item.textPosition && item.textPosition !== "below" ? " is-overlay" : "")} style={hasImage && item.textPosition && item.textPosition !== "below" ? { position: "absolute", zIndex: 2, background: item.textBackground === "none" ? "transparent" : undefined } : undefined}>
-      {(item.eyebrow || (hasText && (item.title || item.description || item.body)) || item.type === "announcement") && <div className="dashboard-card-kicker-row">{(item.eyebrow || item.title || item.description || item.body) && <span className="dashboard-card-kicker">{item.eyebrow || typeLabel}</span>}{item.type === "announcement" && <span className="dashboard-announcement-spark" aria-hidden="true"><i /><i /><i /></span>}</div>}
+      {(kicker || item.type === "announcement") && <div className="dashboard-card-kicker-row">{kicker && <span className="dashboard-card-kicker">{kicker}</span>}{item.type === "announcement" && <span className="dashboard-announcement-spark" aria-hidden="true"><i /><i /><i /></span>}</div>}
       {item.title && <h2>{item.title}</h2>}
       {item.description && <OverflowText className="dashboard-card-description" wrap={item.descriptionWrap !== false}>{item.description}</OverflowText>}
       {item.type === "announcement" && item.body && <OverflowText className="dashboard-card-body" wrap={item.bodyWrap !== false}>{item.body}</OverflowText>}
       {item.type === "content" && item.body && <blockquote><Quote size={17} /><OverflowText as="span" className="dashboard-card-body" wrap={item.bodyWrap !== false}>{item.body}</OverflowText></blockquote>}
       {item.type === "feature" && item.body && <OverflowText className="dashboard-card-body" wrap={item.bodyWrap !== false}>{item.body}</OverflowText>}
       {item.type === "announcement" && item.showDate && item.date && <div className="dashboard-card-date"><CalendarDays size={14} />{formatDate(item.date)}</div>}
-      {item.type === "quickLinks" && <div className="dashboard-quick-links">{(item.links ?? []).map((link) => <DashboardLink className="dashboard-quick-link" url={link.url} enabled={linksEnabled} key={link.id}><span>{link.label || "Open link"}</span><ChevronRight size={15} /></DashboardLink>)}</div>}
+      {item.type === "quickLinks" && <div className="dashboard-quick-links">{dashboardLinks.length ? dashboardLinks.map((link) => <DashboardLink className="dashboard-quick-link" url={link.url} enabled={linksEnabled} key={link.id}><span className="dashboard-quick-link-name"><strong>{link.name}</strong>{link.group && <small>{link.group}</small>}</span><ChevronRight size={15} /></DashboardLink>) : <p className="dashboard-quick-links-state">{publicLinksData.loading ? "Loading public links…" : publicLinksData.error ? "Public links could not be loaded." : "No public app links are available."}</p>}</div>}
       {item.buttonLabel && item.buttonUrl && <DashboardLink className="dashboard-card-cta" url={item.buttonUrl} enabled={linksEnabled}>{item.buttonLabel}{item.buttonUrl.startsWith("/") ? <ArrowRight size={15} /> : <ArrowUpRight size={15} />}</DashboardLink>}
     </div>}
     {textLayers.map((layer) => {

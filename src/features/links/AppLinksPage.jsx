@@ -7,9 +7,9 @@ import { loadAppLinks, saveAppLinks } from "@/lib/backend-repositories";
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 import { fetchCachedQuery, queryClient, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
 import { safeHttpUrl } from "@/lib/safe-url";
+import { APP_LINKS_STORAGE_KEY, DASHBOARD_PUBLIC_APP_LINKS_QUERY_KEY } from "@/features/links/app-links-data";
 import "@/features/links/app-links.css";
 
-const STORAGE_KEY = "starter-app-app-links-v1";
 const DEFAULT_GROUPS = ["VF Web base", "TREC Web base", "Request forms"];
 
 function newId() {
@@ -18,7 +18,7 @@ function newId() {
 
 function readResources() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]");
+    const parsed = JSON.parse(localStorage.getItem(APP_LINKS_STORAGE_KEY) ?? "[]");
     return Array.isArray(parsed) ? parsed.filter((item) => item && typeof item === "object" && item.id && item.name) : [];
   } catch {
     return [];
@@ -98,8 +98,9 @@ export default function AppLinksPage() {
       await saveAppLinks(next);
       queryClient.setQueryData(resourceKey, next);
     }
+    queryClient.setQueryData(DASHBOARD_PUBLIC_APP_LINKS_QUERY_KEY, next.filter((item) => item.publicVisible));
     setResources(next);
-    if (!configured) try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* keep changes for this session */ }
+    if (!configured) try { localStorage.setItem(APP_LINKS_STORAGE_KEY, JSON.stringify(next)); } catch { /* keep changes for this session */ }
     setSaveError("");
   }
 
