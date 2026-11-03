@@ -7,6 +7,11 @@ const MAX_KPI_IMPORT_SHEETS = 20;
 const MAX_KPI_IMPORT_CELLS = 250_000;
 const MAX_KPI_IMPORT_ROWS = 2_000;
 const MAX_KPI_IMPORT_COLUMNS = 100;
+const EXPLICIT_FIELD_HEADERS = new Set([
+  "name", "agent", "employee", "teammember", "person", "employeename", "agentname",
+  "employeeid", "agentid", "personnelid", "staffid", "role", "position", "jobtitle", "title",
+  "evaluation", "evaluationband", "rank", "ranking",
+]);
 
 const normalize = (value) => String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "").trim();
 const shortNameKey = (value) => {
@@ -58,11 +63,13 @@ function tableRowsToObjects(rows, headerIndex, nextHeaderIndex) {
       const group = String(cell ?? "").trim();
       if (group) currentGroup = group;
       const subheader = String(subheaderRow[index] ?? "").trim();
+      const normalizedSubheader = normalize(subheader);
+      if (EXPLICIT_FIELD_HEADERS.has(normalizedSubheader)) return subheader;
       if (currentGroup && KPI_METRICS.some((metric) => normalize(currentGroup).includes(normalize(metric.label)))) {
         return `${currentGroup} ${subheader}`.trim();
       }
       if (normalize(currentGroup).includes("kpi")) return `KPI ${subheader}`.trim();
-      return group || subheader || `Column ${index + 1}`;
+      return group && subheader ? `${group} ${subheader}`.trim() : group || subheader || `Column ${index + 1}`;
     });
     const endIndex = nextHeaderIndex ?? rows.length;
     const objects = rows.slice(headerIndex + 2, endIndex).filter((row) => row.some((cell) => String(cell ?? "").trim())).map((row) =>
