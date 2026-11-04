@@ -1,11 +1,16 @@
-import { useMemo } from "react";
-import GridLayout, { WidthProvider } from "react-grid-layout/legacy";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import GridLayout from "react-grid-layout/legacy";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 
-const MeasuredGridLayout = WidthProvider(GridLayout);
 const RESIZE_HANDLES = ["n", "ne", "e", "se", "s", "sw", "w", "nw"];
 const GRID_ROW_HEIGHT = 10;
+
+export function getDashboardViewport(width) {
+  if (width <= 560) return "mobile";
+  if (width <= 900) return "tablet";
+  return "desktop";
+}
 
 export function heightToGridRows(height, gap = 14) {
   return Math.max(1, (Math.min(800, Math.max(120, Number(height) || 250)) + gap) / (GRID_ROW_HEIGHT + gap));
@@ -56,24 +61,42 @@ export function createDashboardGridLayout(containers, columns = 24, gap = 14) {
 }
 
 export function DashboardGrid({ containers, gap = 14, viewport = "desktop", editable = false, onLayoutCommit, children }) {
+  const measureRef = useRef(null);
+  const [width, setWidth] = useState(0);
   const columns = viewport === "mobile" ? 1 : viewport === "tablet" ? 12 : 24;
   const layout = useMemo(() => createDashboardGridLayout(containers, columns, gap), [containers, columns, gap]);
-  return <MeasuredGridLayout
-    className={"dashboard-layout-grid dashboard-rgl-grid" + (editable ? " is-editable" : "")}
-    layout={layout}
-    cols={columns}
-    rowHeight={GRID_ROW_HEIGHT}
-    margin={[Math.max(0, Number(gap) || 0), Math.max(0, Number(gap) || 0)]}
-    containerPadding={[0, 0]}
-    compactType={null}
-    allowOverlap={false}
-    preventCollision
-    isDraggable={editable && viewport === "desktop"}
-    isResizable={editable && viewport === "desktop"}
-    draggableHandle=".dashboard-drag-handle"
-    draggableCancel="input, textarea, select, a, .dashboard-container-tools > div"
-    resizeHandles={RESIZE_HANDLES}
-    onDragStop={editable && viewport === "desktop" ? onLayoutCommit : undefined}
-    onResizeStop={editable && viewport === "desktop" ? onLayoutCommit : undefined}
-  >{children}</MeasuredGridLayout>;
+
+  useLayoutEffect(() => {
+    const element = measureRef.current;
+    if (!element) return undefined;
+    const observer = new ResizeObserver(([entry]) => setWidth(Math.round(entry.contentRect.width)));
+    observer.observe(element);
+    setWidth(Math.round(element.getBoundingClientRect().width));
+    return () => observer.disconnect();
+  }, [editable, viewport]);
+
+  if (!editable && viewport === "mobile") {
+    return <div className="dashboard-layout-grid dashboard-mobile-grid">{children}</div>;
+  }
+  return <div ref={measureRef} className="dashboard-grid-measure">
+    <GridLayout
+      className={"dashboard-layout-grid dashboard-rgl-grid" + (editable ? " is-editable" : "")}
+      width={width}
+      layout={layout}
+      cols={columns}
+      rowHeight={GRID_ROW_HEIGHT}
+      margin={[Math.max(0, Number(gap) || 0), Math.max(0, Number(gap) || 0)]}
+      containerPadding={[0, 0]}
+      compactType={null}
+      allowOverlap={false}
+      preventCollision
+      isDraggable={editable && viewport === "desktop"}
+      isResizable={editable && viewport === "desktop"}
+      draggableHandle=".dashboard-drag-handle"
+      draggableCancel="input, textarea, select, a, .dashboard-container-tools > div"
+      resizeHandles={RESIZE_HANDLES}
+      onDragStop={editable && viewport === "desktop" ? onLayoutCommit : undefined}
+      onResizeStop={editable && viewport === "desktop" ? onLayoutCommit : undefined}
+    >{children}</GridLayout>
+  </div>;
 }
