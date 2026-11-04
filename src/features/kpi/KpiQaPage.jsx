@@ -15,6 +15,7 @@ import {
 } from "@/features/kpi/kpi-data";
 import { readKpiFile } from "@/features/kpi/import-utils";
 import { buildKpiPersonGroups } from "@/features/kpi/kpi-person-groups";
+import { getConsecutiveTopThreeStreak, getImportedKpiRank } from "@/features/kpi/kpi-ranking";
 import { createKpiMonth, loadCurrentKpiScoring, loadKpiMonthData, replaceKpiMonthResults, resetKpiMonthResults, saveKpiMonthResults } from "@/lib/backend-repositories";
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 import { fetchCachedQuery, queryClient, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
@@ -93,15 +94,12 @@ function getBadges(row, previousRow, history, memberId, throughMonth) {
   if (row.rank === 1) badges.push({ label: "Monthly MVP", icon: Crown });
   if (qa >= 99) badges.push({ label: "Quality Star", icon: Sparkles });
   if (change >= 0.12) badges.push({ label: "Most Improved", icon: ArrowUpRight });
-  const streakMinimum = Number([...settingsOf(row.record).evaluationBands].sort((a, b) => Number(b.min) - Number(a.min))[1]?.min ?? 4.4);
-  let streak = 0;
-  for (const month of Object.keys(history).filter((item) => /^\d{4}-\d{2}$/.test(item) && item <= throughMonth).sort().reverse()) {
-    const record = getMemberRecord(history[month], memberId);
-    if (!record || getRecordScore(record, settingsOf(record)) < Number([...settingsOf(record).evaluationBands].sort((a, b) => Number(b.min) - Number(a.min))[1]?.min ?? streakMinimum)) break;
-    streak += 1;
-  }
-  if (streak >= 3) badges.push({ label: `${streak}-month streak`, icon: Award });
-  return badges.slice(0, 2);
+  const streak = getConsecutiveTopThreeStreak(history, memberId, throughMonth, (record) => getRecordScore(record, settingsOf(record)));
+  const streakBadge = streak >= 3 ? { label: `${streak}-month Top Agent streak`, icon: Award } : null;
+  if (streakBadge) badges.push(streakBadge);
+  const priorityBadges = badges.filter((badge) => badge.label === "Monthly MVP" || badge === streakBadge);
+  const otherBadges = badges.filter((badge) => badge.label !== "Monthly MVP" && badge !== streakBadge);
+  return [...priorityBadges, ...otherBadges].slice(0, 2);
 }
 
 function getTierProgress(score, settings = getKpiScoringSettings()) {
@@ -400,8 +398,8 @@ export default function KpiQaPage() {
   const leaderboard = scoreboardMembers.map((member) => {
     const record = getMemberRecord(currentResolvedRecords, member.id) ?? getMemberRecord(records, member.id);
     const importedRank = record?.source === "import" ? String(record.metrics?._importedRank ?? "").trim() : "";
-    const explicitRank = Number(importedRank.match(/\d+/)?.[0]);
-    return { member, record, score: record ? getRecordScore(record, settingsOf(record)) : 0, importedRank, explicitRank: Number.isFinite(explicitRank) ? explicitRank : null };
+    const explicitRank = getImportedKpiRank(record);
+    return { member, record, score: record ? getRecordScore(record, settingsOf(record)) : 0, importedRank, explicitRank };
   }).filter((row) => row.record).sort((a, b) => {
     if (a.explicitRank != null && b.explicitRank != null && a.explicitRank !== b.explicitRank) return a.explicitRank - b.explicitRank;
     if (a.explicitRank != null && b.explicitRank == null) return -1;
@@ -410,8 +408,7 @@ export default function KpiQaPage() {
   }).map((row, index) => ({ ...row, rank: row.explicitRank ?? index + 1, rankLabel: row.importedRank || String(row.explicitRank ?? index + 1) }));
   const previousLeaderboard = Object.entries(previousRecords).map(([memberId, record]) => ({ member: peopleWithHistory.find((person) => person.id === memberId) ?? { id: memberId, name: record.memberName || "Former roster member", role: record.role || "Historical record", historical: true }, record })).map((row) => {
     const importedRank = row.record.source === "import" ? String(row.record.metrics?._importedRank ?? "").trim() : "";
-    const parsedRank = Number(importedRank.match(/\d+/)?.[0]);
-    return { ...row, rank: Number.isFinite(parsedRank) ? parsedRank : null };
+    return { ...row, rank: getImportedKpiRank(row.record) };
   }).sort((a, b) => a.rank != null && b.rank != null ? a.rank - b.rank : a.rank != null ? -1 : b.rank != null ? 1 : getRecordScore(b.record, settingsOf(b.record)) - getRecordScore(a.record, settingsOf(a.record)) || a.member.name.localeCompare(b.member.name));
   const filteredLeaderboard = leaderboard.filter(({ member }) => `${member.name} ${member.role}`.toLowerCase().includes(search.trim().toLowerCase()));
   const rankedTeam = leaderboard.length;

@@ -15,28 +15,37 @@ export function DashboardKpiProvider({ children, publicOnly = false }) {
   const { user, canEdit } = useAuth();
   const anonymousRecognition = publicOnly && !user;
   const cacheKey = useMemo(() => anonymousRecognition ? ["public-dashboard-recognition"] : publicOnly ? ["public-dashboard-kpi-widget"] : queryKeys.kpiMonths(user?.id ?? "anonymous", canEdit), [anonymousRecognition, canEdit, publicOnly, user?.id]);
+  const recognitionCacheKey = useMemo(() => ["public-dashboard-recognition"], []);
   const cached = readCachedQuery(cacheKey);
+  const cachedRecognition = readCachedQuery(recognitionCacheKey);
   const [months, setMonths] = useState(anonymousRecognition ? {} : cached ?? {});
-  const [recognition, setRecognition] = useState(anonymousRecognition ? cached : null);
-  const [loading, setLoading] = useState(isSupabaseConfigured && !cached);
+  const [recognition, setRecognition] = useState(publicOnly ? cachedRecognition : null);
+  const [loading, setLoading] = useState(isSupabaseConfigured && (!cached || (publicOnly && !cachedRecognition)));
   const [error, setError] = useState("");
   const requestRef = useRef(0);
   const refresh = useCallback(async ({ force = false } = {}) => {
-    if (!isSupabaseConfigured) { setMonths({}); setLoading(false); return; }
+    if (!isSupabaseConfigured) { setMonths({}); setRecognition(null); setLoading(false); return; }
     const requestId = ++requestRef.current;
-    if (!readCachedQuery(cacheKey)) setLoading(true);
-    const loader = anonymousRecognition ? loadPublicDashboardRecognition : publicOnly ? loadPublicDashboardKpiWidget : loadKpiMonthData;
+    if (!readCachedQuery(cacheKey) || (publicOnly && !readCachedQuery(recognitionCacheKey))) setLoading(true);
     try {
-      const data = await fetchCachedQuery(cacheKey, () => retryDataLoad(loader), { force });
+      const [data, publicRecognition] = anonymousRecognition
+        ? [null, await fetchCachedQuery(recognitionCacheKey, () => retryDataLoad(loadPublicDashboardRecognition), { force })]
+        : publicOnly
+          ? await Promise.all([
+            fetchCachedQuery(cacheKey, () => retryDataLoad(loadPublicDashboardKpiWidget), { force }),
+            fetchCachedQuery(recognitionCacheKey, () => retryDataLoad(loadPublicDashboardRecognition), { force }),
+          ])
+          : [await fetchCachedQuery(cacheKey, () => retryDataLoad(loadKpiMonthData), { force }), null];
       if (requestId === requestRef.current) {
-        if (anonymousRecognition) { setRecognition(data); setMonths({}); }
-        else { setMonths(data); setRecognition(null); }
+        if (anonymousRecognition) setMonths({});
+        else setMonths(data);
+        setRecognition(publicRecognition);
         setError("");
       }
     }
     catch (cause) { if (requestId === requestRef.current) setError(cause.message || "KPI results could not be loaded."); }
     finally { if (requestId === requestRef.current) setLoading(false); }
-  }, [anonymousRecognition, cacheKey, publicOnly, user?.id]);
+  }, [anonymousRecognition, cacheKey, publicOnly, recognitionCacheKey, user?.id]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return undefined;

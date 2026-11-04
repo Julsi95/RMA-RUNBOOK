@@ -174,6 +174,7 @@
 .kpi-podium-1 { --metal-bright: #f6d47b; --metal-mid: #c38c27; --metal-deep: #76511d; --metal-glow: rgb(232 180 63 / 34%); min-height: 247px; box-shadow: 0 12px 32px var(--metal-glow), 0 9px 23px rgb(0 0 0 / 20%), inset 0 1px 0 rgb(255 244 195 / 18%); }
 .kpi-podium-2 { --metal-bright: #e3e8f0; --metal-mid: #929daa; --metal-deep: #515d6c; --metal-glow: rgb(179 191 205 / 20%); }
 .kpi-podium-3 { --metal-bright: #d99260; --metal-mid: #a95d34; --metal-deep: #653820; --metal-glow: rgb(190 109 65 / 23%); }
+:root:not([data-theme="dark"]) .kpi-podium-card { background: linear-gradient(155deg, color-mix(in srgb, var(--surface) 72%, var(--muted)), var(--muted) 70%) padding-box; box-shadow: 0 8px 22px rgb(24 24 27 / 9%), inset 0 1px 0 rgb(255 255 255 / 90%); }
 .kpi-podium-effects { position: absolute; z-index: 0; inset: 0; overflow: hidden; border-radius: inherit; pointer-events: none; }
 .kpi-podium-effects::before { position: absolute; inset: 0; padding: 2px; border-radius: inherit; background: conic-gradient(from var(--kpi-metal-angle), transparent 0deg 272deg, color-mix(in srgb, var(--metal-bright) 58%, white) 300deg, var(--metal-bright) 322deg, transparent 350deg); content: ""; animation: kpi-metal-rotate 12s linear infinite; -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); mask-composite: exclude; }
 .kpi-podium-1 .kpi-podium-effects::before { padding: 2.5px; animation-duration: 7.5s; }

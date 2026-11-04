@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowRight, ArrowUpRight, CalendarDays, ChevronLeft, ChevronRight, Crown, Medal, Quote } from "lucide-react";
 import { Link } from "react-router";
 import { getOverallScore, getKpiScoringSettings } from "@/features/kpi/kpi-data";
+import { getConsecutiveTopThreeStreak, getImportedKpiRank } from "@/features/kpi/kpi-ranking";
 import { useDashboardKpi } from "@/features/dashboard/dashboard-kpi-provider";
 import { useDashboardPublicLinks } from "@/features/dashboard/dashboard-public-links-provider";
 import { safeAppHref, safeHttpUrl } from "@/lib/safe-url";
@@ -58,40 +59,6 @@ function colorWithOpacity(color, opacity) {
   return `rgb(${parseInt(hex.slice(0, 2), 16)} ${parseInt(hex.slice(2, 4), 16)} ${parseInt(hex.slice(4, 6), 16)} / ${Math.max(0, Math.min(100, opacity ?? 74))}%)`;
 }
 
-function rankFromImportedValue(record) {
-  if (record?.source !== "import") return null;
-  const value = String(record.metrics?._importedRank ?? "").trim();
-  const rank = Number(value.match(/\d+/)?.[0]);
-  return Number.isFinite(rank) ? rank : null;
-}
-
-function getTopThreeStreak(months, memberId, throughMonthKey) {
-  if (!throughMonthKey) return 0;
-  const [year, month] = throughMonthKey.split("-").map(Number);
-  let streak = 0;
-  for (let offset = 0; offset < 12; offset += 1) {
-    const date = new Date(Date.UTC(year, month - 1 - offset, 1));
-    const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
-    const data = months[key];
-    if (data?.status !== "published" || !data?.records?.[memberId]) break;
-    const settings = data.scoringSettings ?? getKpiScoringSettings();
-    const ranked = Object.entries(data.records).map(([id, record]) => {
-      const importedRank = rankFromImportedValue(record);
-      const importedScore = record.overallScore !== "" && record.overallScore != null && Number.isFinite(Number(record.overallScore));
-      const score = record.source === "import" && importedScore ? Number(record.overallScore) : getOverallScore(record, settings);
-      return { id, importedRank, score, name: record.memberName ?? "" };
-    }).sort((a, b) => {
-      if (a.importedRank != null && b.importedRank != null && a.importedRank !== b.importedRank) return a.importedRank - b.importedRank;
-      if (a.importedRank != null && b.importedRank == null) return -1;
-      if (a.importedRank == null && b.importedRank != null) return 1;
-      return b.score - a.score || a.name.localeCompare(b.name);
-    });
-    if (ranked.findIndex((row) => row.id === memberId) > 2) break;
-    streak += 1;
-  }
-  return streak;
-}
-
 export default function DashboardContainer({ item, linksEnabled = true, containerGap = 14, announcements = [] }) {
   const kpiData = useDashboardKpi();
   const publicLinksData = useDashboardPublicLinks();
@@ -130,8 +97,8 @@ export default function DashboardContainer({ item, linksEnabled = true, containe
     const knownMembers = new Map((kpiData.members ?? []).map((member) => [member.id, member]));
     const ranked = Object.entries(month?.records ?? {}).map(([memberId, record]) => {
       const member = knownMembers.get(memberId);
+      const explicitRank = getImportedKpiRank(record);
       const importedRank = record.source === "import" ? String(record.metrics?._importedRank ?? "").trim() : "";
-      const explicitRank = Number(importedRank.match(/\d+/)?.[0]);
       const importedScore = record.overallScore !== "" && record.overallScore != null && Number.isFinite(Number(record.overallScore));
       return { ...record, memberId, memberName: member?.name || record.memberName || "Former roster member", role: member?.role || record.role, computedScore: record.source === "import" && importedScore ? Number(record.overallScore) : getOverallScore(record, settings), importedRank, explicitRank: Number.isFinite(explicitRank) ? explicitRank : null };
     }).filter(Boolean).sort((a, b) => {
@@ -142,19 +109,47 @@ export default function DashboardContainer({ item, linksEnabled = true, containe
     });
     const displayAgents = kpiData.recognition?.agents?.length
       ? kpiData.recognition.agents
-      : ranked.map((agent, index) => ({ ...agent, rank: agent.explicitRank ?? index + 1, streakMonths: getTopThreeStreak(kpiData.months ?? {}, agent.memberId, monthKey), photo: knownMembers.get(agent.memberId)?.photo ?? "" }));
+      : ranked.map((agent, index) => {
+        const rank = agent.explicitRank ?? index + 1;
+        const streakMonths = getConsecutiveTopThreeStreak(
+          kpiData.months ?? {},
+          agent.memberId,
+          monthKey,
+          (record) => {
+            if (record.source === "import") {
+              return record.overallScore !== "" && record.overallScore != null && Number.isFinite(Number(record.overallScore))
+                ? Number(record.overallScore)
+                : 0;
+            }
+            return getOverallScore(record, record.scoringSettings ?? getKpiScoringSettings());
+          },
+        );
+        return { ...agent, rank, streakMonths, photo: knownMembers.get(agent.memberId)?.photo ?? "" };
+      }).filter((agent) => agent.rank >= 1 && agent.rank <= 3).slice(0, 3);
     const scoreLabel = (value) => `${Number(value).toFixed(2)} / 5`;
     const monthLabel = monthKey ? new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${monthKey}-01T00:00:00Z`)) : "No published month";
     const width = Math.min(24, Math.max(1, Number(item.width) || 12));
     const height = Math.max(item.type === "topAgents" ? 320 : 120, Number(item.height) || 250);
     return <article className={`dashboard-content-card dashboard-kpi-widget dashboard-kpi-${item.type}`} style={{ "--dashboard-span-desktop": width, "--dashboard-span-tablet": Math.min(12, Math.ceil(width / 2)), ...gridColumnStyles(item, width), "--dashboard-height": `${height}px`, "--dashboard-row-span": Math.ceil(height + Math.max(0, Number(containerGap) || 0)) }} data-dashboard-container={item.id}>
-      <div className="dashboard-kpi-widget-head"><div><span className="dashboard-card-kicker">{item.type === "topAgents" ? "MONTHLY LEADERS" : "MONTHLY KPI"}</span><h2>{item.title || (item.type === "topAgents" ? "Top Agents" : "KPI Result")}</h2><p>{monthLabel}</p></div><span className="dashboard-kpi-widget-mark">{item.type === "topAgents" ? "TOP" : "KPI"}</span></div>
+      <div className="dashboard-kpi-widget-head">
+        <div className="dashboard-kpi-widget-head-inner">
+          <span className="dashboard-card-kicker">{item.type === "topAgents" ? "TOP OF THE MONTH" : "MONTHLY KPI"}</span>
+           <p>{monthLabel}</p>
+          {/* <div className="dashboard-kpi-widget-title-row">
+            <h2>{item.title || (item.type === "topAgents" ? "Top Agents" : "KPI Result")}</h2>
+          </div> */}
+        </div>
+        {/* <span className="dashboard-kpi-widget-mark">{item.type === "topAgents" ? "TOP 3" : "KPI"}</span> */}
+      </div>
       {(kpiData.loading || kpiData.rosterLoading) && !displayAgents.length && !ranked.length ? <p className="dashboard-kpi-widget-state">Loading recognition…</p>
-        : item.type === "topAgents" ? displayAgents.length ? <ol className="dashboard-top-agents-list">{displayAgents.slice(0, 3).map((agent, index) => <li className={`dashboard-agent-row dashboard-agent-place-${index + 1}${index === 0 ? " is-champion" : ""}`} key={agent.memberId}>
+        : item.type === "topAgents" ? displayAgents.length ? <ol className="dashboard-top-agents-list" tabIndex={0} aria-label="Monthly top three agents">{displayAgents.slice(0, 3).map((agent, index) => <li className={`dashboard-agent-row dashboard-agent-place-${index + 1}${index === 0 ? " is-champion" : ""}`} key={agent.memberId}>
           <span className="dashboard-agent-border-glitter" aria-hidden="true" />
-          <span className="dashboard-agent-rank">{index === 0 && <Crown size={13} fill="currentColor" />}{agent.rank ?? agent.importedRank ?? String(index + 1).padStart(2, "0")}</span>
-          <span className="dashboard-agent-avatar-shell"><span className="dashboard-agent-avatar"><span>{String(agent.memberName ?? agent.name ?? "?").trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "?"}</span>{agent.photo && <img src={safeImageSource(agent.photo)} alt="" onError={(event) => { event.currentTarget.remove(); }} />}</span>{index === 0 && <span className="dashboard-agent-crown"><Crown size={16} fill="currentColor" /></span>}</span>
-          <span className="dashboard-agent-name"><strong>{agent.memberName ?? agent.name}</strong><small>{Number(agent.streakMonths) || 1}-month Top 3 streak</small></span><span className="dashboard-agent-award"><Medal size={index === 0 ? 17 : 14} aria-label={`${Number(agent.streakMonths) || 1} month Top 3 streak`} /><b>{Number(agent.streakMonths) || 1}×</b></span>
+          <div className="dashboard-agent-card-heading"><span className="dashboard-agent-rank">{agent.rank ?? agent.importedRank ?? String(index + 1).padStart(2, "0")}</span>
+          <span className="dashboard-agent-name"><strong>{agent.memberName ?? agent.name}</strong></span>
+          <span className="dashboard-agent-award"><b>{Number(agent.streakMonths) || 1}×</b><span className="dashboard-agent-award-icon"><Medal size={index === 0 ? 17 : 14} aria-label={`${Number(agent.streakMonths) || 1} month Top 3 streak`} /></span></span></div>
+          <span className="dashboard-agent-avatar-shell">{agent.photo && <img className="dashboard-agent-avatar-backdrop" src={safeImageSource(agent.photo)} alt="" onError={(event) => { event.currentTarget.remove(); }} />}<span className="dashboard-agent-avatar"><span>{String(agent.memberName ?? agent.name ?? "?").trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "?"}</span>{agent.photo && <img src={safeImageSource(agent.photo)} alt="" onError={(event) => { event.currentTarget.remove(); }} />}</span></span>
+          {index === 0 && <span className="dashboard-agent-crown" aria-hidden="true"><Crown size={16} fill="currentColor" /></span>}
+            <span className="dashboard-agent-card-details"><span className="dashboard-agent-card-label">MONTHLY RECOGNITION</span><small>{Number(agent.streakMonths) || 1}-month Top Agent streak</small><span className="dashboard-agent-card-copy">A place among this month’s top performers.</span></span>
         </li>)}</ol> : <p className="dashboard-kpi-widget-state">No published Top 3 recognition for this month yet.</p>
           : !ranked.length ? <p className="dashboard-kpi-widget-state">No KPI results have been published yet.</p>
             : <div className="dashboard-kpi-result-grid"><div><span>Team average</span><strong>{scoreLabel(ranked.reduce((total, record) => total + record.computedScore, 0) / ranked.length)}</strong></div><div><span>Published agents</span><strong>{ranked.length}</strong></div><div><span>Top result</span><strong>{scoreLabel(ranked[0].computedScore)}</strong><small>{ranked[0].memberName}</small></div></div>}

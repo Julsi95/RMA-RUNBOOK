@@ -8,7 +8,7 @@ import { loadPublicWorkspaceDashboard, loadPublishedDashboard } from "@/lib/back
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 import { fetchCachedQuery, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
 import DashboardContainer from "@/features/dashboard/DashboardContainer";
-import { DashboardGrid } from "@/features/dashboard/DashboardGrid";
+import { DashboardGrid, getDashboardViewport } from "@/features/dashboard/DashboardGrid";
 import { DashboardKpiProvider } from "@/features/dashboard/dashboard-kpi-provider";
 import { DashboardPublicLinksProvider } from "@/features/dashboard/dashboard-public-links-provider";
 import { DASHBOARD_STORAGE_KEY, readPublishedDashboard } from "@/features/dashboard/dashboard-data";
@@ -20,6 +20,7 @@ export default function DashboardPage() {
 }
 
 function DashboardContent({ canEdit, user }) {
+  const [viewport, setViewport] = useState(() => getDashboardViewport(window.innerWidth));
   const dashboardQueryKey = useMemo(() => canEdit ? queryKeys.dashboard() : queryKeys.publicDashboard(), [canEdit]);
   const cachedDashboard = readCachedQuery(dashboardQueryKey);
   const [dashboard, setDashboard] = useState(() => isSupabaseConfigured ? cachedDashboard ?? { pageTitle: "Dashboard", pageDescription: "", containerGap: 14, canvasPadding: 0, containers: [] } : readPublishedDashboard());
@@ -30,6 +31,13 @@ function DashboardContent({ canEdit, user }) {
     ? dashboard.containers
     : dashboard.containers;
   const announcements = useMemo(() => dashboard.containers.filter((item) => item.type === "announcement"), [dashboard.containers]);
+
+  useEffect(() => {
+    const updateViewport = () => setViewport(getDashboardViewport(window.innerWidth));
+    window.addEventListener("resize", updateViewport, { passive: true });
+    updateViewport();
+    return () => window.removeEventListener("resize", updateViewport);
+  }, []);
 
   const refreshDashboard = useCallback(async ({ initial = false, force = false, quiet = false, isActive = () => true } = {}) => {
     if (!isSupabaseConfigured) return;
@@ -88,6 +96,6 @@ function DashboardContent({ canEdit, user }) {
     </header>
     {(loading || refreshing) && <p className="dashboard-live-sync" role="status"><LoaderCircle size={14} className="dashboard-live-spinner" />{loading ? "Loading the published dashboard…" : "Updating the published dashboard…"}</p>}
     {loadError && <p className="auth-error dashboard-live-error" role="alert">{loadError}<Button type="button" variant="outline" size="sm" onClick={() => void refreshDashboard()}><RefreshCw size={14} /> Retry</Button></p>}
-    {!loading && (visibleContainers.length ? <div className="dashboard-live-canvas" style={{ "--dashboard-gap": `${dashboard.containerGap ?? 14}px`, "--dashboard-canvas-padding": `${dashboard.canvasPadding ?? 0}px`, "--dashboard-canvas-height": `${dashboard.canvasHeight ?? 560}px` }}><DashboardGrid containers={visibleContainers} gap={dashboard.containerGap ?? 14}>{visibleContainers.map((item) => <div className="dashboard-live-grid-item" key={item.id}><DashboardContainer item={item} announcements={announcements} containerGap={dashboard.containerGap ?? 14} /></div>)}</DashboardGrid></div> : <div className="dashboard-live-empty"><span><Sparkles size={22} /></span><strong>{canEdit ? "Your dashboard is ready to fill" : "No public dashboard content has been published"}</strong>{canEdit && <><p>Choose which cards to show in Dashboard Settings.</p><Link to="/admin/dashboard"><Button><LayoutDashboard size={16} /> Open dashboard builder <ArrowRight size={15} /></Button></Link></>}</div>)}
+    {!loading && (visibleContainers.length ? <div className="dashboard-live-canvas" style={{ "--dashboard-gap": `${dashboard.containerGap ?? 14}px`, "--dashboard-canvas-padding": `${dashboard.canvasPadding ?? 0}px`, "--dashboard-canvas-height": `${dashboard.canvasHeight ?? 560}px` }}><DashboardGrid containers={visibleContainers} gap={dashboard.containerGap ?? 14} viewport={viewport}>{visibleContainers.map((item) => <div className="dashboard-live-grid-item" key={item.id}><DashboardContainer item={item} announcements={announcements} containerGap={dashboard.containerGap ?? 14} /></div>)}</DashboardGrid></div> : <div className="dashboard-live-empty"><span><Sparkles size={22} /></span><strong>{canEdit ? "Your dashboard is ready to fill" : "No public dashboard content has been published"}</strong>{canEdit && <><p>Choose which cards to show in Dashboard Settings.</p><Link to="/admin/dashboard"><Button><LayoutDashboard size={16} /> Open dashboard builder <ArrowRight size={15} /></Button></Link></>}</div>)}
   </section>;
 }
