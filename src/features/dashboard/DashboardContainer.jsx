@@ -171,7 +171,11 @@ export default function DashboardContainer({ item, linksEnabled = true, containe
   const dashboardLinks = item.type === "quickLinks" ? publicLinks.filter((link) => link.publicVisible && link.name && safeAppHref(link.url)) : [];
   const hasBaseText = Boolean(item.eyebrow || item.title || item.description || item.body || (item.type === "announcement" && item.showDate && item.date) || item.buttonLabel || (item.type === "quickLinks" && dashboardLinks.length));
   const hasText = hasBaseText || textLayers.length > 0;
-  const overlay = hasImage && hasText && (textLayers.length > 0 || (hasBaseText && item.textPosition && item.textPosition !== "below"));
+  const textPosition = item.textPosition || "below";
+  const isAboveImage = textPosition.startsWith("above-");
+  const isStackedTextPosition = textPosition.startsWith("above-") || textPosition.startsWith("below-");
+  const isLegacyOverlayPosition = !isStackedTextPosition && textPosition !== "below";
+  const overlay = hasImage && hasText && (textLayers.length > 0 || (hasBaseText && isLegacyOverlayPosition));
   const imageFillsCard = hasImage && (overlay || !hasText);
   const typeLabel = item.type === "quickLinks" ? "QUICK ACCESS" : item.type === "announcement" ? "ANNOUNCEMENT" : item.type === "content" ? "NOTE" : "";
   const kicker = item.eyebrow || typeLabel;
@@ -184,12 +188,15 @@ export default function DashboardContainer({ item, linksEnabled = true, containe
     "--dashboard-height": `${height}px`,
     "--dashboard-row-span": Math.ceil(height + Math.max(0, Number(containerGap) || 0)),
     "--dashboard-image-fit": item.imageFit === "contain" ? "contain" : "cover",
+    "--dashboard-image-width": `${Math.min(100, Math.max(20, Number(item.imageWidth) || 100))}%`,
+    "--dashboard-image-height": `${Math.min(700, Math.max(80, Number(item.imageHeight) || 132))}px`,
     "--dashboard-text-color": item.textColor || "#ffffff",
     "--dashboard-overlay-bg": item.textBackground === "none" ? "transparent" : item.textBackground === "solid" ? item.textBackgroundColor || "#17171b" : colorWithOpacity(item.textBackgroundColor, item.textBackgroundOpacity),
     "--dashboard-overlay-blur": item.textBackground === "glass" ? "12px" : "0px",
   };
-  const className = "dashboard-content-card dashboard-content-" + item.type + (hasImage && !hasText ? " dashboard-image-only" : "") + (overlay ? ` dashboard-text-overlay overlay-${item.textPosition} overlay-bg-${item.textBackground || "none"}` : "") + (item.imageLayout === "side" && hasImage && !overlay ? " dashboard-side-image" : "") + (isCarousel ? " has-image-carousel" : "");
-  const imageLayer = <div className={"dashboard-card-image " + (imageFillsCard ? "image-fill" : "image-" + (item.imageLayout || "banner"))}>
+  const useSideImage = item.imageLayout === "side" && !isStackedTextPosition;
+  const className = "dashboard-content-card dashboard-content-" + item.type + (hasImage && !hasText ? " dashboard-image-only" : "") + (isStackedTextPosition && hasImage && hasBaseText ? ` text-position-${textPosition}` : "") + (overlay ? ` dashboard-text-overlay overlay-${textPosition} overlay-bg-${item.textBackground || "none"}` : "") + (useSideImage && hasImage && !overlay ? " dashboard-side-image" : "") + (isCarousel ? " has-image-carousel" : "");
+  const imageLayer = <div className={"dashboard-card-image " + (imageFillsCard ? "image-fill" : `image-${useSideImage ? "side" : "banner"}`)} style={!imageFillsCard && !useSideImage ? { width: `var(--dashboard-image-width, 100%)`, height: `var(--dashboard-image-height, 132px)`, alignSelf: "center" } : undefined}>
     <img key={imageSrc} className={isCarousel ? `dashboard-carousel-image effect-${item.carouselEffect === "fade" ? "fade" : "slide"}` : ""} src={imageSrc} alt="" onError={(event) => { event.currentTarget.style.visibility = "hidden"; }} />
     {isCarousel && item.carouselControls !== false && <div className="dashboard-carousel-controls" aria-label="Image carousel controls">
       <button type="button" aria-label="Previous image" onClick={() => changeImage(-1)}><ChevronLeft size={16} /></button>
@@ -198,9 +205,7 @@ export default function DashboardContainer({ item, linksEnabled = true, containe
     </div>}
     {isCarousel && item.carouselIndicators !== false && <div className="dashboard-carousel-indicators" aria-label="Choose carousel image">{images.map((image, index) => <button type="button" key={image.id || image.src} aria-label={`Show image ${index + 1}`} aria-current={index === activeImageIndex ? "true" : undefined} className={index === activeImageIndex ? "active" : ""} onClick={() => setActiveImageIndex(index)} />)}</div>}
   </div>;
-  return <article id={item.type === "announcement" ? `announcement-${item.id}` : undefined} className={className} style={style} data-dashboard-container={item.id}>
-    {hasImage && imageLayer}
-    {hasBaseText && <div className={"dashboard-card-inner" + (hasImage && item.textPosition && item.textPosition !== "below" ? " is-overlay" : "")} style={hasImage && item.textPosition && item.textPosition !== "below" ? { position: "absolute", zIndex: 2, background: item.textBackground === "none" ? "transparent" : undefined } : undefined}>
+  const baseText = hasBaseText ? <div className={"dashboard-card-inner" + (hasImage && isLegacyOverlayPosition ? " is-overlay" : "")} style={hasImage && isLegacyOverlayPosition ? { position: "absolute", zIndex: 2, background: item.textBackground === "none" ? "transparent" : undefined } : undefined}>
       {(kicker || item.type === "announcement") && <div className="dashboard-card-kicker-row">{kicker && <span className="dashboard-card-kicker">{kicker}</span>}{item.type === "announcement" && <span className="dashboard-announcement-spark" aria-hidden="true"><i /><i /><i /></span>}</div>}
       {item.title && <h2>{item.title}</h2>}
       {item.description && <OverflowText className="dashboard-card-description" wrap={item.descriptionWrap !== false}>{item.description}</OverflowText>}
@@ -210,7 +215,11 @@ export default function DashboardContainer({ item, linksEnabled = true, containe
       {item.type === "announcement" && item.showDate && item.date && <div className="dashboard-card-date"><CalendarDays size={14} />{formatDate(item.date)}</div>}
       {item.type === "quickLinks" && <div className="dashboard-quick-links">{dashboardLinks.length ? dashboardLinks.map((link) => <DashboardLink className="dashboard-quick-link" url={link.url} enabled={linksEnabled} key={link.id}><span className="dashboard-quick-link-name"><strong>{link.name}</strong>{link.group && <small>{link.group}</small>}</span><ChevronRight size={15} /></DashboardLink>) : <p className="dashboard-quick-links-state">{publicLinksData.loading ? "Loading public links…" : publicLinksData.error ? "Public links could not be loaded." : "No public app links are available."}</p>}</div>}
       {item.buttonLabel && item.buttonUrl && <DashboardLink className="dashboard-card-cta" url={item.buttonUrl} enabled={linksEnabled}>{item.buttonLabel}{item.buttonUrl.startsWith("/") ? <ArrowRight size={15} /> : <ArrowUpRight size={15} />}</DashboardLink>}
-    </div>}
+    </div> : null;
+  return <article id={item.type === "announcement" ? `announcement-${item.id}` : undefined} className={className} style={style} data-dashboard-container={item.id}>
+    {hasImage && isAboveImage && baseText}
+    {hasImage && imageLayer}
+    {!isAboveImage && baseText}
     {textLayers.map((layer) => {
       const anchor = layer.anchor || "top-left";
       const x = Math.min(100, Math.max(0, Number(layer.x) || 0));
