@@ -41,11 +41,13 @@ export function DashboardPublicLinksProvider({ children }) {
       timer = window.setTimeout(() => { if (active) void refresh({ force: true }); }, 160);
     };
     void refresh();
-    const unsubscribe = subscribeToTables(["app_links"], onChange, "dashboard-public-app-links");
+    const unsubscribe = subscribeToTables(["app_links"], () => { if (document.visibilityState === "visible") onChange(); }, "dashboard-public-app-links");
     const poll = window.setInterval(() => {
       if (active && document.visibilityState === "visible") void refresh({ force: true });
-    }, 30_000);
-    return () => { active = false; window.clearTimeout(timer); window.clearInterval(poll); unsubscribe(); };
+    }, 60_000);
+    const onVisibilityChange = () => { if (active && document.visibilityState === "visible") void refresh({ force: true }); };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => { active = false; window.clearTimeout(timer); window.clearInterval(poll); document.removeEventListener("visibilitychange", onVisibilityChange); unsubscribe(); };
   }, [refresh]);
 
   const value = useMemo(() => ({ links, loading, error, refresh: () => refresh({ force: true }) }), [error, links, loading, refresh]);

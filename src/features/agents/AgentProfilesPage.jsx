@@ -106,7 +106,7 @@ function personalityInfo(value) {
 }
 
 function PersonAvatar({ member, large = false }) {
-  return <span className={"agent-profile-avatar" + (large ? " is-large" : "")}>{member.photo ? <img src={member.photo} alt="" /> : initials(member.name)}</span>;
+  return <span className={"agent-profile-avatar" + (large ? " is-large" : "")}>{member.photo ? <img src={member.photo} alt="" loading="lazy" decoding="async" /> : initials(member.name)}</span>;
 }
 
 export default function AgentProfilesPage() {

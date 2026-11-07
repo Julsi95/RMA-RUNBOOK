@@ -68,9 +68,13 @@ function DashboardContent({ canEdit, user }) {
     }, "published-dashboard") : () => {};
     const pollTimer = user ? null : window.setInterval(() => {
       if (active && document.visibilityState === "visible") void refreshDashboard({ force: true, quiet: true, isActive: () => active });
-    }, 15_000);
+    }, 60_000);
+    const onVisibilityChange = () => {
+      if (!user && active && document.visibilityState === "visible") void refreshDashboard({ force: true, quiet: true, isActive: () => active });
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("storage", syncPublished);
-    return () => { active = false; unsubscribe(); if (pollTimer) window.clearInterval(pollTimer); window.removeEventListener("storage", syncPublished); };
+    return () => { active = false; unsubscribe(); if (pollTimer) window.clearInterval(pollTimer); document.removeEventListener("visibilitychange", onVisibilityChange); window.removeEventListener("storage", syncPublished); };
   }, [refreshDashboard, user?.id]);
 
   const [searchParams] = useSearchParams();

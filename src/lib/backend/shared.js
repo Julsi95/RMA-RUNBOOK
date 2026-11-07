@@ -7,6 +7,11 @@ const channelStates = new Map();
 let refreshing = false;
 let refreshTimer;
 let networkWatcherAttached = false;
+const privateSignedUrlCache = new Map();
+const privateSignedUrlRequests = new Map();
+const PRIVATE_SIGNED_URL_RENEWAL_BUFFER_MS = 5 * 60 * 1000;
+const PRIVATE_SIGNED_URL_CACHE_LIMIT = 1000;
+let privateSignedUrlGeneration = 0;
 
 const TABLE_QUERY_PREFIXES = {
   workspace_branding: [["workspace-branding"]],
@@ -126,17 +131,63 @@ export function throwIfErrors(results) {
   }
 }
 
+export function clearPrivateSignedUrlCache() {
+  privateSignedUrlGeneration += 1;
+  privateSignedUrlCache.clear();
+  privateSignedUrlRequests.clear();
+}
+
+async function signPrivatePaths(paths, expiresIn, generation) {
+  const client = assertBackendConfigured();
+  const { data, error } = await client.storage.from("runbook-private").createSignedUrls(paths, expiresIn);
+  throwIfError(error);
+  const signedAt = Date.now();
+  const result = new Map();
+  for (const item of data ?? []) {
+    if (!item.path || !item.signedUrl || item.error) continue;
+    result.set(item.path, item.signedUrl);
+    if (generation === privateSignedUrlGeneration) {
+      privateSignedUrlCache.set(item.path, { url: item.signedUrl, expiresAt: signedAt + expiresIn * 1000 });
+    }
+  }
+  while (privateSignedUrlCache.size > PRIVATE_SIGNED_URL_CACHE_LIMIT) {
+    privateSignedUrlCache.delete(privateSignedUrlCache.keys().next().value);
+  }
+  return result;
+}
+
 export async function createPrivateSignedUrlMap(paths, expiresIn = 3600) {
   const uniquePaths = [...new Set(paths.filter(Boolean))];
   if (!uniquePaths.length) return new Map();
 
-  const client = assertBackendConfigured();
-  const { data, error } = await client.storage.from("runbook-private").createSignedUrls(uniquePaths, expiresIn);
-  throwIfError(error);
-  // A stale path or a photo made private by its owner should not prevent the
-  // rest of the employee directory from rendering. Callers keep their existing
-  // safe fallback image when Storage declines an individual signed URL.
-  return new Map((data ?? []).filter((item) => item.path && item.signedUrl && !item.error).map(({ path, signedUrl }) => [path, signedUrl]));
+  const now = Date.now();
+  for (const [path, cached] of privateSignedUrlCache) {
+    if (cached.expiresAt <= now) privateSignedUrlCache.delete(path);
+  }
+  const renewalBuffer = Math.min(PRIVATE_SIGNED_URL_RENEWAL_BUFFER_MS, Math.max(10_000, expiresIn * 200));
+  const pathsToSign = uniquePaths.filter((path) => (privateSignedUrlCache.get(path)?.expiresAt ?? 0) - now <= renewalBuffer);
+  const pathsWithoutRequest = pathsToSign.filter((path) => !privateSignedUrlRequests.has(path));
+
+  if (pathsWithoutRequest.length) {
+    const generation = privateSignedUrlGeneration;
+    const batch = signPrivatePaths(pathsWithoutRequest, expiresIn, generation);
+    for (const path of pathsWithoutRequest) {
+      const request = batch.then((signed) => signed.get(path) ?? "");
+      privateSignedUrlRequests.set(path, request);
+      const clearRequest = () => {
+        if (privateSignedUrlRequests.get(path) === request) privateSignedUrlRequests.delete(path);
+      };
+      void request.then(clearRequest, clearRequest);
+    }
+  }
+
+  await Promise.all(pathsToSign.map((path) => privateSignedUrlRequests.get(path)).filter(Boolean));
+  // A stale path or a private photo that is inaccessible in this session is
+  // omitted so callers can keep showing their existing fallback.
+  return new Map(uniquePaths.flatMap((path) => {
+    const cached = privateSignedUrlCache.get(path);
+    return cached && cached.expiresAt > Date.now() ? [[path, cached.url]] : [];
+  }));
 }
 
 export function subscribeToTables(tables, onChange, label = "data") {
@@ -150,11 +201,11 @@ export function subscribeToTables(tables, onChange, label = "data") {
   for (const item of tables) {
     const table = typeof item === "string" ? item : item.table;
     const filter = typeof item === "string" ? undefined : item.filter;
-    channel.on("postgres_changes", { event: "*", schema: "public", table, ...(filter ? { filter } : {}) }, () => {
+    channel.on("postgres_changes", { event: "*", schema: "public", table, ...(filter ? { filter } : {}) }, (payload) => {
       invalidateRealtimeQueryFamilies(table, filter);
       markDataRefreshing();
       window.clearTimeout(changeTimer);
-      changeTimer = window.setTimeout(onChange, 120);
+      changeTimer = window.setTimeout(() => onChange(payload), 120);
     });
   }
   channelStates.set(channelId, "connecting");
@@ -164,7 +215,7 @@ export function subscribeToTables(tables, onChange, label = "data") {
       channelStates.set(channelId, "connected");
       if (hasConnected && disconnected) {
         markDataRefreshing();
-        onChange();
+        onChange({ type: "RECONNECT" });
       }
       hasConnected = true;
       disconnected = false;

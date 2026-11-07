@@ -65,7 +65,7 @@ async function storeDashboardImages(content) {
     const blob = imageDataUrlToBlob(source);
     const extension = blob.type === "image/png" ? "png" : blob.type === "image/gif" ? "gif" : blob.type === "image/jpeg" ? "jpg" : "webp";
     const path = `dashboard/${containerId}/${crypto.randomUUID()}-${index}.${extension}`;
-    const { error } = await supabase.storage.from("runbook-public").upload(path, blob, { contentType: blob.type, upsert: false });
+    const { error } = await supabase.storage.from("runbook-public").upload(path, blob, { contentType: blob.type, cacheControl: "31536000", upsert: false });
     throwIfError(error);
     const { data } = supabase.storage.from("runbook-public").getPublicUrl(path);
     uploaded.set(source, data.publicUrl);

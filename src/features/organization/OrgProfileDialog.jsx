@@ -25,7 +25,7 @@ export default function OrgProfileDialog({ member, onClose }) {
     <section className="org-profile-dialog" role="dialog" aria-modal="true" aria-labelledby="org-profile-title">
       <Button className="org-profile-close" type="button" variant="ghost" size="icon" aria-label="Close profile" onClick={onClose}><X size={18} /></Button>
       <header className="org-profile-header">
-        <div className="org-profile-avatar">{member.photo ? <img src={member.photo} alt="" /> : <span>{initials}</span>}</div>
+        <div className="org-profile-avatar">{member.photo ? <img src={member.photo} alt="" decoding="async" /> : <span>{initials}</span>}</div>
         <div className="org-profile-heading-copy">
           <p className="eyebrow">TEAM PROFILE</p>
           <h2 id="org-profile-title">{member.name}</h2>

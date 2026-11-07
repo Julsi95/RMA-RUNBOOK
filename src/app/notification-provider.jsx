@@ -43,11 +43,13 @@ export function NotificationProvider({ children }) {
     if (!user || !isSupabaseConfigured) { setNotifications([]); setLoading(false); return undefined; }
     let active = true;
     if (!readCachedQuery(cacheKey)) setLoading(true);
-    const load = async (force = false) => { if (active) await refresh({ force }); };
+    const load = async (force = false) => { if (active && document.visibilityState === "visible") await refresh({ force }); };
     void load();
     const unsubscribe = subscribeToTables([{ table: "user_notifications", filter: `recipient_id=eq.${user.id}` }], () => { void load(true); }, "user-notifications");
     const birthdayTimer = window.setInterval(() => { void load(true); }, 60 * 60 * 1000);
-    return () => { active = false; window.clearInterval(birthdayTimer); unsubscribe(); };
+    const onVisibilityChange = () => { if (document.visibilityState === "visible") void load(true); };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => { active = false; window.clearInterval(birthdayTimer); document.removeEventListener("visibilitychange", onVisibilityChange); unsubscribe(); };
   }, [cacheKey, refresh, user?.id]);
 
   const value = useMemo(() => ({

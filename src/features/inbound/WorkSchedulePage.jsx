@@ -201,7 +201,7 @@ function removeDateFromRange(periods, periodId, date) {
 }
 
 function Avatar({ member }) {
-  return <span className="work-avatar">{member.photo ? <img src={member.photo} alt="" /> : initials(member.name)}</span>;
+  return <span className="work-avatar">{member.photo ? <img src={member.photo} alt="" loading="lazy" decoding="async" /> : initials(member.name)}</span>;
 }
 
 export default function WorkSchedulePage() {

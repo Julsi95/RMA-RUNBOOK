@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, Clock3, Database, Eraser, Search, ShieldCheck, TriangleAlert } from "lucide-react";
+import { Activity, Clock3, Database, Eraser, RefreshCw, Search, ShieldCheck, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { clearRequestMetrics, subscribeToRequestMetrics } from "@/lib/backend/request-monitor";
 import { supabase } from "@/lib/supabase";
@@ -11,6 +11,21 @@ const dateInputValue = (timestamp) => {
   const date = new Date(timestamp);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 };
+
+let sharedMetricsRequest = null;
+
+function readSharedMetrics() {
+  if (!supabase) return Promise.resolve(null);
+  if (!sharedMetricsRequest) {
+    sharedMetricsRequest = supabase.rpc("get_runbook_backend_request_metrics")
+      .then(({ data, error }) => {
+        if (error) throw error;
+        return data ?? null;
+      })
+      .finally(() => { sharedMetricsRequest = null; });
+  }
+  return sharedMetricsRequest;
+}
 
 function Breakdown({ title, icon: Icon, values }) {
   const entries = Object.entries(values).sort((a, b) => b[1] - a[1]).slice(0, 5);
@@ -32,23 +47,25 @@ export default function BackendRequestMonitor() {
   const [toDate, setToDate] = useState("");
   const [sharedMetrics, setSharedMetrics] = useState(null);
   const [sharedError, setSharedError] = useState("");
+  const [sharedLoading, setSharedLoading] = useState(false);
 
   useEffect(() => subscribeToRequestMetrics(setMetrics), []);
 
+  async function refreshSharedMetrics() {
+    if (!supabase || document.visibilityState !== "visible") return;
+    setSharedLoading(true);
+    try {
+      setSharedMetrics(await readSharedMetrics());
+      setSharedError("");
+    } catch (error) {
+      setSharedError(error.message || "Shared request totals could not be loaded.");
+    } finally { setSharedLoading(false); }
+  }
+
   useEffect(() => {
     if (!supabase) return undefined;
-    let active = true;
-    const loadSharedMetrics = async () => {
-      const { data, error } = await supabase.rpc("get_runbook_backend_request_metrics");
-      if (!active) return;
-      if (error) setSharedError(error.message || "Shared request totals could not be loaded.");
-      else { setSharedMetrics(data ?? null); setSharedError(""); }
-    };
-    void loadSharedMetrics();
-    const channel = supabase.channel("shared-backend-request-metrics")
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "runbook_backend_request_metrics" }, () => { void loadSharedMetrics(); })
-      .subscribe();
-    return () => { active = false; void supabase.removeChannel(channel); };
+    void refreshSharedMetrics();
+    return undefined;
   }, []);
 
   const pages = useMemo(() => Object.keys(metrics?.byPage ?? {}).sort(), [metrics?.byPage]);
@@ -64,13 +81,13 @@ export default function BackendRequestMonitor() {
 
   return <section id="backend-requests" className="settings-card settings-admin-section request-monitor" aria-labelledby="request-monitor-title">
     <header className="request-monitor-header">
-      <div><p className="request-monitor-kicker"><Activity size={13} /> DEVELOPER DIAGNOSTICS</p><h2 id="request-monitor-title">Backend request monitor</h2><p>Shared weekly totals include requests reported by all visitors. Request details remain local to this browser.</p></div>
-      <div className="request-monitor-header-actions"><span className="request-monitor-local"><ShieldCheck size={14} /> Shared totals · local details</span><Button type="button" variant="outline" size="sm" disabled={!metrics?.total} onClick={clearRequestMetrics}><Eraser size={14} /> Reset local</Button></div>
+      <div><p className="request-monitor-kicker"><Activity size={13} /> DEVELOPER DIAGNOSTICS</p><h2 id="request-monitor-title">Backend request monitor</h2><p>Shared weekly totals use a 10% sample. Request details remain local to this browser.</p></div>
+      <div className="request-monitor-header-actions"><span className="request-monitor-local"><ShieldCheck size={14} /> Sampled shared totals · local details</span><Button type="button" variant="outline" size="sm" onClick={() => { void refreshSharedMetrics(); }} disabled={sharedLoading || document.visibilityState !== "visible"}><RefreshCw size={14} /> {sharedLoading ? "Refreshing…" : "Refresh shared"}</Button><Button type="button" variant="outline" size="sm" disabled={!metrics?.total} onClick={clearRequestMetrics}><Eraser size={14} /> Reset local</Button></div>
     </header>
 
     {sharedError && <p className="auth-error request-monitor-shared-error" role="alert">Shared totals are unavailable. Apply the shared request metrics database migration, then reload this page.</p>}
     <div className="request-monitor-stats">
-      <article className="request-monitor-stat is-primary"><span>Supabase requests · all visitors</span><strong>{sharedMetrics?.total ?? 0}</strong><small>Current week · resets Sunday (UTC)</small></article>
+      <article className="request-monitor-stat is-primary"><span>Sampled Supabase requests</span><strong>{sharedMetrics?.total ?? 0}</strong><small>About 10% of eligible traffic · resets Sunday (UTC)</small></article>
       <article className="request-monitor-stat"><span>Database API requests</span><strong>{sharedMetrics?.by_category?.["Database API"] ?? 0}</strong><small>Shared REST and RPC total</small></article>
       <article className="request-monitor-stat"><span>Failed requests</span><strong className={sharedMetrics?.failed ? "is-error" : ""}>{sharedMetrics?.failed ?? 0}</strong><small>Shared HTTP and network failures</small></article>
       <article className="request-monitor-stat"><span>Slowest response</span><strong>{sharedMetrics?.total ? `${sharedMetrics.slowest_ms} ms` : "—"}</strong><small>Shared maximum this week</small></article>
@@ -101,6 +118,6 @@ export default function BackendRequestMonitor() {
       </tbody></table> : <div className="request-monitor-empty"><span><TriangleAlert size={18} /></span><strong>{metrics?.total ? "No requests match these filters" : "Waiting for Supabase requests"}</strong><p>{metrics?.total ? "Adjust the date, page, or search filters." : "Requests will be captured automatically as the app uses Supabase."}</p></div>}
     </div>
 
-    <p className="request-monitor-note"><ShieldCheck size={14} /> Shared figures are weekly aggregate counts across visitors; individual requests, query values, credentials, and personal data are never sent to the metrics table. Metric reporting requests are excluded to prevent a feedback loop. This is HTTP/API traffic, not SQL statement or billing counts, and Realtime WebSocket messages are not included.</p>
+    <p className="request-monitor-note"><ShieldCheck size={14} /> Shared figures are weekly aggregate counts from a 10% sample; individual requests, query values, credentials, and personal data are never sent to the metrics table. Every request-metrics endpoint is excluded. This is HTTP/API traffic, not SQL statement or billing counts, and Realtime WebSocket messages are not included.</p>
   </section>;
 }

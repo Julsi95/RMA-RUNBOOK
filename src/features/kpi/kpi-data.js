@@ -1,4 +1,4 @@
-import { getOrganizationMembers, ORGANIZATION_STORAGE_KEY } from "@/features/organization/organization-data";
+import { getOrganizationMembers, ORGANIZATION_STORAGE_KEY } from "../organization/organization-data.js";
 
 export const KPI_STORAGE_KEY = "starter-app-monthly-kpi-v1";
 export const TEAM_STORAGE_KEY = ORGANIZATION_STORAGE_KEY;

@@ -24,7 +24,7 @@ function initials(name = "") {
 }
 
 function MemberAvatar({ member, small = false }) {
-  return <span className={`coverage-avatar ${small ? "coverage-avatar-small" : ""}`}>{member?.photo ? <img src={member.photo} alt="" /> : initials(member?.name)}</span>;
+  return <span className={`coverage-avatar ${small ? "coverage-avatar-small" : ""}`}>{member?.photo ? <img src={member.photo} alt="" loading="lazy" decoding="async" /> : initials(member?.name)}</span>;
 }
 
 function projectCounts(project) {

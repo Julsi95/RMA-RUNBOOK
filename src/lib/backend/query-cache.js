@@ -31,6 +31,10 @@ export const queryKeys = {
   qaCriteria: (userId, canEdit) => ["qa-criteria", userId, canEdit ? "editor" : "viewer"],
   kpiScoring: () => ["kpi-scoring"],
   kpiMonths: (userId, canEdit) => ["kpi-months", userId, canEdit ? "editor" : "viewer"],
+  kpiMonthIndex: (userId) => ["kpi-month-index", userId],
+  kpiMonth: (userId, monthKey) => ["kpi-month", userId, monthKey],
+  kpiMonthRevision: (userId, monthKey) => ["kpi-month-revision", userId, monthKey],
+  kpiScoringVersion: (versionId) => ["kpi-scoring-version", versionId],
   history: (userId, canEdit) => ["history", userId, canEdit ? "editor" : "viewer"],
   notifications: (userId) => ["notifications", userId],
   runbookSessionSettings: (userId) => ["runbook-session-settings", userId],
@@ -43,11 +47,11 @@ export function readCachedQuery(queryKey) {
   return queryClient.getQueryData(queryKey);
 }
 
-export function fetchCachedQuery(queryKey, queryFn, { staleTime = QUERY_STALE_TIME, force = false } = {}) {
+export function fetchCachedQuery(queryKey, queryFn, { staleTime = QUERY_STALE_TIME, gcTime = QUERY_GC_TIME, force = false } = {}) {
   if (force) {
-    return queryClient.fetchQuery({ queryKey, queryFn, staleTime: 0, retry: false });
+    return queryClient.fetchQuery({ queryKey, queryFn, staleTime: 0, gcTime, retry: false });
   }
-  return queryClient.fetchQuery({ queryKey, queryFn, staleTime, retry: false });
+  return queryClient.fetchQuery({ queryKey, queryFn, staleTime, gcTime, retry: false });
 }
 
 export function invalidateCachedQuery(queryKey) {

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
-import { subscribeToTables } from "@/lib/backend/shared";
+import { clearPrivateSignedUrlCache, subscribeToTables } from "@/lib/backend/shared";
 import { clearMemoryQueryCache } from "@/lib/backend/query-cache";
 import {
   checkRunbookSession,
@@ -55,6 +55,7 @@ export function AuthProvider({ children }) {
 
   const clearLocalSession = useCallback((message = "", release = true, revokeAuthSessions = false) => {
     clearMemoryQueryCache();
+    clearPrivateSignedUrlCache();
     sessionCheckSequence.current += 1;
     currentSessionRef.current = null;
     setSessionNotice(message);
@@ -76,7 +77,10 @@ export function AuthProvider({ children }) {
       return false;
     }
     const previousId = getSessionId(currentSessionRef.current);
-    if (currentSessionRef.current?.user?.id && currentSessionRef.current.user.id !== nextSession.user.id) clearMemoryQueryCache();
+    if (currentSessionRef.current?.user?.id !== nextSession.user.id) {
+      clearMemoryQueryCache();
+      clearPrivateSignedUrlCache();
+    }
     currentSessionRef.current = nextSession;
     setSession(nextSession);
     if (updateLoading || !previousId || previousId !== sessionId) {
@@ -161,7 +165,10 @@ export function AuthProvider({ children }) {
         // loads already in flight and surfaces a misleading CancelledError.
         // Clear cached user data only when an authenticated session actually
         // existed; clearLocalSession handles invalid/replaced sessions itself.
-        if (currentSessionRef.current?.user) clearMemoryQueryCache();
+        if (currentSessionRef.current?.user) {
+          clearMemoryQueryCache();
+          clearPrivateSignedUrlCache();
+        }
         currentSessionRef.current = null;
         setSession(null);
         setAccount(null);
@@ -195,11 +202,13 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     if (!session?.user || !sessionStatus?.active) return undefined;
     lastActivityPing.current = Date.now();
+    const inactivityTimeoutMs = Math.max(1, Number(sessionStatus.inactivityTimeoutMinutes) || 30) * 60_000;
+    const touchThrottleMs = Math.max(3 * 60_000, inactivityTimeoutMs / 2);
     let pingInFlight = false;
     const onActivity = () => {
       if (document.visibilityState === "hidden" || pingInFlight) return;
       const now = Date.now();
-      if (now - lastActivityPing.current < 45_000) return;
+      if (now - lastActivityPing.current < touchThrottleMs) return;
       lastActivityPing.current = now;
       pingInFlight = true;
       void touchRunbookSession().then(async (active) => {
@@ -218,15 +227,32 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     if (!session?.user || !sessionStatus?.active) return undefined;
-    const interval = window.setInterval(() => { void refreshSessionStatus(); }, 15_000);
-    const onOnline = () => { void refreshSessionStatus(); };
-    const onVisible = () => { if (document.visibilityState === "visible") void refreshSessionStatus(); };
+    let interval = null;
+    const stopPolling = () => {
+      if (interval !== null) window.clearInterval(interval);
+      interval = null;
+    };
+    const startPolling = () => {
+      if (interval !== null || document.visibilityState !== "visible") return;
+      interval = window.setInterval(() => {
+        if (document.visibilityState === "visible") void refreshSessionStatus();
+      }, 5 * 60_000);
+    };
+    const onOnline = () => { if (document.visibilityState === "visible") void refreshSessionStatus(); };
+    const onVisibilityChange = () => {
+      stopPolling();
+      if (document.visibilityState === "visible") {
+        void refreshSessionStatus();
+        startPolling();
+      }
+    };
+    startPolling();
     window.addEventListener("online", onOnline);
-    document.addEventListener("visibilitychange", onVisible);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
-      window.clearInterval(interval);
+      stopPolling();
       window.removeEventListener("online", onOnline);
-      document.removeEventListener("visibilitychange", onVisible);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [refreshSessionStatus, session?.user?.id, sessionStatus?.active]);
 
@@ -234,7 +260,7 @@ export function AuthProvider({ children }) {
     if (!session?.user || !sessionStatus?.active) return undefined;
     const unsubscribe = subscribeToTables([
       { table: "runbook_session_signals", filter: `user_id=eq.${session.user.id}` },
-    ], () => { void refreshSessionStatus(); }, "session-replacement");
+    ], () => { if (document.visibilityState === "visible") void refreshSessionStatus(); }, "session-replacement");
     return unsubscribe;
   }, [refreshSessionStatus, session?.user?.id, sessionStatus?.active]);
 

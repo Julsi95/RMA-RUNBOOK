@@ -9,6 +9,51 @@ export async function loadCurrentKpiScoring() {
   return { id: data.version_id, settings: data.kpi_scoring_versions.settings, label: data.kpi_scoring_versions.label, versionNumber: data.kpi_scoring_versions.version_number };
 }
 
+export async function loadKpiScoringVersion(versionId) {
+  assertBackendConfigured();
+  if (!versionId) return null;
+  const { data, error } = await supabase.from("kpi_scoring_versions").select("id,settings,label,version_number").eq("id", versionId).maybeSingle();
+  throwIfError(error);
+  return data ? { id: data.id, settings: data.settings, label: data.label, versionNumber: data.version_number } : null;
+}
+
+export async function loadKpiMonthIndex() {
+  assertBackendConfigured();
+  const { data, error } = await supabase.from("kpi_months").select("month_key,scoring_version_id,status,updated_at").order("month_key");
+  throwIfError(error);
+  return data ?? [];
+}
+
+export async function loadKpiMonthRevision(month) {
+  assertBackendConfigured();
+  const { data, error } = await supabase.from("kpi_results").select("result_revision").eq("month_key", month).order("result_revision", { ascending: false }).limit(1).maybeSingle();
+  throwIfError(error);
+  return Number(data?.result_revision ?? 0);
+}
+
+export async function loadKpiMonthDataForMonth(month, indexedMonth = null) {
+  assertBackendConfigured();
+  const monthQuery = indexedMonth ? Promise.resolve({ data: indexedMonth, error: null }) : supabase.from("kpi_months").select("month_key,scoring_version_id,status").eq("month_key", month).maybeSingle();
+  const [monthResult, resultsResult] = await Promise.all([
+    monthQuery,
+    supabase.from("kpi_results").select("month_key,employee_id,employee_name_snapshot,employee_role_snapshot,metrics,overall_score,evaluation,result_revision,source,is_deleted").eq("month_key", month).order("result_revision"),
+  ]);
+  throwIfErrors([monthResult, resultsResult]);
+  const monthRow = monthResult.data;
+  if (!monthRow) return null;
+  const records = {};
+  for (const row of resultsResult.data ?? []) {
+    if (row.is_deleted) { delete records[row.employee_id]; continue; }
+    records[row.employee_id] = {
+      memberId: row.employee_id, memberName: row.employee_name_snapshot, role: row.employee_role_snapshot,
+      metrics: row.metrics ?? {}, overallScore: row.overall_score == null ? null : Number(row.overall_score), evaluation: row.evaluation,
+      source: row.source ?? "manual", resultRevision: row.result_revision,
+      scoringVersionId: monthRow.scoring_version_id,
+    };
+  }
+  return { demo: false, status: monthRow.status, scoringVersionId: monthRow.scoring_version_id, records };
+}
+
 export async function saveCurrentKpiScoring(settings, label = "Scoring settings") {
   assertBackendConfigured();
   const { data, error } = await supabase.rpc("save_kpi_scoring_version", { p_label: label, p_settings: settings });

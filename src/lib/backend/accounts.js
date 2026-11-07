@@ -1,5 +1,6 @@
-import { assertBackendConfigured, throwIfError } from "./shared.js";
+import { assertBackendConfigured, createPrivateSignedUrlMap, throwIfError } from "./shared.js";
 import { functionErrorMessage } from "./function-error.js";
+import { compressProfileImage } from "./profile-image.js";
 
 export async function manageAccounts(payload) {
   const client = assertBackendConfigured();
@@ -42,18 +43,17 @@ export async function uploadOwnProfilePhoto(file, userId, employeeId = null) {
     throw new Error("Use a JPEG, PNG, WebP, or GIF image.");
   }
   if (file.size > 5 * 1024 * 1024) throw new Error("Profile images must be 5 MB or smaller.");
-  const extension = file.type === "image/jpeg" ? "jpg" : file.type.split("/")[1];
+  const image = await compressProfileImage(file);
+  const extension = image.type === "image/jpeg" ? "jpg" : image.type === "image/png" ? "png" : image.type === "image/gif" ? "gif" : "webp";
   const folder = employeeId ? `employees/${employeeId}` : `accounts/${userId}`;
   const path = `${folder}/${crypto.randomUUID()}.${extension}`;
-  const { error } = await client.storage.from("runbook-private").upload(path, file, { contentType: file.type, upsert: false });
+  const { error } = await client.storage.from("runbook-private").upload(path, image, { contentType: image.type, cacheControl: "3300", upsert: false });
   throwIfError(error);
   return path;
 }
 
 export async function signedOwnProfilePhoto(path, expiresIn = 3600) {
   if (!path) return "";
-  const client = assertBackendConfigured();
-  const { data, error } = await client.storage.from("runbook-private").createSignedUrl(path, expiresIn);
-  throwIfError(error);
-  return data?.signedUrl ?? "";
+  const signedUrls = await createPrivateSignedUrlMap([path], expiresIn);
+  return signedUrls.get(path) ?? "";
 }

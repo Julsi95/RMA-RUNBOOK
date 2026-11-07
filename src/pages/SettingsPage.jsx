@@ -3,7 +3,6 @@ import { AlertTriangle, Clock3, Dices, ImagePlus, KeyRound, LogOut, RefreshCw, S
 import { useTheme } from "@/app/theme-provider";
 import { useAuth } from "@/app/auth-provider";
 import { useOrganizationRoster } from "@/app/organization-provider";
-import { getOperationalRoster } from "@/features/organization/organization-data";
 import { Button } from "@/components/ui/Button";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { manageAccounts, signedOwnProfilePhoto, uploadOwnProfilePhoto } from "@/lib/backend-repositories";
@@ -19,7 +18,7 @@ export default function SettingsPage() {
   const { configured, user, account, accountProfile, canEdit, updateAccountProfile, updateEmail, updatePassword, signOut, refreshSessionStatus } = useAuth();
   const canManageAccounts = configured && ["admin", "super_admin"].includes(account?.role);
   const { members: rosterMembers } = useOrganizationRoster();
-  const members = useMemo(() => getOperationalRoster(rosterMembers), [rosterMembers]);
+  const members = useMemo(() => rosterMembers ?? [], [rosterMembers]);
   const { branding, logoUrl, save: saveBranding } = useBranding();
   const accountsKey = useMemo(() => queryKeys.accounts(user?.id ?? "anonymous"), [user?.id]);
   const sessionSettingsKey = useMemo(() => queryKeys.runbookSessionSettings(user?.id ?? "anonymous"), [user?.id]);

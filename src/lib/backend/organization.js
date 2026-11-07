@@ -1,6 +1,7 @@
 import { getOrganizationMembers, getReportingManagerIds } from "@/features/organization/organization-data";
 import { supabase } from "@/lib/supabase";
 import { assertBackendConfigured, createPrivateSignedUrlMap, throwIfError, throwIfErrors } from "./shared.js";
+import { compressProfileImage } from "./profile-image.js";
 
 function normalizeEmployee(row, profile = {}) {
   const reportingManagerIds = Array.isArray(row.reporting_manager_ids)
@@ -107,9 +108,10 @@ async function storeEmployeePhoto(photo, currentPath, employeeId) {
   if (!/^image\/(jpeg|png|webp|gif)$/.test(blob.type) || blob.size <= 0 || blob.size > 5 * 1024 * 1024) {
     throw new Error("Profile images must be JPEG, PNG, WebP, or GIF and no larger than 5 MB.");
   }
-  const extension = blob.type === "image/png" ? "png" : blob.type === "image/webp" ? "webp" : blob.type === "image/gif" ? "gif" : "jpg";
+  const image = await compressProfileImage(blob);
+  const extension = image.type === "image/png" ? "png" : image.type === "image/webp" ? "webp" : image.type === "image/gif" ? "gif" : "jpg";
   const path = `employees/${employeeId}/${crypto.randomUUID()}.${extension}`;
-  const { error } = await assertBackendConfigured().storage.from("runbook-private").upload(path, blob, { contentType: blob.type, upsert: false });
+  const { error } = await assertBackendConfigured().storage.from("runbook-private").upload(path, image, { contentType: image.type, cacheControl: "3300", upsert: false });
   throwIfError(error);
   return { photoUrl: "", photoPath: path };
 }
