@@ -3,7 +3,15 @@ import { functionErrorMessage } from "./function-error.js";
 
 export async function manageAccounts(payload) {
   const client = assertBackendConfigured();
-  const { data, error } = await client.functions.invoke("manage-account", { body: payload });
+  const { data: sessionData, error: sessionError } = await client.auth.getSession();
+  throwIfError(sessionError);
+  const accessToken = sessionData?.session?.access_token;
+  if (!accessToken) throw new Error("Your RUNBOOK sign-in session is missing or expired. Sign in again, then retry.");
+
+  const { data, error } = await client.functions.invoke("manage-account", {
+    body: payload,
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
   if (error?.name === "FunctionsFetchError") {
     const origin = typeof window === "undefined" ? "this site" : window.location.origin;
     console.error("[RUNBOOK account request] Function could not be reached", {
