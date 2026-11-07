@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx";
-import { KPI_METRICS, emptyMetrics } from "@/features/kpi/kpi-data";
-import { findUniqueKpiPersonNameMatch } from "@/features/kpi/kpi-person-groups";
+import { KPI_METRICS, emptyMetrics } from "./kpi-data.js";
+import { findUniqueKpiPersonNameMatch } from "./kpi-person-groups.js";
 
 const MAX_KPI_IMPORT_BYTES = 10 * 1024 * 1024;
 const MAX_KPI_IMPORT_SHEETS = 20;
@@ -8,7 +8,13 @@ const MAX_KPI_IMPORT_CELLS = 250_000;
 const MAX_KPI_IMPORT_ROWS = 2_000;
 const MAX_KPI_IMPORT_COLUMNS = 100;
 
-const normalize = (value) => String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "").trim();
+const cleanHeader = (value) => String(value ?? "")
+  .normalize("NFKC")
+  .replace(/^\uFEFF/, "")
+  .replace(/\u00A0/g, " ")
+  .replace(/\s+/g, " ")
+  .trim();
+const normalize = (value) => cleanHeader(value).toLowerCase().replace(/[^a-z0-9]+/g, "").trim();
 const shortNameKey = (value) => {
   const parts = String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(Boolean);
   return parts.length > 1 ? `${parts[0][0]}${parts.at(-1)}` : "";
@@ -55,14 +61,17 @@ function tableRowsToObjects(rows, headerIndex, nextHeaderIndex) {
     const subheaderRow = rows[headerIndex + 1] ?? [];
     let currentGroup = "";
     const headers = groupRow.map((cell, index) => {
-      const group = String(cell ?? "").trim();
+      const group = cleanHeader(cell);
       if (group) currentGroup = group;
-      const subheader = String(subheaderRow[index] ?? "").trim();
+      const subheader = cleanHeader(subheaderRow[index]);
       if (currentGroup && KPI_METRICS.some((metric) => normalize(currentGroup).includes(normalize(metric.label)))) {
         return `${currentGroup} ${subheader}`.trim();
       }
       if (normalize(currentGroup).includes("kpi")) return `KPI ${subheader}`.trim();
-      return group || subheader || `Column ${index + 1}`;
+      // Spreadsheets often merge a summary heading (for example TEAM SCORE:)
+      // over the Evaluation and Rank columns. The actual field names are in
+      // the subheader row, so prefer those unless the group names a KPI metric.
+      return subheader || group || `Column ${index + 1}`;
     });
     const endIndex = nextHeaderIndex ?? rows.length;
     const objects = rows.slice(headerIndex + 2, endIndex).filter((row) => row.some((cell) => String(cell ?? "").trim())).map((row) =>
@@ -143,16 +152,18 @@ function findOverallScoreHeader(headers) {
 }
 
 function findEvaluationHeader(headers) {
+  const aliases = new Set(["evaluation", "evaluationlabel", "evaluationresult", "performanceband", "evaluationband", "rating", "ratinglabel"]);
   return headers.find((header) => {
     const normalized = normalize(header);
-    return normalized.includes("evaluation") || ["rating", "performanceband", "evaluationband"].includes(normalized);
+    return aliases.has(normalized) || normalized.startsWith("evaluation");
   });
 }
 
 function findRankHeader(headers) {
+  const aliases = new Set(["rank", "ranking", "rankposition", "finalrank", "monthlyrank"]);
   return headers.find((header) => {
     const normalized = normalize(header);
-    return normalized === "rank" || normalized === "ranking" || normalized.endsWith("rank") || normalized.endsWith("ranking");
+    return aliases.has(normalized) || normalized.endsWith("rank") || normalized.endsWith("ranking");
   });
 }
 
@@ -230,8 +241,10 @@ export async function readKpiFile(file, teamMembers) {
   const extension = String(file.name ?? "").toLowerCase().match(/\.(csv|xlsx|xls)$/)?.[1];
   if (!extension) throw new Error("Use a CSV, XLSX, or XLS file.");
   const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, {
-    type: "array",
+  const csvDelimiter = extension === "csv" ? detectCsvDelimiter(new TextDecoder().decode(buffer)) : undefined;
+  const workbook = XLSX.read(extension === "csv" ? new TextDecoder().decode(buffer) : buffer, {
+    type: extension === "csv" ? "string" : "array",
+    ...(csvDelimiter ? { FS: csvDelimiter } : {}),
     cellDates: false,
     cellFormula: false,
     cellHTML: false,
@@ -262,10 +275,32 @@ export async function readKpiFile(file, teamMembers) {
       const normalized = normalizeImportedRows(objects, teamMembers);
       importedRows += normalized.imported.length;
       if (importedRows > MAX_KPI_IMPORT_ROWS) throw new Error(`An import can contain up to ${MAX_KPI_IMPORT_ROWS} result rows.`);
-      tables.push({ month: month ?? getMonthFromLabel(`${file.name} ${sheetName}`), ...normalized });
+      const headers = Object.keys(objects[0] ?? {}).map(cleanHeader);
+      if (import.meta.env?.DEV) console.info("[KPI import] normalized spreadsheet headers", headers);
+      tables.push({ month: month ?? getMonthFromLabel(`${file.name} ${sheetName}`), headers, ...normalized });
       if (tables.length > MAX_KPI_IMPORT_SHEETS) throw new Error(`An import can contain up to ${MAX_KPI_IMPORT_SHEETS} monthly tables.`);
     }
   }
   if (!tables.length) throw new Error("Could not find a usable data table. Use the provided CSV template or a spreadsheet with a Name column and KPI columns.");
   return { tables, fileName: file.name };
+}
+
+function detectCsvDelimiter(text) {
+  const sample = text.split(/\r?\n/).filter((line) => line.trim()).slice(0, 5);
+  const candidates = [",", ";", "\t", "|"];
+  const scores = candidates.map((delimiter) => {
+    const counts = sample.map((line) => {
+      let quoted = false;
+      let count = 0;
+      for (let index = 0; index < line.length; index += 1) {
+        if (line[index] === '"' && line[index + 1] === '"' && quoted) { index += 1; continue; }
+        if (line[index] === '"') quoted = !quoted;
+        else if (line[index] === delimiter && !quoted) count += 1;
+      }
+      return count;
+    }).filter((count) => count > 0);
+    const consistent = counts.filter((count) => count === counts[0]).length;
+    return { delimiter, score: counts.length ? consistent * counts[0] : 0 };
+  }).sort((left, right) => right.score - left.score);
+  return scores[0]?.score ? scores[0].delimiter : ",";
 }

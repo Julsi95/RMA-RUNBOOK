@@ -58,7 +58,7 @@ export function BrandingProvider({ children }) {
         if (file.size <= 0 || file.size > 5 * 1024 * 1024) throw new Error("Branding images must be 5 MB or smaller.");
         const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : file.type === "image/gif" ? "gif" : "jpg";
         logoPath = `branding/sidebar-${crypto.randomUUID()}.${extension}`;
-        const { error: uploadError } = await supabase.storage.from("runbook-public").upload(logoPath, file, { contentType: file.type, upsert: false });
+        const { error: uploadError } = await supabase.storage.from("runbook-public").upload(logoPath, file, { contentType: file.type, cacheControl: "31536000", upsert: false });
         throwIfError(uploadError);
       }
       const { error: saveError } = await supabase.from("workspace_branding").upsert({ singleton: true, sidebar_title: title.trim(), logo_path: logoPath, updated_at: new Date().toISOString(), updated_by: actorId || null });

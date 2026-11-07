@@ -1,15 +1,16 @@
 const MAX_RECENT_REQUESTS = 500;
 const RETENTION_DAYS = 7;
+const SHARED_FLUSH_INTERVAL_MS = 60_000;
+const REQUEST_SAMPLE_RATE = 0.1;
 const STORAGE_KEY = "runbook-backend-request-monitor-v1";
 const SHARED_REPORT_PATH = "/rest/v1/rpc/record_runbook_backend_request_metrics";
-const INTERNAL_METRIC_ENDPOINTS = new Set(["record_runbook_backend_request_metrics", "get_runbook_backend_request_metrics"]);
+const MONITOR_ENABLED = import.meta.env?.PROD ? import.meta.env.VITE_ENABLE_REQUEST_MONITOR === "true" : true;
 const listeners = new Set();
 let sharedBatch = { total: 0, failed: 0, slowestMs: 0, byPage: {}, byCategory: {} };
 let sharedTimer = null;
 let sharedFlush = null;
 let sharedTransport = null;
 let sharedRetryCount = 0;
-let sharedRetryDelay = 5000;
 let sharedReportingDisabled = false;
 
 function emptySnapshot() {
@@ -85,31 +86,51 @@ function readHeader(headers, name) {
 }
 
 function scheduleSharedFlush() {
-  if (sharedTimer || sharedFlush || sharedReportingDisabled || !sharedBatch.total) return;
+  if (sharedTimer || sharedFlush || sharedReportingDisabled || !sharedBatch.total || documentIsHidden()) return;
   sharedTimer = globalThis.setTimeout(() => {
     sharedTimer = null;
     void flushSharedMetrics();
-  }, sharedRetryDelay);
+  }, SHARED_FLUSH_INTERVAL_MS);
 }
 
-async function flushSharedMetrics(keepalive = false) {
-  if (sharedFlush || sharedReportingDisabled || !sharedTransport || !sharedBatch.total) return;
-  if (sharedTimer) globalThis.clearTimeout(sharedTimer);
-  sharedTimer = null;
+function documentIsHidden() {
+  return typeof document !== "undefined" && document.visibilityState === "hidden";
+}
+
+function takeSharedBatch() {
   const batch = sharedBatch;
   sharedBatch = { total: 0, failed: 0, slowestMs: 0, byPage: {}, byCategory: {} };
-  const body = JSON.stringify({
+  return batch;
+}
+
+function restoreSharedBatch(batch) {
+  sharedBatch.total += batch.total;
+  sharedBatch.failed += batch.failed;
+  sharedBatch.slowestMs = Math.max(sharedBatch.slowestMs, batch.slowestMs);
+  for (const [page, count] of Object.entries(batch.byPage)) sharedBatch.byPage[page] = (sharedBatch.byPage[page] ?? 0) + count;
+  for (const [category, count] of Object.entries(batch.byCategory)) sharedBatch.byCategory[category] = (sharedBatch.byCategory[category] ?? 0) + count;
+}
+
+function serializeSharedBatch(batch) {
+  return JSON.stringify({
     p_total: batch.total,
     p_failed: batch.failed,
     p_slowest_ms: batch.slowestMs,
     p_by_page: batch.byPage,
     p_by_category: batch.byCategory,
   });
+}
+
+async function flushSharedMetrics(keepalive = false) {
+  if (sharedFlush || sharedReportingDisabled || !sharedTransport || !sharedBatch.total || documentIsHidden()) return;
+  if (sharedTimer) globalThis.clearTimeout(sharedTimer);
+  sharedTimer = null;
+  const batch = takeSharedBatch();
+  const body = serializeSharedBatch(batch);
   sharedFlush = sharedTransport.fetch(`${sharedTransport.origin}${SHARED_REPORT_PATH}`, {
     method: "POST",
     headers: {
       apikey: sharedTransport.apiKey,
-      Authorization: sharedTransport.authorization,
       "Content-Type": "application/json",
     },
     body,
@@ -122,19 +143,12 @@ async function flushSharedMetrics(keepalive = false) {
     }
     if (!response.ok) throw new Error("Shared request metrics could not be saved.");
     sharedRetryCount = 0;
-    sharedRetryDelay = 5000;
   }).catch(() => {
-    sharedBatch.total += batch.total;
-    sharedBatch.failed += batch.failed;
-    sharedBatch.slowestMs = Math.max(sharedBatch.slowestMs, batch.slowestMs);
-    for (const [page, count] of Object.entries(batch.byPage)) sharedBatch.byPage[page] = (sharedBatch.byPage[page] ?? 0) + count;
-    for (const [category, count] of Object.entries(batch.byCategory)) sharedBatch.byCategory[category] = (sharedBatch.byCategory[category] ?? 0) + count;
+    restoreSharedBatch(batch);
     sharedRetryCount += 1;
     if (sharedRetryCount >= 3) {
       sharedReportingDisabled = true;
       sharedBatch = { total: 0, failed: 0, slowestMs: 0, byPage: {}, byCategory: {} };
-    } else {
-      sharedRetryDelay = 5000 * (2 ** sharedRetryCount);
     }
   }).finally(() => {
     sharedFlush = null;
@@ -146,14 +160,48 @@ async function flushSharedMetrics(keepalive = false) {
 function queueSharedMetric(event, baseFetch, projectOrigin, headers) {
   const apiKey = readHeader(headers, "apikey");
   if (!apiKey) return;
-  const authorization = readHeader(headers, "authorization") || `Bearer ${apiKey}`;
-  sharedTransport = { fetch: baseFetch, origin: projectOrigin, apiKey, authorization };
+  sharedTransport = { fetch: baseFetch, origin: projectOrigin, apiKey };
   sharedBatch.total += 1;
   sharedBatch.failed += Number(event.failed);
   sharedBatch.slowestMs = Math.max(sharedBatch.slowestMs, event.durationMs);
   sharedBatch.byPage[event.page] = (sharedBatch.byPage[event.page] ?? 0) + 1;
   sharedBatch.byCategory[event.category] = (sharedBatch.byCategory[event.category] ?? 0) + 1;
-  if (sharedBatch.total >= 20) void flushSharedMetrics();
+  scheduleSharedFlush();
+}
+
+function flushSharedMetricsWithBeacon() {
+  if (sharedReportingDisabled || !sharedTransport || !sharedBatch.total) return;
+  if (sharedTimer) globalThis.clearTimeout(sharedTimer);
+  sharedTimer = null;
+  const batch = takeSharedBatch();
+  const url = new URL(SHARED_REPORT_PATH, sharedTransport.origin);
+  url.searchParams.set("apikey", sharedTransport.apiKey);
+  const body = serializeSharedBatch(batch);
+  const payload = new Blob([body], { type: "application/json" });
+  let accepted = false;
+  try { accepted = Boolean(navigator.sendBeacon?.(url.toString(), payload)); } catch { accepted = false; }
+  if (accepted) return;
+  restoreSharedBatch(batch);
+  // Beacon can be unavailable or rejected by the browser; keepalive is the
+  // fallback and still omits a user session token because the RPC is anon-safe.
+  const pending = takeSharedBatch();
+  const fallbackUrl = new URL(SHARED_REPORT_PATH, sharedTransport.origin);
+  void sharedTransport.fetch(fallbackUrl.toString(), {
+    method: "POST",
+    headers: { apikey: sharedTransport.apiKey, "Content-Type": "application/json" },
+    body: serializeSharedBatch(pending),
+    keepalive: true,
+  }).then((response) => {
+    if (!response.ok) throw new Error("Shared request metrics could not be saved.");
+  }).catch(() => {
+    restoreSharedBatch(pending);
+  }).finally(() => {
+    if (!documentIsHidden()) scheduleSharedFlush();
+  });
+}
+
+function onDocumentVisibilityChange() {
+  if (document.visibilityState === "hidden") flushSharedMetricsWithBeacon();
   else scheduleSharedFlush();
 }
 
@@ -183,7 +231,7 @@ if (typeof window !== "undefined") {
       notify();
     }
   });
-  window.addEventListener("pagehide", () => { void flushSharedMetrics(true); });
+  document.addEventListener("visibilitychange", onDocumentVisibilityChange);
 }
 
 function classifyEndpoint(pathname) {
@@ -210,7 +258,10 @@ export function createMonitoredFetch(supabaseUrl, baseFetch = globalThis.fetch.b
 
     const method = String(init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
     const { endpoint, category } = classifyEndpoint(parsed.pathname);
-    const shouldTrack = !INTERNAL_METRIC_ENDPOINTS.has(endpoint.split("/").at(-1));
+    const endpointName = endpoint.split("/").at(-1) ?? "";
+    const isRequestMetricsEndpoint = /_request_metrics$/i.test(endpointName);
+    const shouldTrack = MONITOR_ENABLED && !isRequestMetricsEndpoint && Math.random() < REQUEST_SAMPLE_RATE;
+    if (!shouldTrack) return baseFetch(input, init);
     const requestHeaders = init?.headers ?? (input instanceof Request ? input.headers : undefined);
     const page = globalThis.location?.pathname || "(no page)";
     const start = globalThis.performance?.now?.() ?? Date.now();

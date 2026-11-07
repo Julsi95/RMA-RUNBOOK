@@ -43,7 +43,7 @@ export default function KpiScoringSettingsPage() {
     const refresh = async ({ force = false } = {}) => {
       if (!readCachedQuery(SCORING_QUERY_KEY)) setRemoteLoading(true);
       try {
-        const current = await fetchCachedQuery(SCORING_QUERY_KEY, () => retryDataLoad(loadCurrentKpiScoring), { force });
+        const current = await fetchCachedQuery(SCORING_QUERY_KEY, () => retryDataLoad(loadCurrentKpiScoring), { staleTime: Infinity, gcTime: Infinity, force });
         if (!active) return;
         if (current?.settings) {
           const remoteSnapshot = JSON.stringify(current.settings);

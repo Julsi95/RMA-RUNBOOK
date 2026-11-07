@@ -12,7 +12,7 @@ function PointTooltip({ active, payload }) {
   return <div className="chart-tooltip-content kpi-point-tooltip"><p>{point.name}{point.historical ? " · former roster" : ""}</p><div><span>Calls handled</span><strong>{point.calls}</strong></div><div><span>QA score</span><strong>{Number(point.qa).toFixed(2)}%</strong></div></div>;
 }
 
-export default function KpiInsightsCharts({ monthlyData, selectedMonth, people, getRecordScore, settingsOf }) {
+export default function KpiInsightsCharts({ monthlyData, selectedMonth, people, getRecordScore, settingsOf, availableMonths, onHistoryYearChange }) {
   const [historyYear, setHistoryYear] = useState(selectedMonth.slice(0, 4));
   const [personSearch, setPersonSearch] = useState("");
   const [peoplePage, setPeoplePage] = useState(0);
@@ -20,20 +20,20 @@ export default function KpiInsightsCharts({ monthlyData, selectedMonth, people, 
   const selectedRows = useMemo(() => buildKpiPersonGroups([selectedMonth], monthlyData, people).map((person) => ({
     id: person.id, person, record: person.recordsByMonth[selectedMonth],
   })), [selectedMonth, monthlyData, people]);
-  const attendance = ["absenteeism", "punctuality", "excessiveBreak"].map((id) => {
+  const attendance = useMemo(() => ["absenteeism", "punctuality", "excessiveBreak"].map((id) => {
     const metric = KPI_METRICS.find((item) => item.id === id);
     const values = selectedRows.map(({ record }) => Number(record.metrics?.[id]?.rawValue)).filter((value) => Number.isFinite(value));
     return { name: metric.shortLabel, value: values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0, count: values.length };
-  });
-  const scatterRows = selectedRows.map(({ person, record }) => ({
+  }), [selectedRows]);
+  const scatterRows = useMemo(() => selectedRows.map(({ person, record }) => ({
     name: person.name,
     historical: person.historical,
     calls: Number(record.metrics?.callsHandled?.rawValue),
     qa: Number(record.metrics?.qa?.rawValue),
-  })).filter((row) => Number.isFinite(row.calls) && Number.isFinite(row.qa));
-  const availableHistoryMonths = useMemo(() => Object.keys(monthlyData)
-    .filter((month) => month <= selectedMonth && Object.keys(monthlyData[month]?.records ?? {}).length)
-    .sort(), [monthlyData, selectedMonth]);
+  })).filter((row) => Number.isFinite(row.calls) && Number.isFinite(row.qa)), [selectedRows]);
+  const availableHistoryMonths = useMemo(() => (availableMonths ?? Object.keys(monthlyData))
+    .filter((month) => month <= selectedMonth)
+    .sort(), [availableMonths, monthlyData, selectedMonth]);
   const availableYears = useMemo(() => [...new Set(availableHistoryMonths.map((month) => month.slice(0, 4)))].sort().reverse(), [availableHistoryMonths]);
   useEffect(() => {
     setHistoryYear(selectedMonth.slice(0, 4));
@@ -41,6 +41,8 @@ export default function KpiInsightsCharts({ monthlyData, selectedMonth, people, 
   }, [selectedMonth]);
   const activeHistoryYear = availableYears.includes(historyYear) ? historyYear : availableYears[0] ?? selectedMonth.slice(0, 4);
   const historyMonths = availableHistoryMonths.filter((month) => month.startsWith(`${activeHistoryYear}-`));
+  const historyReady = historyMonths.every((month) => Object.hasOwn(monthlyData, month));
+  useEffect(() => { onHistoryYearChange?.(activeHistoryYear); }, [activeHistoryYear, onHistoryYearChange]);
   const historyGroups = useMemo(() => buildKpiPersonGroups(historyMonths, monthlyData, people), [historyMonths, monthlyData, people]);
   const historyPeople = useMemo(() => historyGroups
     .filter((person) => `${person.name} ${person.role}`.toLowerCase().includes(personSearch.trim().toLowerCase()))
@@ -53,7 +55,7 @@ export default function KpiInsightsCharts({ monthlyData, selectedMonth, people, 
   useEffect(() => {
     setPeoplePage((page) => Math.min(page, Math.max(pageCount - 1, 0)));
   }, [pageCount]);
-  const scores = historyGroups.flatMap((person) => Object.values(person.recordsByMonth).map((record) => getRecordScore(record, settingsOf(record))));
+  const scores = useMemo(() => historyGroups.flatMap((person) => Object.values(person.recordsByMonth).map((record) => getRecordScore(record, settingsOf(record)))), [getRecordScore, historyGroups, settingsOf]);
   const scoreMin = scores.length ? Math.min(...scores) : 0;
   const scoreRange = Math.max(0.01, (scores.length ? Math.max(...scores) : 0) - scoreMin);
 
@@ -72,7 +74,7 @@ export default function KpiInsightsCharts({ monthlyData, selectedMonth, people, 
 
     <article className="kpi-insight-card kpi-insight-wide">
       <div className="kpi-insight-heading kpi-heatmap-heading"><div><p className="kpi-overline">HISTORICAL RECORDS</p><h3>Monthly score matrix</h3></div><div className="kpi-heatmap-controls"><label className="kpi-heatmap-year"><span>Year</span><select value={activeHistoryYear} onChange={(event) => { setHistoryYear(event.target.value); setPeoplePage(0); }} aria-label="Filter score matrix by year">{availableYears.map((year) => <option value={year} key={year}>{year}</option>)}</select></label><label className="kpi-heatmap-search"><span>Person</span><input type="search" value={personSearch} onChange={(event) => { setPersonSearch(event.target.value); setPeoplePage(0); }} placeholder="Find a person" aria-label="Search score matrix people" /></label><span className="kpi-heatmap-month-count">{historyMonths.length} {historyMonths.length === 1 ? "month" : "months"}</span></div></div>
-      {historyPeople.length && historyMonths.length ? <div className="kpi-heatmap-scroll" role="region" aria-label={`Monthly score matrix for ${activeHistoryYear}`} tabIndex={0}><table className="kpi-heatmap"><thead><tr><th scope="col">Person</th>{historyMonths.map((month) => <th scope="col" key={month}>{getMonthLabel(month)}</th>)}</tr></thead><tbody>{pagePeople.map((person) => <tr key={person.id}><th scope="row"><span>{person.name}</span>{person.historical && <small>Former roster</small>}</th>{historyMonths.map((month) => {
+      {historyMonths.length && !historyReady ? <div className="kpi-chart-empty">Loading saved months for {activeHistoryYear}…</div> : historyPeople.length && historyMonths.length ? <div className="kpi-heatmap-scroll" role="region" aria-label={`Monthly score matrix for ${activeHistoryYear}`} tabIndex={0}><table className="kpi-heatmap"><thead><tr><th scope="col">Person</th>{historyMonths.map((month) => <th scope="col" key={month}>{getMonthLabel(month)}</th>)}</tr></thead><tbody>{pagePeople.map((person) => <tr key={person.id}><th scope="row"><span>{person.name}</span>{person.historical && <small>Former roster</small>}</th>{historyMonths.map((month) => {
         const record = person.recordsByMonth[month];
         if (!record) return <td key={month}><span className="kpi-heatmap-empty">—</span></td>;
         const score = getRecordScore(record, settingsOf(record));

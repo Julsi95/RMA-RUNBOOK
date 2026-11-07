@@ -1,7 +1,7 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownRight, ArrowUpRight, Award, BarChart3, CalendarDays, Check,
-  Crown, Download, Medal, Plus, RotateCcw, Search, Sparkles, Target, Trophy, Upload, X,
+  Crown, Download, Medal, Plus, RefreshCw, RotateCcw, Search, Sparkles, Target, Trophy, Upload, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useOrganizationRoster } from "@/app/organization-provider";
@@ -11,14 +11,15 @@ import { isSupabaseConfigured } from "@/lib/supabase";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
 import {
   createDemoData, emptyMetrics, getEvaluation, getKpiScoringSettings, getMaximumKpiScore, getMetricResult, getMonthLabel,
-  getOverallScore, getPreviousMonth, KPI_METRICS, KPI_STORAGE_KEY, makeCsvTemplate,
+  getOverallScore, getPreviousMonth, KPI_METRICS, makeCsvTemplate,
 } from "@/features/kpi/kpi-data";
 import { readKpiFile } from "@/features/kpi/import-utils";
 import { buildKpiPersonGroups } from "@/features/kpi/kpi-person-groups";
 import { getConsecutiveTopThreeStreak, getImportedKpiRank } from "@/features/kpi/kpi-ranking";
-import { createKpiMonth, loadCurrentKpiScoring, loadKpiMonthData, replaceKpiMonthResults, resetKpiMonthResults, saveKpiMonthResults } from "@/lib/backend-repositories";
+import { createKpiMonth, loadCurrentKpiScoring, replaceKpiMonthResults, resetKpiMonthResults, saveKpiMonthResults } from "@/lib/backend-repositories";
 import { retryDataLoad, subscribeToTables } from "@/lib/backend/shared";
 import { fetchCachedQuery, queryClient, queryKeys, readCachedQuery } from "@/lib/backend/query-cache";
+import { fetchKpiMonth, fetchKpiMonthIndex, invalidateKpiMonth, kpiIndexKey, readKpiMonth, updateCachedKpiMonth, updateCachedKpiMonthIndex } from "@/features/kpi/kpi-cache";
 import "@/features/kpi/kpi-qa.css";
 
 const TREND_RANGES = [6, 12];
@@ -33,15 +34,6 @@ function getLatestMonth(monthlyData) {
 }
 
 function readSavedData(teamMembers) {
-  try {
-    const saved = localStorage.getItem(KPI_STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
-    }
-  } catch {
-    // A fresh demo dataset is safer than leaving the page unusable if local data is malformed.
-  }
   return createDemoData(teamMembers);
 }
 
@@ -119,8 +111,26 @@ function formatScore(value, digits = 2) {
 const TrendChart = lazy(() => import("@/features/kpi/KpiTrendChart"));
 const KpiInsightsCharts = lazy(() => import("@/features/kpi/KpiInsightsCharts"));
 
+function VisibleChartRegion({ label, onVisible, children }) {
+  const regionRef = useRef(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (visible || !regionRef.current) return undefined;
+    if (typeof IntersectionObserver === "undefined") { setVisible(true); onVisible?.(); return undefined; }
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting) return;
+      setVisible(true);
+      onVisible?.();
+      observer.disconnect();
+    }, { rootMargin: "80px" });
+    observer.observe(regionRef.current);
+    return () => observer.disconnect();
+  }, [onVisible, visible]);
+  return <div ref={regionRef} data-chart-region={label}>{visible ? children : <div className="kpi-chart-empty">Chart loads when this section is near view.</div>}</div>;
+}
+
 function MemberAvatar({ member, large = false }) {
-  return <span className={`kpi-avatar ${large ? "kpi-avatar-large" : ""}`}>{member?.photo ? <img src={member.photo} alt="" /> : initials(member?.name)}</span>;
+  return <span className={`kpi-avatar ${large ? "kpi-avatar-large" : ""}`}>{member?.photo ? <img src={member.photo} alt="" loading="lazy" decoding="async" /> : initials(member?.name)}</span>;
 }
 
 function MemberDetailDialog({ member, record, previousRecord, teamAverage, onClose, onEdit, canEdit }) {
@@ -262,7 +272,7 @@ function ImportDialog({ teamMembers, selectedMonth, onClose, onImport }) {
           <input type="file" accept=".csv,.xlsx,.xls" onChange={handleFile} /><span className="kpi-upload-icon">{staged ? <Check size={19} /> : <Upload size={19} />}</span><strong>{loading ? "Reading file…" : staged ? staged.fileName : "Choose a CSV or Excel file"}</strong><small>CSV, XLSX, or XLS · up to 10 MB and 2,000 result rows. Review every value before saving.</small>
         </label>
         <div className="kpi-import-help"><p>Each uploaded month replaces that month’s scoreboard. People omitted from this file are removed from the current month view; earlier versions remain recoverable for 30 days. Scores and ranks stay as uploaded.</p><Button variant="outline" size="sm" onClick={() => { const blob = new Blob([makeCsvTemplate()], { type: "text/csv;charset=utf-8" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "monthly-kpi-template.csv"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }}><Download size={14} /> Download template</Button></div>
-        {staged && <div className="kpi-import-preview"><div className="kpi-preview-title"><strong>Review · {staged.fileName}</strong><span>{matchedRows} matched ? {historicalRows} historical ? {totalRows} total</span></div>{staged.tables.map((table, tableIndex) => <div className="kpi-import-table-preview" key={`${table.month ?? month}-${tableIndex}`}><div className="kpi-preview-title"><strong>{table.month ? getMonthLabel(table.month) : getMonthLabel(month)}</strong><span>{table.imported.length} rows</span></div>{table.missingColumns.length > 0 && <p className="kpi-import-warning">Columns not found: {table.missingColumns.join(", ")}. Missing spreadsheet fields will remain blank.</p>}{table.imported.some((row) => row.historical) && <p className="kpi-import-history-note">Unmatched people are saved as historical records only. No account or roster entry is created.</p>}{new Set(table.imported.map((row) => row.memberId).filter(Boolean)).size < table.imported.filter((row) => row.memberId).length && <p className="kpi-import-warning">Each person can appear only once in a month. Remove duplicate rows before saving.</p>}
+        {staged && <div className="kpi-import-preview"><div className="kpi-preview-title"><strong>Review · {staged.fileName}</strong><span>{matchedRows} matched ? {historicalRows} historical ? {totalRows} total</span></div>{staged.tables.map((table, tableIndex) => <div className="kpi-import-table-preview" key={`${table.month ?? month}-${tableIndex}`}><div className="kpi-preview-title"><strong>{table.month ? getMonthLabel(table.month) : getMonthLabel(month)}</strong><span>{table.imported.length} rows</span></div>{table.missingColumns.length > 0 && <p className="kpi-import-warning">Columns not found: {table.missingColumns.join(", ")}. Found headers: {table.headers.join(", ") || "none"}. Missing spreadsheet fields will remain blank.</p>}{table.imported.some((row) => row.historical) && <p className="kpi-import-history-note">Unmatched people are saved as historical records only. No account or roster entry is created.</p>}{new Set(table.imported.map((row) => row.memberId).filter(Boolean)).size < table.imported.filter((row) => row.memberId).length && <p className="kpi-import-warning">Each person can appear only once in a month. Remove duplicate rows before saving.</p>}
           <div className="kpi-import-grid-wrap"><table className="kpi-import-grid"><thead><tr><th>Spreadsheet name</th><th>Result name</th><th>Role snapshot</th><th>Save as</th>{KPI_METRICS.map((metric) => <th key={metric.id} colSpan="3">{metric.label}</th>)}<th>KPI score</th><th>Evaluation</th><th>Rank</th><th /></tr><tr><th /><th /><th /><th />{KPI_METRICS.flatMap((metric) => [<th key={`${metric.id}-raw`}>{metric.isPercent ? "Score %" : "Count"}</th>, <th key={`${metric.id}-equiv`}>Equivalent</th>, <th key={`${metric.id}-weighted`}>Weighted</th>])}<th /><th /><th /><th /></tr></thead><tbody>{table.imported.map((row, rowIndex) => <tr key={row.importRowId ?? `${row.sourceName}-${rowIndex}`} className={row.historical ? "kpi-import-unmatched" : ""}><td>{row.sourceName}</td><td><input aria-label={`${row.sourceName} result name`} type="text" value={row.memberName} onChange={(event) => updateImported(tableIndex, rowIndex, { memberName: event.target.value })} /></td><td><input aria-label={`${row.sourceName} role snapshot`} type="text" value={row.role ?? ""} onChange={(event) => updateImported(tableIndex, rowIndex, { role: event.target.value })} /></td><td><select value={row.memberId} onChange={(event) => updateImported(tableIndex, rowIndex, { memberId: event.target.value })}><option value={row.memberId}>{row.historical ? "Historical record (not on roster)" : row.memberName}</option>{teamMembers.filter((member) => member.id !== row.memberId).map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></td>{KPI_METRICS.flatMap((metric) => ["rawValue", "equivalentScore", "weightedScore"].map((field) => <td key={`${metric.id}-${field}`}><input aria-label={`${row.sourceName} ${metric.label} ${field}`} type="number" step="any" value={row.metrics?.[metric.id]?.[field] ?? ""} onChange={(event) => updateImported(tableIndex, rowIndex, (current) => ({ ...current, metrics: { ...current.metrics, [metric.id]: { ...current.metrics?.[metric.id], [field]: event.target.value, ...(field === "rawValue" && metric.isPercent ? { percentValue: event.target.value } : {}) } } }))} /></td>))}<td><input aria-label={`${row.sourceName} KPI score`} type="number" step="any" value={row.overallScore ?? ""} onChange={(event) => updateImported(tableIndex, rowIndex, { overallScore: event.target.value === "" ? null : Number(event.target.value) })} /></td><td><input aria-label={`${row.sourceName} evaluation`} type="text" value={row.evaluation ?? ""} onChange={(event) => updateImported(tableIndex, rowIndex, { evaluation: event.target.value })} /></td><td><input aria-label={`${row.sourceName} rank`} type="text" value={row.importedRank ?? ""} onChange={(event) => updateImported(tableIndex, rowIndex, { importedRank: event.target.value })} /></td><td><button className="kpi-import-remove" type="button" onClick={() => setStaged((current) => ({ ...current, tables: current.tables.map((item, index) => index !== tableIndex ? item : { ...item, imported: item.imported.filter((_, i) => i !== rowIndex) }) }))} aria-label={`Remove ${row.sourceName}`}>×</button></td></tr>)}</tbody></table></div>
         </div>)}</div>}
         {error && <p className="kpi-form-error">{error}</p>}
@@ -276,19 +286,31 @@ export default function KpiQaPage() {
   const { members: rosterMembers } = useOrganizationRoster();
   const teamMembers = useMemo(() => getOperationalRoster(rosterMembers), [rosterMembers]);
   const { canEdit, user } = useAuth();
-  const monthsKey = useMemo(() => queryKeys.kpiMonths(user?.id ?? "anonymous", canEdit), [canEdit, user?.id]);
+  const userId = user?.id ?? "anonymous";
+  const monthsKey = useMemo(() => kpiIndexKey(userId), [userId]);
   const scoringKey = KPI_SCORING_QUERY_KEY;
-  const cachedMonths = readCachedQuery(monthsKey);
+  const cachedIndex = readCachedQuery(monthsKey) ?? [];
+  const cachedMonths = Object.fromEntries(cachedIndex.map(({ month_key: key }) => [key, readKpiMonth(userId, key)]).filter(([, data]) => Boolean(data)));
+  const initialMonth = getLatestMonth(cachedMonths);
   const [monthlyData, setMonthlyData] = useState(() => isSupabaseConfigured ? cachedMonths ?? {} : readSavedData(teamMembers));
-  const [selectedMonth, setSelectedMonth] = useState(() => isSupabaseConfigured ? getLatestMonth(cachedMonths ?? {}) : getLatestMonth(readSavedData(teamMembers)));
-  const [remoteReady, setRemoteReady] = useState(Boolean(cachedMonths));
+  const [monthIndex, setMonthIndex] = useState(cachedIndex);
+  const [currentScoring, setCurrentScoring] = useState(() => readCachedQuery(scoringKey) ?? null);
+  const [selectedMonth, setSelectedMonth] = useState(() => initialMonth);
+  const [pageUserId, setPageUserId] = useState(userId);
+  const [remoteReady, setRemoteReady] = useState(!isSupabaseConfigured || Boolean(cachedMonths[initialMonth]));
+  const monthlyDataRef = useRef(monthlyData);
+  monthlyDataRef.current = monthlyData;
+  const selectedMonthRef = useRef(selectedMonth);
+  selectedMonthRef.current = selectedMonth;
   const [syncError, setSyncError] = useState("");
   const [syncMessage, setSyncMessage] = useState("");
   const [creatingMonth, setCreatingMonth] = useState(false);
-  const remoteSnapshotRef = useRef(cachedMonths ? structuredClone(cachedMonths) : null);
+  const remoteSnapshotRef = useRef(Object.keys(cachedMonths).length ? structuredClone(cachedMonths) : null);
   const importingRef = useRef(false);
+  const hiddenAtRef = useRef(0);
   const [monthDraft, setMonthDraft] = useState("");
   const [range, setRange] = useState(6);
+  const [trendVisible, setTrendVisible] = useState(false);
   const [trendMetric, setTrendMetric] = useState("qa");
   const [trendTarget, setTrendTarget] = useState("team");
   const [compareMetric, setCompareMetric] = useState("overall");
@@ -304,47 +326,153 @@ export default function KpiQaPage() {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
+    if (pageUserId === userId) return;
+    const nextIndex = readCachedQuery(kpiIndexKey(userId)) ?? [];
+    const nextMonths = Object.fromEntries(nextIndex.map(({ month_key: key }) => [key, readKpiMonth(userId, key)]).filter(([, data]) => Boolean(data)));
+    const nextMonth = getLatestMonth(nextMonths);
+    setPageUserId(userId);
+    setMonthIndex(nextIndex);
+    setMonthlyData(isSupabaseConfigured ? nextMonths : readSavedData(teamMembers));
+    setSelectedMonth(nextMonth);
+    setCurrentScoring(readCachedQuery(scoringKey) ?? null);
+    setRemoteReady(!isSupabaseConfigured || Boolean(nextMonths[nextMonth]));
+    remoteSnapshotRef.current = Object.keys(nextMonths).length ? structuredClone(nextMonths) : null;
+    setSyncError("");
+  }, [pageUserId, scoringKey, teamMembers, userId]);
+
+  const mergeCachedMonth = useCallback((month, data) => {
+    if (!month || !data) return data;
+    remoteSnapshotRef.current = { ...(remoteSnapshotRef.current ?? {}), [month]: data };
+    setMonthlyData((current) => current[month] === data ? current : { ...current, [month]: data });
+    return data;
+  }, []);
+
+  const refreshMonth = useCallback(async (month, { checkRevision = false, forceContent = false } = {}) => {
+    if (!month) return null;
+    const data = await fetchKpiMonth(userId, month, { checkRevision, forceContent });
+    if (data) mergeCachedMonth(month, data);
+    return data;
+  }, [mergeCachedMonth, userId]);
+
+  const ensureMonths = useCallback(async (months) => {
+    const uniqueMonths = [...new Set(months.filter(Boolean))];
+    return Promise.all(uniqueMonths.map((month) => refreshMonth(month)));
+  }, [refreshMonth]);
+
+  const refreshSelectedMonth = useCallback(async () => {
+    if (!isSupabaseConfigured) return;
+    setSyncError("");
+    try {
+      const [index, scoring, data] = await Promise.all([
+        fetchKpiMonthIndex(userId, { force: true }),
+        fetchCachedQuery(scoringKey, () => retryDataLoad(loadCurrentKpiScoring), { staleTime: Infinity, gcTime: Infinity, force: true }),
+        fetchKpiMonth(userId, selectedMonth, { checkRevision: true }),
+      ]);
+      setMonthIndex(index);
+      setCurrentScoring(scoring);
+      if (data) mergeCachedMonth(selectedMonth, data);
+    } catch (error) { setSyncError(error.message || "Could not refresh the selected KPI month."); }
+  }, [mergeCachedMonth, scoringKey, selectedMonth, userId]);
+
+  const refreshLoadedMonths = useCallback(async () => {
+    const loadedMonths = Object.keys(monthlyDataRef.current);
+    await Promise.all(loadedMonths.map((month) => refreshMonth(month, { checkRevision: true })));
+  }, [refreshMonth]);
+
+  useEffect(() => {
     if (!isSupabaseConfigured) return undefined;
     let active = true;
     void Promise.all([
-      fetchCachedQuery(monthsKey, () => retryDataLoad(loadKpiMonthData)),
-      fetchCachedQuery(scoringKey, () => retryDataLoad(loadCurrentKpiScoring)),
-    ]).then(([saved, currentScoring]) => {
+      fetchKpiMonthIndex(userId),
+      fetchCachedQuery(scoringKey, () => retryDataLoad(loadCurrentKpiScoring), { staleTime: Infinity, gcTime: Infinity }),
+    ]).then(async ([index, savedScoring]) => {
       if (!active) return;
-      if (currentScoring?.settings) localStorage.setItem("starter-app-kpi-scoring-settings-v1", JSON.stringify(currentScoring.settings));
-      remoteSnapshotRef.current = structuredClone(saved);
-      setMonthlyData(saved);
-      setSelectedMonth(getLatestMonth(saved));
+      setMonthIndex(index);
+      setCurrentScoring(savedScoring);
+      const candidates = index.map((item) => item.month_key).sort((a, b) => b.localeCompare(a));
+      let selected = candidates[0] ?? new Date().toISOString().slice(0, 7);
+      for (const candidate of candidates) {
+        const saved = await fetchKpiMonth(userId, candidate);
+        if (!active) return;
+        if (saved) mergeCachedMonth(candidate, saved);
+        if (Object.keys(saved?.records ?? {}).length) { selected = candidate; break; }
+      }
+      if (!active) return;
+      setSelectedMonth(selected);
       setRemoteReady(true);
       setSyncError("");
     }).catch((error) => { if (active) { setSyncError(error.message || "Could not load KPI results."); setRemoteReady(true); } });
     return () => { active = false; };
-  }, [monthsKey, scoringKey]);
+  }, [mergeCachedMonth, scoringKey, userId]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !remoteReady || !selectedMonth || monthlyData[selectedMonth]) return undefined;
+    let active = true;
+    void refreshMonth(selectedMonth).then(() => { if (active) setRemoteReady(true); }).catch((error) => { if (active) setSyncError(error.message || "Could not load this KPI month."); });
+    return () => { active = false; };
+  }, [monthlyData, refreshMonth, remoteReady, selectedMonth]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return undefined;
     let active = true;
     let timer;
-    const unsubscribe = subscribeToTables(["kpi_months", "kpi_results", "current_kpi_scoring", "kpi_scoring_versions"], () => {
-      if (importingRef.current) return;
+    const handleReconnect = async () => {
+      const [index, scoring] = await Promise.all([
+        fetchKpiMonthIndex(userId, { force: true }),
+        fetchCachedQuery(scoringKey, () => retryDataLoad(loadCurrentKpiScoring), { staleTime: Infinity, gcTime: Infinity, force: true }),
+      ]);
+      if (!active) return;
+      setMonthIndex(index); setCurrentScoring(scoring);
+      await refreshLoadedMonths();
+    };
+    const unsubscribe = subscribeToTables(["kpi_months", "kpi_results", "current_kpi_scoring", "kpi_scoring_versions", "qa_criteria"], (payload) => {
+      if (!active || importingRef.current) return;
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => { void Promise.all([
-        fetchCachedQuery(monthsKey, () => retryDataLoad(loadKpiMonthData), { force: true }),
-        fetchCachedQuery(scoringKey, () => retryDataLoad(loadCurrentKpiScoring), { force: true }),
-      ]).then(([saved, scoring]) => {
-        if (!active) return;
-        if (scoring?.settings) localStorage.setItem("starter-app-kpi-scoring-settings-v1", JSON.stringify(scoring.settings));
-        remoteSnapshotRef.current = structuredClone(saved); setMonthlyData(saved);
-      }).catch((error) => { if (active) setSyncError(error.message || "Could not sync KPI changes."); }); }, 180);
+      timer = window.setTimeout(() => {
+        const table = payload?.table;
+        const row = payload?.new ?? payload?.old ?? {};
+        if (payload?.type === "RECONNECT") { void handleReconnect().catch((error) => { if (active) setSyncError(error.message || "Could not refresh KPI data after reconnecting."); }); return; }
+        if (table === "kpi_results") {
+          const affectedMonth = row.month_key;
+          if (affectedMonth && (readKpiMonth(userId, affectedMonth) || affectedMonth === selectedMonthRef.current)) void refreshMonth(affectedMonth, { checkRevision: true }).catch((error) => { if (active) setSyncError(error.message || "Could not sync KPI changes."); });
+          else if (affectedMonth) invalidateKpiMonth(userId, affectedMonth);
+        } else if (table === "kpi_months") {
+          void fetchKpiMonthIndex(userId, { force: true }).then((index) => { if (active) setMonthIndex(index); });
+          if (row.month_key && (readKpiMonth(userId, row.month_key) || row.month_key === selectedMonthRef.current)) {
+            void fetchKpiMonthIndex(userId, { force: true }).then((index) => { setMonthIndex(index); return refreshMonth(row.month_key, { forceContent: true }); }).catch((error) => { if (active) setSyncError(error.message || "Could not sync KPI month settings."); });
+          }
+          else if (row.month_key) invalidateKpiMonth(userId, row.month_key);
+        } else if (table === "current_kpi_scoring") {
+          void fetchCachedQuery(scoringKey, () => retryDataLoad(loadCurrentKpiScoring), { staleTime: Infinity, gcTime: Infinity, force: true }).then((scoring) => { if (active) setCurrentScoring(scoring); });
+        } else if (table === "kpi_scoring_versions" && row.id) {
+          queryClient.removeQueries({ queryKey: queryKeys.kpiScoringVersion(row.id), exact: true });
+          void Promise.all(Object.entries(monthlyDataRef.current).filter(([, data]) => data.scoringVersionId === row.id).map(([month]) => refreshMonth(month, { forceContent: true })));
+        } else if (table === "qa_criteria") {
+          void queryClient.invalidateQueries({ queryKey: ["qa-criteria"], refetchType: "none" });
+        }
+      }, 180);
     }, "monthly-kpi");
-    return () => { active = false; window.clearTimeout(timer); unsubscribe(); };
-  }, [monthsKey, scoringKey]);
+    let fallbackTimer = null;
+    const startFallback = () => {
+      if (fallbackTimer !== null || document.visibilityState !== "visible") return;
+      fallbackTimer = window.setInterval(() => {
+        if (document.visibilityState === "visible") void handleReconnect().catch((error) => { if (active) setSyncError(error.message || "Could not refresh KPI data."); });
+      }, 10 * 60 * 1000);
+    };
+    const stopFallback = () => { if (fallbackTimer !== null) window.clearInterval(fallbackTimer); fallbackTimer = null; };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") { hiddenAtRef.current = Date.now(); stopFallback(); return; }
+      if (hiddenAtRef.current && Date.now() - hiddenAtRef.current >= 10 * 60 * 1000) void handleReconnect().catch((error) => { if (active) setSyncError(error.message || "Could not refresh KPI data after returning."); });
+      hiddenAtRef.current = 0;
+      startFallback();
+    };
+    startFallback();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => { active = false; stopFallback(); window.clearTimeout(timer); document.removeEventListener("visibilitychange", onVisibilityChange); unsubscribe(); };
+  }, [refreshMonth, refreshLoadedMonths, scoringKey, userId]);
 
   useEffect(() => {
-    if (!isSupabaseConfigured) {
-      localStorage.setItem(KPI_STORAGE_KEY, JSON.stringify(monthlyData));
-      return undefined;
-    }
+    if (!isSupabaseConfigured) return undefined;
     if (!remoteReady || !canEdit || !remoteSnapshotRef.current) return undefined;
     const changedByMonth = Object.entries(monthlyData).map(([month, data]) => {
       const prior = remoteSnapshotRef.current[month]?.records ?? {};
@@ -361,14 +489,17 @@ export default function KpiQaPage() {
           for (const record of records) snapshot.records[record.memberId] = record;
           remoteSnapshotRef.current[month] = snapshot;
         }
-        queryClient.setQueryData(monthsKey, remoteSnapshotRef.current);
+        await Promise.all(changedByMonth.map(([month]) => {
+          invalidateKpiMonth(userId, month);
+          return fetchKpiMonth(userId, month, { forceContent: true }).then((saved) => mergeCachedMonth(month, saved));
+        }));
         setSyncError("");
       } catch (error) { setSyncError(error.message || "Could not save KPI results."); }
     }, 500);
     return () => window.clearTimeout(timeout);
-  }, [monthlyData, remoteReady, canEdit, monthsKey]);
+  }, [monthlyData, remoteReady, canEdit, mergeCachedMonth, userId]);
 
-  const monthOptions = useMemo(() => [...new Set([...Object.keys(monthlyData), selectedMonth])].filter(Boolean).sort(), [monthlyData, selectedMonth]);
+  const monthOptions = useMemo(() => [...new Set([...monthIndex.map((item) => item.month_key), ...Object.keys(monthlyData), selectedMonth])].filter(Boolean).sort(), [monthIndex, monthlyData, selectedMonth]);
   const records = monthlyData[selectedMonth]?.records ?? {};
   const allPersonGroups = useMemo(() => buildKpiPersonGroups(monthOptions, monthlyData, teamMembers), [monthOptions, monthlyData, teamMembers]);
   const resolvedRecordsByMonth = useMemo(() => {
@@ -394,7 +525,7 @@ export default function KpiQaPage() {
   const previousMonth = getPreviousMonth(selectedMonth);
   const previousRecords = resolvedRecordsByMonth[previousMonth] ?? {};
   const currentResolvedRecords = resolvedRecordsByMonth[selectedMonth] ?? {};
-  const selectedScoringSettings = monthlyData[selectedMonth]?.scoringSettings ?? getKpiScoringSettings();
+  const selectedScoringSettings = monthlyData[selectedMonth]?.scoringSettings ?? currentScoring?.settings ?? getKpiScoringSettings();
   const leaderboard = scoreboardMembers.map((member) => {
     const record = getMemberRecord(currentResolvedRecords, member.id) ?? getMemberRecord(records, member.id);
     const importedRank = record?.source === "import" ? String(record.metrics?._importedRank ?? "").trim() : "";
@@ -432,6 +563,18 @@ export default function KpiQaPage() {
     return (previous.rank ?? previousLeaderboard.indexOf(previous) + 1) - currentRank;
   }
 
+  const requestTrendMonths = useCallback(() => {
+    const needed = monthOptions.filter((month) => month <= selectedMonth).slice(-range);
+    void ensureMonths(needed).catch((error) => setSyncError(error.message || "Could not load historical KPI months."));
+  }, [ensureMonths, monthOptions, range, selectedMonth]);
+
+  const requestHistoryYear = useCallback((year) => {
+    const needed = monthOptions.filter((month) => month.startsWith(`${year}-`) && month <= selectedMonth);
+    void ensureMonths(needed).catch((error) => setSyncError(error.message || "Could not load historical KPI months."));
+  }, [ensureMonths, monthOptions, selectedMonth]);
+
+  useEffect(() => { if (trendVisible) requestTrendMonths(); }, [requestTrendMonths, trendVisible]);
+
   async function createMonth(month) {
     if (!month) return;
     if (monthlyData[month]) { setSelectedMonth(month); return; }
@@ -449,7 +592,9 @@ export default function KpiQaPage() {
       const created = await createKpiMonth(month);
       const monthData = { demo: false, scoringVersionId: created.scoringVersionId, scoringSettings: created.scoringSettings, records: {} };
       remoteSnapshotRef.current = { ...(remoteSnapshotRef.current ?? {}), [month]: monthData };
-      queryClient.setQueryData(monthsKey, remoteSnapshotRef.current);
+      updateCachedKpiMonth(userId, month, monthData);
+      const index = updateCachedKpiMonthIndex(userId, (current) => [...current.filter((item) => item.month_key !== month), { month_key: month, scoring_version_id: created.scoringVersionId, status: "published" }].sort((a, b) => a.month_key.localeCompare(b.month_key)));
+      setMonthIndex(index);
       setMonthlyData((current) => ({ ...current, [month]: current[month] ?? monthData }));
       setSelectedMonth(month);
       setSyncMessage(getMonthLabel(month) + " KPI month created successfully.");
@@ -470,11 +615,16 @@ export default function KpiQaPage() {
       if (isSupabaseConfigured) {
         importingRef.current = true;
         const removedCount = await resetKpiMonthResults(monthToReset);
-        saved = await fetchCachedQuery(monthsKey, () => retryDataLoad(loadKpiMonthData), { force: true });
-        remoteSnapshotRef.current = structuredClone(saved);
-        queryClient.setQueryData(monthsKey, saved);
-        setMonthlyData(saved);
-        setSelectedMonth(getLatestMonth(saved));
+        invalidateKpiMonth(userId, monthToReset);
+        saved = await fetchKpiMonth(userId, monthToReset, { forceContent: true });
+        if (saved) mergeCachedMonth(monthToReset, saved);
+        const candidates = [...monthIndex].map((item) => item.month_key).filter((month) => month !== monthToReset).sort((a, b) => b.localeCompare(a));
+        let latest = new Date().toISOString().slice(0, 7);
+        for (const candidate of candidates) {
+          const candidateData = await refreshMonth(candidate);
+          if (Object.keys(candidateData?.records ?? {}).length) { latest = candidate; break; }
+        }
+        setSelectedMonth(latest);
         setSyncMessage(`${getMonthLabel(monthToReset)} reset. ${removedCount} result${removedCount === 1 ? "" : "s"} removed from the live scoreboard; the reset can be restored from History for 30 days.`);
       } else {
         saved = {
@@ -489,11 +639,8 @@ export default function KpiQaPage() {
       setSyncError(error.message || `Could not reset ${getMonthLabel(monthToReset)} results.`);
       if (isSupabaseConfigured) {
         try {
-          const refreshed = await fetchCachedQuery(monthsKey, () => retryDataLoad(loadKpiMonthData), { force: true });
-          remoteSnapshotRef.current = structuredClone(refreshed);
-          queryClient.setQueryData(monthsKey, refreshed);
-          setMonthlyData(refreshed);
-          setSelectedMonth(getLatestMonth(refreshed));
+          const refreshed = await fetchKpiMonth(userId, monthToReset, { forceContent: true });
+          if (refreshed) mergeCachedMonth(monthToReset, refreshed);
         } catch { /* Keep the reset error visible if recovery refresh also fails. */ }
       }
     } finally {
@@ -533,8 +680,10 @@ export default function KpiQaPage() {
     importingRef.current = true;
     try {
       let next = { ...monthlyData };
+      const affectedMonths = [];
       for (const { month, imported } of imports) {
-        const monthData = next[month];
+        const monthData = next[month] ?? await refreshMonth(month);
+        affectedMonths.push(month);
         if (isSupabaseConfigured && !canEdit) throw new Error("Sign in with an editor account to import KPI results.");
         const scoringSettings = monthData?.scoringSettings ?? getKpiScoringSettings();
         const converted = imported.map((record) => ({
@@ -546,14 +695,23 @@ export default function KpiQaPage() {
           scoringVersionId: monthData?.scoringVersionId ?? null,
           source: "import",
         }));
-        if (isSupabaseConfigured) await replaceKpiMonthResults(month, converted);
+        if (isSupabaseConfigured) {
+          await replaceKpiMonthResults(month, converted);
+          invalidateKpiMonth(userId, month);
+        }
         next[month] = { ...(monthData ?? { records: {} }), demo: false, scoringSettings, records: Object.fromEntries(converted.map((record) => [record.memberId, record])) };
       }
       if (isSupabaseConfigured) {
-        const saved = await loadKpiMonthData();
-        remoteSnapshotRef.current = structuredClone(saved);
-        queryClient.setQueryData(monthsKey, saved);
-        next = saved;
+        const [index, ...savedMonths] = await Promise.all([
+          fetchKpiMonthIndex(userId, { force: true }),
+          ...[...new Set(affectedMonths)].map((month) => fetchKpiMonth(userId, month, { forceContent: true })),
+        ]);
+        setMonthIndex(index);
+        for (let i = 0; i < [...new Set(affectedMonths)].length; i += 1) {
+          const month = [...new Set(affectedMonths)][i];
+          const saved = savedMonths[i];
+          if (saved) { next[month] = saved; mergeCachedMonth(month, saved); }
+        }
       }
       setMonthlyData(next);
       setSelectedMonth(getLatestMonth(next));
@@ -564,10 +722,7 @@ export default function KpiQaPage() {
       setSyncError(error.message || "Could not import KPI results.");
       if (isSupabaseConfigured) {
         try {
-          const saved = await loadKpiMonthData();
-          remoteSnapshotRef.current = structuredClone(saved);
-          queryClient.setQueryData(monthsKey, saved);
-          setMonthlyData(saved);
+          await Promise.all([...new Set(imports.map((item) => item.month))].map((month) => refreshMonth(month, { forceContent: true })));
         } catch { /* Keep the original import error visible if refresh also fails. */ }
       }
     } finally {
@@ -588,11 +743,13 @@ export default function KpiQaPage() {
     return previousRecords[memberId] ? { record: previousRecords[memberId] } : null;
   }
 
+  if (pageUserId !== userId) return <section className="page-content kpi-page"><div className="kpi-empty-state"><BarChart3 size={22} /><strong>Loading this account’s KPI data…</strong></div></section>;
+
   return (
     <section className="page-content kpi-page">
       <div className="page-heading kpi-page-heading">
         <div><p className="eyebrow">TEAM PERFORMANCE</p><h1>Monthly KPI / QA</h1><p className="page-description">Track quality, results and progress across your team.</p></div>
-        <div className="kpi-heading-actions">{canEdit && <><Button variant="outline" onClick={() => setShowImporter(true)}><Upload size={15} /> Import file</Button><Button onClick={openAddResult}><Plus size={16} /> Enter results</Button></>}</div>
+        <div className="kpi-heading-actions"><Button variant="outline" onClick={() => void refreshSelectedMonth()} disabled={!isSupabaseConfigured || !remoteReady}><RefreshCw size={15} /> Refresh</Button>{canEdit && <><Button variant="outline" onClick={() => setShowImporter(true)}><Upload size={15} /> Import file</Button><Button onClick={openAddResult}><Plus size={16} /> Enter results</Button></>}</div>
       </div>
 
       <div className="kpi-month-toolbar">
@@ -611,10 +768,10 @@ export default function KpiQaPage() {
       <section className="kpi-trend-panel">
         <div className="kpi-section-head"><div><p className="kpi-overline">LONG-TERM PROGRESS</p><h2>Performance trend</h2><p>Follow saved monthly results, including historical records.</p></div><div className="kpi-chart-controls"><select value={trendMetric} onChange={(event) => { const mode = event.target.value; setTrendMetric(mode); if (mode === "rank" && trendTarget === "team") setTrendTarget(peopleWithHistory[0]?.id ?? "team"); }} aria-label="Trend metric"><option value="overall">KPI score</option><option value="rank">Imported rank</option>{KPI_METRICS.map((metric) => <option value={metric.id} key={metric.id}>{metric.label}{metric.isPercent ? " · percent" : " · raw count"}</option>)}</select><select value={trendTarget} onChange={(event) => setTrendTarget(event.target.value)} aria-label="Trend subject"><option value="team" disabled={trendMetric === "rank"}>Team average</option>{peopleWithHistory.map((member) => <option value={member.id} key={member.id}>{member.name}{member.historical ? " · former" : ""}</option>)}</select><div className="kpi-range-toggle">{TREND_RANGES.map((item) => <button type="button" className={range === item ? "active" : ""} key={item} onClick={() => setRange(item)}>{item} mo</button>)}</div></div></div>
         <div className="kpi-chart-summary"><span className="kpi-chart-legend"><i />{trendTarget === "team" ? "Average across saved monthly rows" : peopleWithHistory.find((member) => member.id === trendTarget)?.name}<small>·</small><span className="kpi-target-key">{trendMetric === "rank" ? "Imported rank · lower is better" : trendMetric === "overall" || trendMetric === "qa" ? "Dashed line · target" : "Imported raw values"}</span></span><span>Through {getMonthLabel(selectedMonth)}</span></div>
-        <Suspense fallback={<div className="kpi-chart-empty">Loading performance chart…</div>}><TrendChart months={trendMonths} monthlyData={monthlyData} people={peopleWithHistory} metricMode={trendMetric} range={range} targetId={trendTarget} selectedMonth={selectedMonth} getRecordScore={getRecordScore} settingsOf={settingsOf} /></Suspense>
+        <VisibleChartRegion label="performance-trend" onVisible={() => setTrendVisible(true)}><Suspense fallback={<div className="kpi-chart-empty">Loading performance chart…</div>}><TrendChart months={trendMonths} monthlyData={monthlyData} people={peopleWithHistory} metricMode={trendMetric} range={range} targetId={trendTarget} selectedMonth={selectedMonth} getRecordScore={getRecordScore} settingsOf={settingsOf} /></Suspense></VisibleChartRegion>
       </section>
 
-      <Suspense fallback={<div className="kpi-insights-grid"><div className="kpi-insight-loading">Loading monthly insights…</div></div>}><KpiInsightsCharts monthlyData={monthlyData} selectedMonth={selectedMonth} people={peopleWithHistory} getRecordScore={getRecordScore} settingsOf={settingsOf} /></Suspense>
+      <VisibleChartRegion label="monthly-insights"><Suspense fallback={<div className="kpi-insights-grid"><div className="kpi-insight-loading">Loading monthly insights…</div></div>}><KpiInsightsCharts monthlyData={monthlyData} selectedMonth={selectedMonth} people={peopleWithHistory} getRecordScore={getRecordScore} settingsOf={settingsOf} availableMonths={monthOptions} onHistoryYearChange={requestHistoryYear} /></Suspense></VisibleChartRegion>
 
       <div className="kpi-summary-grid">
         <article className="kpi-summary-card"><span className="kpi-summary-icon"><BarChart3 size={17} /></span><div><small>TEAM KPI AVERAGE</small><strong>{rankedTeam ? formatScore(teamAverage) : "—"}<em>/ {selectedMaximum.toFixed(2)}</em></strong><span>{getEvaluation(teamAverage, selectedScoringSettings)}</span></div></article>

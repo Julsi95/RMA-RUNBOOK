@@ -141,7 +141,7 @@ function durationLabel(start, end) {
 }
 
 function Avatar({ name, photo }) {
-  return <span className="inbound-avatar">{photo ? <img src={photo} alt="" /> : initials(name)}</span>;
+  return <span className="inbound-avatar">{photo ? <img src={photo} alt="" loading="lazy" decoding="async" /> : initials(name)}</span>;
 }
 
 export default function InboundSchedulePage() {

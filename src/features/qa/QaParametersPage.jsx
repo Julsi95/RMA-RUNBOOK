@@ -76,7 +76,7 @@ export default function QaParametersPage() {
     const refresh = async ({ force = false } = {}) => {
       if (!readCachedQuery(resourceKey)) setRefreshing(true);
       try {
-        const items = await fetchCachedQuery(resourceKey, () => retryDataLoad(loadQaCriteria), { force });
+        const items = await fetchCachedQuery(resourceKey, () => retryDataLoad(loadQaCriteria), { staleTime: Infinity, gcTime: Infinity, force });
         if (active) { setCriteria(items); setLoadError(""); setRemoteReady(true); }
       } catch (error) {
         if (active) setLoadError(error.message || "Could not load QA criteria. Check your connection and retry.");

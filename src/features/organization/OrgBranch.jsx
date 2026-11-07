@@ -20,7 +20,7 @@ export default function OrgBranch({ member, onEdit, onRemove, onOpenProfile, can
       <article className="org-person-card" data-org-person-id={member.id}>
         <button className="org-person-card-main" type="button" onClick={() => onOpenProfile(member)} aria-label={`View ${member.name}'s profile`} title={`View ${member.name}'s profile`}>
           <span className="member-avatar">
-            {member.photo ? <img src={member.photo} alt="" /> : <span>{getInitials(member.name)}</span>}
+            {member.photo ? <img src={member.photo} alt="" loading="lazy" decoding="async" /> : <span>{getInitials(member.name)}</span>}
           </span>
           <span className="org-person-details">
             <span className="org-person-name" title={member.name}>{member.name}</span>

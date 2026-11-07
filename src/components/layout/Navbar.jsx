@@ -28,20 +28,19 @@ export default function Navbar({ onMenuClick }) {
   const displayName = account?.display_name || user?.email || "Account";
   useEffect(() => {
     let active = true;
-    let lastSignedAt = 0;
     let inFlight = false;
     setPhotoUrl("");
     const load = async () => {
       if (!configured || !accountProfile?.photo_path) { if (active) setPhotoUrl(""); return; }
-      if (inFlight || Date.now() - lastSignedAt < 40 * 60 * 1000) return;
+      if (inFlight) return;
       inFlight = true;
-      try { const url = await signedOwnProfilePhoto(accountProfile.photo_path); if (active) { setPhotoUrl(url); lastSignedAt = Date.now(); } }
+      try { const url = await signedOwnProfilePhoto(accountProfile.photo_path); if (active) setPhotoUrl(url); }
       catch { /* Keep the current signed URL while offline; retry on reconnect or visibility. */ }
       finally { inFlight = false; }
     };
     void load();
-    const renew = window.setInterval(() => { void load(); }, 45 * 60 * 1000);
-    const onVisible = () => { if (document.visibilityState === "visible" && Date.now() - lastSignedAt >= 40 * 60 * 1000) void load(); };
+    const renew = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, 5 * 60 * 1000);
+    const onVisible = () => { if (document.visibilityState === "visible") void load(); };
     window.addEventListener("online", load);
     document.addEventListener("visibilitychange", onVisible);
     return () => { active = false; window.clearInterval(renew); window.removeEventListener("online", load); document.removeEventListener("visibilitychange", onVisible); };

@@ -56,11 +56,11 @@ export function DashboardKpiProvider({ children, publicOnly = false }) {
       timer = window.setTimeout(() => { if (active) void refresh({ force: true }); }, 180);
     };
     void refresh();
-    const unsubscribe = subscribeToTables(publicOnly ? ["dashboard_publication", "kpi_months", "kpi_results"] : ["kpi_months", "kpi_results", "kpi_scoring_versions"], run, publicOnly ? "public-dashboard-kpi-widgets" : "dashboard-kpi-widgets");
-    const poll = anonymousRecognition ? window.setInterval(() => {
-      if (active && document.visibilityState === "visible") void refresh({ force: true });
-    }, 30_000) : null;
-    return () => { active = false; window.clearTimeout(timer); if (poll) window.clearInterval(poll); unsubscribe(); };
+    const tables = publicOnly
+      ? ["dashboard_publication", "public_dashboard_kpi_signal"]
+      : ["kpi_months", "kpi_results", "kpi_scoring_versions"];
+    const unsubscribe = subscribeToTables(tables, run, publicOnly ? "public-dashboard-kpi-widgets" : "dashboard-kpi-widgets");
+    return () => { active = false; window.clearTimeout(timer); unsubscribe(); };
   }, [anonymousRecognition, publicOnly, refresh]);
 
   const dashboardMembers = useMemo(() => {

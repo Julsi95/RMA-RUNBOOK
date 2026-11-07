@@ -365,7 +365,7 @@ export default function SeatPlanPage() {
           <span className="seat-desk-topline"><span className="seat-code">{seatId.startsWith("LEAD-") ? `LEAD ${seatId.slice(5)}` : seatId}</span>{member && <Grip className="seat-grip" size={13} />}</span>
           {member ? (
             <span className="seat-occupant">
-              <span className="seat-mini-avatar">{member.photo ? <img src={member.photo} alt="" /> : getInitials(member.name)}</span>
+              <span className="seat-mini-avatar">{member.photo ? <img src={member.photo} alt="" loading="lazy" decoding="async" /> : getInitials(member.name)}</span>
               <span className="seat-occupant-copy"><strong>{member.name}</strong><small>{getOrganizationRoleLabels(member).join(" · ")}</small>{member.mentorName && <small className="seat-mentor-label">Mentor · {member.mentorName}</small>}</span>
             </span>
           ) : (
@@ -392,7 +392,7 @@ export default function SeatPlanPage() {
         const member = membersById.get(draggingMemberId);
         if (!member) return null;
         return createPortal(<div className="seat-drag-preview" style={{ left: dragPreviewPosition.x + 14, top: dragPreviewPosition.y + 14 }} aria-hidden="true">
-          <span className="pool-avatar">{member.photo ? <img src={member.photo} alt="" /> : getInitials(member.name)}</span>
+          <span className="pool-avatar">{member.photo ? <img src={member.photo} alt="" loading="lazy" decoding="async" /> : getInitials(member.name)}</span>
           <span className="available-person-copy"><strong>{member.name}</strong><small>{getOrganizationRoleLabels(member).join(" · ")}</small></span>
           <Grip className="pool-grip" size={15} />
         </div>, document.body);
@@ -481,7 +481,7 @@ export default function SeatPlanPage() {
                 onPointerDown={(event) => startPointerDrag(event, { memberId: member.id, fromSeatId: null })}
                 onClick={() => handlePersonClickWithDrag(member.id)}
               >
-                <span className="pool-avatar">{member.photo ? <img src={member.photo} alt="" /> : getInitials(member.name)}</span>
+                <span className="pool-avatar">{member.photo ? <img src={member.photo} alt="" loading="lazy" decoding="async" /> : getInitials(member.name)}</span>
                 <span className="available-person-copy"><strong>{member.name}</strong><small>{getOrganizationRoleLabels(member).join(" · ")}</small></span>
                 <Grip className="pool-grip" size={14} />
               </button>

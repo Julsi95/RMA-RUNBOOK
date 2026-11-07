@@ -11,6 +11,8 @@ const OrganizationContext = createContext(null);
 export function OrganizationProvider({ children }) {
   const { configured, canEdit, loading: authLoading, user } = useAuth();
   const location = useLocation();
+  const pathnameRef = useRef(location.pathname);
+  pathnameRef.current = location.pathname;
   const rosterKey = useMemo(() => queryKeys.roster(user?.id ?? "anonymous", canEdit), [canEdit, user?.id]);
   const cachedRoster = readCachedQuery(rosterKey);
   const [members, setMembers] = useState(() => configured ? cachedRoster?.members ?? [] : getOrganizationMembers());
@@ -36,7 +38,7 @@ export function OrganizationProvider({ children }) {
     // OrganizationProvider mounts before the route-level auth guard. Wait for
     // Supabase to restore the persisted session before calling authenticated RPCs.
     if (authLoading) return;
-    if (!user && !["/organizational", "/agent-profiles"].includes(location.pathname)) {
+    if (!user && !["/organizational", "/agent-profiles"].includes(pathnameRef.current)) {
       setMembers([]);
       setProfiles({});
       setCustomFieldDefinitions([]);
@@ -66,34 +68,53 @@ export function OrganizationProvider({ children }) {
     } finally {
       if (requestId === requestSequence.current) setLoading(false);
     }
-  }, [authLoading, canEdit, configured, location.pathname, rosterKey, user?.id]);
+  }, [authLoading, canEdit, configured, rosterKey, user?.id]);
 
   const refreshSignedPhotoUrls = useCallback(async () => {
-    if (!configured || authLoading || !user) return;
+    if (!configured || authLoading) return;
     const paths = [...new Set(members.map((member) => member.photoPath).filter(Boolean))];
     if (!paths.length) return;
     const signedPhotos = await createPrivateSignedUrlMap(paths, 3600);
-    setMembers((current) => current.map((member) => ({
-      ...member,
-      photo: member.photoPath ? signedPhotos.get(member.photoPath) ?? member.photo : member.photo,
-    })));
+    setMembers((current) => {
+      let changed = false;
+      const next = current.map((member) => {
+        const photo = member.photoPath ? signedPhotos.get(member.photoPath) ?? member.photo : member.photo;
+        if (photo !== member.photo) changed = true;
+        return photo === member.photo ? member : { ...member, photo };
+      });
+      return changed ? next : current;
+    });
     photoUrlsUpdatedAt.current = Date.now();
   }, [authLoading, configured, members, user?.id]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
   useEffect(() => {
-    if (!configured || authLoading || !user) return undefined;
+    if (!configured || authLoading || user) return;
+    if (["/organizational", "/agent-profiles"].includes(location.pathname)) {
+      void refresh();
+      return;
+    }
+    requestSequence.current += 1;
+    setMembers([]);
+    setProfiles({});
+    setCustomFieldDefinitions([]);
+    setError("");
+    setLoading(false);
+  }, [authLoading, configured, location.pathname, refresh, user]);
+
+  useEffect(() => {
+    if (!configured || authLoading) return undefined;
     let active = true;
     let inFlight = false;
     const maybeRefresh = () => {
-      if (!active || inFlight || Date.now() - photoUrlsUpdatedAt.current < 40 * 60 * 1000) return;
+      if (!active || document.visibilityState !== "visible" || inFlight || Date.now() - photoUrlsUpdatedAt.current < 5 * 60 * 1000) return;
       inFlight = true;
       void refreshSignedPhotoUrls().catch(() => {
         // Keep the existing image URL while offline and retry on reconnect or next visibility.
       }).finally(() => { inFlight = false; });
     };
-    const timer = window.setInterval(maybeRefresh, 45 * 60 * 1000);
+    const timer = window.setInterval(maybeRefresh, 5 * 60 * 1000);
     const onVisible = () => { if (document.visibilityState === "visible") maybeRefresh(); };
     window.addEventListener("online", maybeRefresh);
     document.addEventListener("visibilitychange", onVisible);

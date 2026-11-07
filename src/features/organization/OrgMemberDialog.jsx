@@ -192,7 +192,7 @@ export default function OrgMemberDialog({ member, members, onClose, onSave }) {
         <form className="member-form" onSubmit={handleSubmit}>
           <div className="photo-editor-row">
             <div className="member-avatar member-avatar-large">
-              {photo ? <img src={photo} alt="" /> : <span>{getInitials(name)}</span>}
+              {photo ? <img src={photo} alt="" decoding="async" /> : <span>{getInitials(name)}</span>}
             </div>
             <div className="photo-editor-copy">
               <strong>Profile photo</strong>

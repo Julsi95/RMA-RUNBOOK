@@ -2,7 +2,26 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { clearRequestMetrics, createMonitoredFetch, subscribeToRequestMetrics } from "./request-monitor.js";
 
-test("counts Supabase HTTP requests without retaining query strings", async () => {
+function installLocalStorage(t) {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const values = new Map();
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, String(value)),
+      removeItem: (key) => values.delete(key),
+    },
+  });
+  t.after(() => {
+    if (previous) Object.defineProperty(globalThis, "localStorage", previous);
+    else delete globalThis.localStorage;
+  });
+}
+
+test("counts Supabase HTTP requests without retaining query strings", async (t) => {
+  t.mock.method(Math, "random", () => 0);
+  installLocalStorage(t);
   clearRequestMetrics();
   const observed = [];
   const unsubscribe = subscribeToRequestMetrics((state) => observed.push(state));
@@ -18,7 +37,9 @@ test("counts Supabase HTTP requests without retaining query strings", async () =
   assert.equal(JSON.stringify(latest).includes("private"), false);
 });
 
-test("counts HTTP error responses and network failures", async () => {
+test("counts HTTP error responses and network failures", async (t) => {
+  t.mock.method(Math, "random", () => 0);
+  installLocalStorage(t);
   clearRequestMetrics();
   let latest;
   const unsubscribe = subscribeToRequestMetrics((state) => { latest = state; });
