@@ -104,5 +104,5 @@ The working branch is `perf/in-memory-query-cache` and was up to date with origi
 ```powershell
 git add HANDOFF.md
 git commit -m "Update RUNBOOK project handoff"
-git push origin perf/in-memory-query-cache
+git push origin perf/in-memory-query-cache.
 ```
